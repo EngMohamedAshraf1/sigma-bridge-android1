@@ -1,0 +1,2 @@
+# Hilt @Binds module for TelegramRepository/TranslationRepository added once
+# their implementations exist (Phase 3 and Phase 5). Nothing to inject yet.
