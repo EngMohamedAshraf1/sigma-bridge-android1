@@ -3,37 +3,39 @@
 Native Android rewrite of [sigma-bridge](https://github.com/EngMohamedAshraf1/sigma-bridge) (Python).
 The app itself is the bot's server — no separate backend.
 
-## Status: Phase 3 — TelegramRepository (Long Polling)
+## Status: Phase 4 — Voice Ingestion (Recognize + Download)
 
-Four adjustments requested before this phase, all applied:
+Five adjustments requested before this phase, all applied:
 
-1. **SaveSettingsUseCase**: `SettingsViewModel` no longer touches `SettingsRepository` at all — it
-   calls `ObserveStoredCredentialsUseCase` (read) and `SaveSettingsUseCase` (write), both in
-   `domain/usecase/`.
-2. **Validation before saving**: `SaveSettingsUseCase` rejects empty values and obviously malformed
-   tokens/keys (regex format checks) before ever calling the repository. Returns
-   `SaveSettingsResult.ValidationFailed(errors)`; `SettingsScreen` renders those inline.
-3. **Real Internet status on Home**: `ConnectivityRepository` / `AndroidConnectivityRepository` wrap
-   `ConnectivityManager.NetworkCallback` in a `callbackFlow` — the only callback-based Android API in
-   the app, contained to one class. `ObserveHealthUseCase` combines it with the still-placeholder
-   Telegram/Gemini/Service rows; `HomeViewModel` exposes the combined list as a `StateFlow`.
-4. **TelegramRepository, coroutines + Flow only**: `TelegramRepositoryImpl` runs the long-polling loop
-   as a suspend function inside a scoped coroutine, exposes `state: StateFlow<BridgeServiceState>` and
-   `updates: SharedFlow<TelegramUpdate>`. No `Call.enqueue()`/listener-style API anywhere in its public
-   surface — `TelegramApiClient` uses OkHttp's synchronous `execute()` inside `withContext(Dispatchers.IO)`,
-   which behaves as an ordinary suspending call.
+1. **DownloadRepository, separate from TelegramRepository**: `TelegramRepository` still only owns
+   polling lifecycle + the raw `updates` stream — it never gained file-download responsibility.
+   `DownloadRepository` (new interface) + `TelegramDownloadRepository` (impl) own `getFile` +
+   file download entirely on their own.
+2. **CacheManager abstraction**: `domain/cache/CacheManager.kt` defines `createTempVoice()` /
+   `delete()` / `cleanup()`. `FileCacheManager` is the *only* class in the app that touches
+   `Context.cacheDir` or constructs a `java.io.File` for a temp voice location — `TelegramDownloadRepository`
+   never sees `cacheDir` directly.
+3. **UUID filenames**: `FileCacheManager.createTempVoice()` names every file `UUID.randomUUID()`,
+   never the Telegram `file_id` — nothing on disk can be correlated back to a specific Telegram file.
+4. **TemporaryVoiceFile domain model**: `TranslationRequest.sourceFile` and the whole download/ingestion
+   path use `TemporaryVoiceFile(id, path)` instead of passing `java.io.File` through business logic.
+   Only `FileCacheManager` and `TelegramFileApiClient` (both data-layer, both doing literal disk/network
+   I/O) ever construct an actual `File`.
+5. **Gemini stays SDK-independent**: no `google-genai` or any Gemini SDK dependency has been added.
+   Phase 5 will use `OkHttpClient` + `kotlinx.serialization` — the same stack `TelegramApiClient` and
+   `TelegramFileApiClient` already use — for Gemini's REST API directly.
 
-What Phase 3 adds on top of that:
-- `TelegramApiClient` — thin wrapper around Telegram's `getUpdates` endpoint (OkHttp + kotlinx.serialization).
-- `TelegramRepositoryImpl` — the actual long-polling loop: tracks `update_id` offset, emits parsed
-  updates on `updates`, retries network/parse errors with exponential backoff (2s → 30s cap) instead of
-  crashing the loop, mirrors the resilience posture of `gemini_service.py`'s retry logic.
-- Voice-specific handling (recognizing a voice message, downloading the file) is **not** here — that's
-  Phase 4. This phase only proves updates can be pulled from Telegram reliably and pushed out as a Flow.
-- No Foreground Service yet (Phase 7) — `start()`/`stop()`/`restart()` can be exercised directly for now
-  (e.g. from a debug button) but nothing calls them automatically yet.
+What Phase 4 adds on top of that:
+- `TelegramFileApiClient` — `getFile` (resolve `file_id` → `file_path`) and a streaming file download
+  (never buffers the whole voice note in memory), same OkHttp-only posture as Phase 3.
+- `ObserveIncomingVoiceUseCase` — filters `TelegramRepository.updates` down to voice messages and
+  downloads each one via `DownloadRepository`, emitting `IncomingVoiceMessage(chatId, voiceFile)`.
+- **Nothing consumes `IncomingVoiceMessage` yet.** No Gemini call, no reply, no Foreground Service
+  driving this use case. Those are Phase 5, 6, and 7. A download failure currently just drops that one
+  update silently — proper error surfacing back to the user only makes sense once Phase 6 wires up
+  replying, so it's deferred there rather than half-built now.
 
-No Gemini/translation code yet — that's Phase 5.
+No translation code, no Foreground Service yet.
 
 ## Package layout
 
@@ -42,14 +44,18 @@ com.sigmabridge.app/
 ├── domain/
 │   ├── model/        Language, LanguagePair, TranslationMode, TranslationRequest/Result,
 │   │                 BridgeServiceState, HealthStatus, HealthComponent, ServiceHealth,
-│   │                 StoredCredentials, TelegramUpdate
+│   │                 StoredCredentials, TelegramUpdate, TemporaryVoiceFile, IncomingVoiceMessage
 │   ├── repository/    TelegramRepository, TranslationRepository, SettingsRepository,
-│   │                 ConnectivityRepository (interfaces)
-│   └── usecase/        SaveSettingsUseCase, ObserveStoredCredentialsUseCase, ObserveHealthUseCase
+│   │                 ConnectivityRepository, DownloadRepository (interfaces)
+│   ├── cache/          CacheManager (interface)
+│   └── usecase/        SaveSettingsUseCase, ObserveStoredCredentialsUseCase, ObserveHealthUseCase,
+│                       ObserveIncomingVoiceUseCase
 ├── data/
 │   ├── settings/       SecureSettingsRepository (EncryptedSharedPreferences + Keystore)
 │   ├── connectivity/    AndroidConnectivityRepository (ConnectivityManager → Flow<Boolean>)
-│   └── telegram/        TelegramApiClient, TelegramRepositoryImpl, dto/, mapper
+│   ├── cache/           FileCacheManager (only class touching Context.cacheDir)
+│   └── telegram/        TelegramApiClient, TelegramFileApiClient, TelegramRepositoryImpl,
+│                       TelegramDownloadRepository, dto/, mapper
 ├── di/                 RepositoryModule, NetworkModule (Hilt bindings)
 ├── presentation/
 │   ├── MainActivity.kt
