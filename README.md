@@ -3,39 +3,48 @@
 Native Android rewrite of [sigma-bridge](https://github.com/EngMohamedAshraf1/sigma-bridge) (Python).
 The app itself is the bot's server — no separate backend.
 
-## Status: Phase 1 — Project Initialization
+## Status: Phase 2 — Secure Settings + Health Placeholders
 
-What exists right now:
+What Phase 1 established (still true):
 - Gradle project skeleton (Kotlin DSL), single `:app` module, Clean Architecture package layout.
-- Empty Compose UI shell: a Home screen rendering feature tiles from a list (`FEATURE_TILES`), with
-  only Voice Bridge enabled and OCR/Photos/PDF shown as "coming soon". No screen redesign needed to
-  turn those on later — just flip `isEnabled` and add a nav destination.
-- Domain contracts only, no implementations yet:
-  - `TelegramRepository` — `start()` / `stop()` / `restart()` + `state: StateFlow<BridgeServiceState>`.
-    A future Foreground Service will call these three methods and observe `state`; it will never
-    contain the polling loop itself.
-  - `TranslationRepository` — `translate(request: TranslationRequest): Result<TranslationResult>`.
-  - `Language` / `LanguagePair` — data classes, not an enum, not hardcoded strings. MVP wires
-    `LanguagePair.DEFAULT_MVP_PAIR` (Russian → Arabic), but every call site takes a `LanguagePair`
-    parameter.
-- No networking, no Telegram/Gemini code, no Foreground Service, no settings storage yet — those are
-  Phase 3, 5, 7, and 2 respectively.
+- Home screen rendering feature tiles from a list (`FEATURE_TILES`), only Voice Bridge enabled.
+- `TelegramRepository` / `TranslationRepository` contracts, no implementation yet (Phase 3 / Phase 5).
+- `Language` / `LanguagePair` as data classes, not hardcoded.
+
+What Phase 2 adds:
+- `SettingsRepository` (domain contract) + `SecureSettingsRepository` (data implementation): stores
+  `BOT_TOKEN` and `GEMINI_API_KEY` in `EncryptedSharedPreferences`, whose data-encryption key is wrapped
+  by an Android Keystore key (`MasterKey`, `AES256_GCM` scheme). Nothing is ever written to disk as
+  plaintext. The prefs file is also excluded from Auto Backup / device transfer
+  (`data_extraction_rules.xml`), since a restored copy would be undecryptable anyway.
+- A minimal Settings screen (two password fields + Save) wired to a Hilt `SettingsViewModel`.
+- Home screen now shows a **Status** section listing Telegram / Gemini / Internet / Bridge Service,
+  each with a placeholder `HealthStatus` (`UNKNOWN`/`DISABLED` today). The shape
+  (`ServiceHealth(component, status, detail)`) is final; only the values are placeholders until
+  Phase 3 (Telegram), Phase 5 (Gemini), and Phase 7/8 (connectivity + service state) supply real ones.
+- No visual polish — plain `Text`/`Row`/`Column`, no icons beyond the Settings gear, no color coding
+  on health status. That's deliberately deferred.
+
+No networking, no Telegram/Gemini code, no Foreground Service yet — those are Phase 3, 5, and 7.
 
 ## Package layout
 
 ```
 com.sigmabridge.app/
 ├── domain/
-│   ├── model/        Language, LanguagePair, TranslationMode, TranslationRequest/Result, BridgeServiceState
-│   └── repository/    TelegramRepository, TranslationRepository  (interfaces only)
-├── data/              (empty — Phase 3 / Phase 5)
-├── di/                (empty — Hilt bindings once implementations exist)
+│   ├── model/        Language, LanguagePair, TranslationMode, TranslationRequest/Result,
+│   │                 BridgeServiceState, HealthStatus, HealthComponent, ServiceHealth
+│   └── repository/    TelegramRepository, TranslationRepository, SettingsRepository (interfaces)
+├── data/
+│   └── settings/       SecureSettingsRepository (EncryptedSharedPreferences + Keystore)
+├── di/                 RepositoryModule (Hilt @Binds for SettingsRepository)
 ├── presentation/
 │   ├── MainActivity.kt
 │   ├── navigation/     SigmaBridgeDestination, SigmaBridgeNavGraph
-│   ├── home/           HomeScreen, FeatureTile
+│   ├── home/           HomeScreen (feature tiles + Status section), FeatureTile
+│   ├── settings/        SettingsScreen, SettingsViewModel
 │   └── theme/          SigmaBridgeTheme
-└── service/           (empty — Phase 7 Foreground Service)
+└── service/            (empty — Phase 7 Foreground Service)
 ```
 
 ## Requirements to open

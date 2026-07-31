@@ -6,19 +6,23 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.sigmabridge.app.presentation.home.HomeScreen
+import com.sigmabridge.app.presentation.settings.SettingsScreen
 
 /**
- * Only Home + a placeholder for the (not-yet-built) Voice Bridge screen
- * exist in Phase 1. Ocr/Photos/Pdf/Settings routes are declared in
- * [SigmaBridgeDestination] but intentionally have no composable() entry
- * here yet — Home only ever links to routes that exist, and disabled tiles
- * simply don't navigate. Wiring them up is later-phase work, not Phase 1.
+ * Home + Settings exist in Phase 2. Ocr/Photos/Pdf routes are declared in
+ * [SigmaBridgeDestination] but still have no composable() entry — same
+ * reasoning as Phase 1: only wire a route once the screen behind it exists.
  */
 @Composable
 fun SigmaBridgeNavGraph(navController: NavHostController = rememberNavController()) {
     NavHost(navController = navController, startDestination = SigmaBridgeDestination.Home.route) {
         composable(SigmaBridgeDestination.Home.route) {
-            HomeScreen()
+            HomeScreen(
+                onSettingsClick = { navController.navigate(SigmaBridgeDestination.Settings.route) }
+            )
+        }
+        composable(SigmaBridgeDestination.Settings.route) {
+            SettingsScreen()
         }
     }
 }
