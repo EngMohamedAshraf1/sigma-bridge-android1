@@ -2,6 +2,7 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
+    id("org.jetbrains.kotlin.plugin.serialization")
     id("com.google.dagger.hilt.android")
     id("com.google.devtools.ksp")
 }
@@ -15,7 +16,7 @@ android {
         minSdk = 26 // Foreground Service + Doze APIs used from Phase 7 onward require this floor
         targetSdk = 35
         versionCode = 1
-        versionName = "0.1.0-phase1"
+        versionName = "0.3.0-phase3"
     }
 
     buildTypes {
@@ -46,6 +47,10 @@ dependencies {
     // Core / Coroutines
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+
+    // Networking (Telegram Bot API, Gemini REST in Phase 5)
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
 
     // Compose
     implementation(platform("androidx.compose:compose-bom:2024.09.02"))

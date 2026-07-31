@@ -6,6 +6,7 @@
     <!-- battery-optimization-exemption intent are added in Phase 7/8, not before, -->
     <!-- so the manifest only ever asks for what the current phase actually uses. -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <application
         android:name=".SigmaBridgeApplication"

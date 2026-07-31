@@ -3,29 +3,37 @@
 Native Android rewrite of [sigma-bridge](https://github.com/EngMohamedAshraf1/sigma-bridge) (Python).
 The app itself is the bot's server — no separate backend.
 
-## Status: Phase 2 — Secure Settings + Health Placeholders
+## Status: Phase 3 — TelegramRepository (Long Polling)
 
-What Phase 1 established (still true):
-- Gradle project skeleton (Kotlin DSL), single `:app` module, Clean Architecture package layout.
-- Home screen rendering feature tiles from a list (`FEATURE_TILES`), only Voice Bridge enabled.
-- `TelegramRepository` / `TranslationRepository` contracts, no implementation yet (Phase 3 / Phase 5).
-- `Language` / `LanguagePair` as data classes, not hardcoded.
+Four adjustments requested before this phase, all applied:
 
-What Phase 2 adds:
-- `SettingsRepository` (domain contract) + `SecureSettingsRepository` (data implementation): stores
-  `BOT_TOKEN` and `GEMINI_API_KEY` in `EncryptedSharedPreferences`, whose data-encryption key is wrapped
-  by an Android Keystore key (`MasterKey`, `AES256_GCM` scheme). Nothing is ever written to disk as
-  plaintext. The prefs file is also excluded from Auto Backup / device transfer
-  (`data_extraction_rules.xml`), since a restored copy would be undecryptable anyway.
-- A minimal Settings screen (two password fields + Save) wired to a Hilt `SettingsViewModel`.
-- Home screen now shows a **Status** section listing Telegram / Gemini / Internet / Bridge Service,
-  each with a placeholder `HealthStatus` (`UNKNOWN`/`DISABLED` today). The shape
-  (`ServiceHealth(component, status, detail)`) is final; only the values are placeholders until
-  Phase 3 (Telegram), Phase 5 (Gemini), and Phase 7/8 (connectivity + service state) supply real ones.
-- No visual polish — plain `Text`/`Row`/`Column`, no icons beyond the Settings gear, no color coding
-  on health status. That's deliberately deferred.
+1. **SaveSettingsUseCase**: `SettingsViewModel` no longer touches `SettingsRepository` at all — it
+   calls `ObserveStoredCredentialsUseCase` (read) and `SaveSettingsUseCase` (write), both in
+   `domain/usecase/`.
+2. **Validation before saving**: `SaveSettingsUseCase` rejects empty values and obviously malformed
+   tokens/keys (regex format checks) before ever calling the repository. Returns
+   `SaveSettingsResult.ValidationFailed(errors)`; `SettingsScreen` renders those inline.
+3. **Real Internet status on Home**: `ConnectivityRepository` / `AndroidConnectivityRepository` wrap
+   `ConnectivityManager.NetworkCallback` in a `callbackFlow` — the only callback-based Android API in
+   the app, contained to one class. `ObserveHealthUseCase` combines it with the still-placeholder
+   Telegram/Gemini/Service rows; `HomeViewModel` exposes the combined list as a `StateFlow`.
+4. **TelegramRepository, coroutines + Flow only**: `TelegramRepositoryImpl` runs the long-polling loop
+   as a suspend function inside a scoped coroutine, exposes `state: StateFlow<BridgeServiceState>` and
+   `updates: SharedFlow<TelegramUpdate>`. No `Call.enqueue()`/listener-style API anywhere in its public
+   surface — `TelegramApiClient` uses OkHttp's synchronous `execute()` inside `withContext(Dispatchers.IO)`,
+   which behaves as an ordinary suspending call.
 
-No networking, no Telegram/Gemini code, no Foreground Service yet — those are Phase 3, 5, and 7.
+What Phase 3 adds on top of that:
+- `TelegramApiClient` — thin wrapper around Telegram's `getUpdates` endpoint (OkHttp + kotlinx.serialization).
+- `TelegramRepositoryImpl` — the actual long-polling loop: tracks `update_id` offset, emits parsed
+  updates on `updates`, retries network/parse errors with exponential backoff (2s → 30s cap) instead of
+  crashing the loop, mirrors the resilience posture of `gemini_service.py`'s retry logic.
+- Voice-specific handling (recognizing a voice message, downloading the file) is **not** here — that's
+  Phase 4. This phase only proves updates can be pulled from Telegram reliably and pushed out as a Flow.
+- No Foreground Service yet (Phase 7) — `start()`/`stop()`/`restart()` can be exercised directly for now
+  (e.g. from a debug button) but nothing calls them automatically yet.
+
+No Gemini/translation code yet — that's Phase 5.
 
 ## Package layout
 
@@ -33,15 +41,20 @@ No networking, no Telegram/Gemini code, no Foreground Service yet — those are 
 com.sigmabridge.app/
 ├── domain/
 │   ├── model/        Language, LanguagePair, TranslationMode, TranslationRequest/Result,
-│   │                 BridgeServiceState, HealthStatus, HealthComponent, ServiceHealth
-│   └── repository/    TelegramRepository, TranslationRepository, SettingsRepository (interfaces)
+│   │                 BridgeServiceState, HealthStatus, HealthComponent, ServiceHealth,
+│   │                 StoredCredentials, TelegramUpdate
+│   ├── repository/    TelegramRepository, TranslationRepository, SettingsRepository,
+│   │                 ConnectivityRepository (interfaces)
+│   └── usecase/        SaveSettingsUseCase, ObserveStoredCredentialsUseCase, ObserveHealthUseCase
 ├── data/
-│   └── settings/       SecureSettingsRepository (EncryptedSharedPreferences + Keystore)
-├── di/                 RepositoryModule (Hilt @Binds for SettingsRepository)
+│   ├── settings/       SecureSettingsRepository (EncryptedSharedPreferences + Keystore)
+│   ├── connectivity/    AndroidConnectivityRepository (ConnectivityManager → Flow<Boolean>)
+│   └── telegram/        TelegramApiClient, TelegramRepositoryImpl, dto/, mapper
+├── di/                 RepositoryModule, NetworkModule (Hilt bindings)
 ├── presentation/
 │   ├── MainActivity.kt
 │   ├── navigation/     SigmaBridgeDestination, SigmaBridgeNavGraph
-│   ├── home/           HomeScreen (feature tiles + Status section), FeatureTile
+│   ├── home/           HomeScreen, HomeViewModel, FeatureTile
 │   ├── settings/        SettingsScreen, SettingsViewModel
 │   └── theme/          SigmaBridgeTheme
 └── service/            (empty — Phase 7 Foreground Service)
