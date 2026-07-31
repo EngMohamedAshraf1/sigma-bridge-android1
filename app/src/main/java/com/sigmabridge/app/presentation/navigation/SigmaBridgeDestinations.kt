@@ -15,4 +15,7 @@ sealed class SigmaBridgeDestination(val route: String) {
 
     /** Internal-only: validates Gemini in isolation, bypassing Telegram entirely. Not linked from any user-facing tile. */
     data object GeminiTest : SigmaBridgeDestination("gemini_test")
+
+    /** Internal-only: manual Start/Stop for BridgeOrchestrator until Phase 7's Foreground Service replaces it. */
+    data object BridgeControl : SigmaBridgeDestination("bridge_control")
 }

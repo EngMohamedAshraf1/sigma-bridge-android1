@@ -26,6 +26,13 @@ interface TelegramRepository {
     /** Raw stream of incoming updates while running. Voice-specific handling (download, filtering) is Phase 4's job, not this repository's. */
     val updates: SharedFlow<TelegramUpdate>
 
+    /**
+     * Sends a text reply to a chat. Not called directly by UI or Service —
+     * SendTelegramMessageUseCase (domain/usecase) is the sole allowed caller,
+     * same discipline as SettingsRepository behind SaveSettingsUseCase.
+     */
+    suspend fun sendMessage(chatId: Long, text: String): Result<Unit>
+
     /** Begins long-polling Telegram for updates. Safe to call when already running (no-op). */
     suspend fun start()
 

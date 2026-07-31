@@ -33,6 +33,7 @@ import com.sigmabridge.app.domain.model.ServiceHealth
 fun HomeScreen(
     onSettingsClick: () -> Unit = {},
     onGeminiTestClick: () -> Unit = {},
+    onBridgeControlClick: () -> Unit = {},
     viewModel: HomeViewModel = hiltViewModel()
 ) {
     val health by viewModel.health.collectAsState()
@@ -80,6 +81,12 @@ fun HomeScreen(
             // ahead of the full Telegram pipeline (Phase 6).
             TextButton(onClick = onGeminiTestClick) {
                 Text("Gemini Test (internal)")
+            }
+
+            // Internal-only: manual Start/Stop for the full pipeline until Phase 7's
+            // Foreground Service replaces it.
+            TextButton(onClick = onBridgeControlClick) {
+                Text("Bridge Control (internal)")
             }
         }
     }

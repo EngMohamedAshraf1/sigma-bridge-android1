@@ -51,6 +51,12 @@ class TelegramRepositoryImpl @Inject constructor(
     private val _updates = MutableSharedFlow<TelegramUpdate>(extraBufferCapacity = UPDATE_BUFFER_CAPACITY)
     override val updates: SharedFlow<TelegramUpdate> = _updates.asSharedFlow()
 
+    override suspend fun sendMessage(chatId: Long, text: String): Result<Unit> = runCatching {
+        val token = settingsRepository.botToken.first()
+            ?: error("Cannot send message: bot token not set")
+        apiClient.sendMessage(token, chatId, text)
+    }
+
     override suspend fun start() {
         if (pollingJob?.isActive == true) return
 

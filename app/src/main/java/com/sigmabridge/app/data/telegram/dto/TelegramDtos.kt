@@ -33,6 +33,17 @@ data class TelegramVoiceDto(
 )
 
 @Serializable
+data class TelegramSendMessageRequestDto(
+    @SerialName("chat_id") val chatId: Long,
+    val text: String
+)
+
+@Serializable
+data class TelegramSendMessageResponseDto(
+    val ok: Boolean
+)
+
+@Serializable
 data class TelegramGetFileResponseDto(
     val ok: Boolean,
     val result: TelegramFileDto? = null
