@@ -5,24 +5,30 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import com.sigmabridge.app.presentation.gemini_test.GeminiTestScreen
 import com.sigmabridge.app.presentation.home.HomeScreen
 import com.sigmabridge.app.presentation.settings.SettingsScreen
 
 /**
- * Home + Settings exist in Phase 2. Ocr/Photos/Pdf routes are declared in
- * [SigmaBridgeDestination] but still have no composable() entry — same
- * reasoning as Phase 1: only wire a route once the screen behind it exists.
+ * Home + Settings + the internal Gemini test screen exist as of Phase 5.
+ * Ocr/Photos/Pdf routes are still declared in [SigmaBridgeDestination] with
+ * no composable() entry — same "only wire a route once the screen behind
+ * it exists" rule as before.
  */
 @Composable
 fun SigmaBridgeNavGraph(navController: NavHostController = rememberNavController()) {
     NavHost(navController = navController, startDestination = SigmaBridgeDestination.Home.route) {
         composable(SigmaBridgeDestination.Home.route) {
             HomeScreen(
-                onSettingsClick = { navController.navigate(SigmaBridgeDestination.Settings.route) }
+                onSettingsClick = { navController.navigate(SigmaBridgeDestination.Settings.route) },
+                onGeminiTestClick = { navController.navigate(SigmaBridgeDestination.GeminiTest.route) }
             )
         }
         composable(SigmaBridgeDestination.Settings.route) {
             SettingsScreen()
+        }
+        composable(SigmaBridgeDestination.GeminiTest.route) {
+            GeminiTestScreen()
         }
     }
 }

@@ -2,6 +2,7 @@ package com.sigmabridge.app.di
 
 import com.sigmabridge.app.data.cache.FileCacheManager
 import com.sigmabridge.app.data.connectivity.AndroidConnectivityRepository
+import com.sigmabridge.app.data.gemini.GeminiTranslationRepository
 import com.sigmabridge.app.data.settings.SecureSettingsRepository
 import com.sigmabridge.app.data.telegram.TelegramDownloadRepository
 import com.sigmabridge.app.data.telegram.TelegramRepositoryImpl
@@ -10,14 +11,16 @@ import com.sigmabridge.app.domain.repository.ConnectivityRepository
 import com.sigmabridge.app.domain.repository.DownloadRepository
 import com.sigmabridge.app.domain.repository.SettingsRepository
 import com.sigmabridge.app.domain.repository.TelegramRepository
+import com.sigmabridge.app.domain.repository.TranslationRepository
 import dagger.Binds
 import dagger.Module
 import dagger.hilt.InstallIn
 import dagger.hilt.android.components.SingletonComponent
 
 /**
- * TranslationRepository binding is added here once its implementation
- * exists (Phase 5) — same pattern as below.
+ * TranslationRepository stays an interface; GeminiTranslationRepository is
+ * its one and only binding. Nothing else in the app is allowed to depend
+ * on a Gemini-specific type directly.
  */
 @Module
 @InstallIn(SingletonComponent::class)
@@ -47,4 +50,9 @@ abstract class RepositoryModule {
     abstract fun bindDownloadRepository(
         impl: TelegramDownloadRepository
     ): DownloadRepository
+
+    @Binds
+    abstract fun bindTranslationRepository(
+        impl: GeminiTranslationRepository
+    ): TranslationRepository
 }

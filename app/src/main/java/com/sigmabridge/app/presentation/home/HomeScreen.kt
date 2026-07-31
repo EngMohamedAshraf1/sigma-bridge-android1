@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -18,6 +19,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -30,6 +32,7 @@ import com.sigmabridge.app.domain.model.ServiceHealth
 @Composable
 fun HomeScreen(
     onSettingsClick: () -> Unit = {},
+    onGeminiTestClick: () -> Unit = {},
     viewModel: HomeViewModel = hiltViewModel()
 ) {
     val health by viewModel.health.collectAsState()
@@ -62,13 +65,21 @@ fun HomeScreen(
 
             LazyVerticalGrid(
                 columns = GridCells.Fixed(2),
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 items(FEATURE_TILES) { tile ->
                     FeatureTileCard(tile)
                 }
+            }
+
+            // Internal-only, not a feature tile: validates Gemini in isolation (Phase 5),
+            // ahead of the full Telegram pipeline (Phase 6).
+            TextButton(onClick = onGeminiTestClick) {
+                Text("Gemini Test (internal)")
             }
         }
     }
