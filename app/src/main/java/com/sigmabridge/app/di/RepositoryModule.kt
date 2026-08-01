@@ -15,7 +15,7 @@ import com.sigmabridge.app.domain.repository.TranslationRepository
 import dagger.Binds
 import dagger.Module
 import dagger.hilt.InstallIn
-import dagger.hilt.android.components.SingletonComponent
+import dagger.hilt.components.SingletonComponent
 
 /**
  * TranslationRepository stays an interface; GeminiTranslationRepository is
