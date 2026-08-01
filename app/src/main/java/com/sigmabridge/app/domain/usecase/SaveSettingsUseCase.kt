@@ -55,6 +55,6 @@ class SaveSettingsUseCase @Inject constructor(
         val BOT_TOKEN_REGEX = Regex("^\\d{5,}:[A-Za-z0-9_-]{30,}$")
 
         // Google/Gemini API keys: "AIza" prefix + 35 alphanumeric/underscore/hyphen chars.
-        val GEMINI_KEY_REGEX = Regex("^AIza[0-9A-Za-z_-]{35}$")
+        val GEMINI_KEY_REGEX = Regex("^[A-Za-z0-9._-]{20,}$")
     }
 }

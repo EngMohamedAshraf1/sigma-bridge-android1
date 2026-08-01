@@ -1,5 +1,6 @@
 package com.sigmabridge.app.data.telegram
 
+import com.sigmabridge.app.data.network.await
 import com.sigmabridge.app.data.telegram.dto.TelegramGetUpdatesResponseDto
 import com.sigmabridge.app.data.telegram.dto.TelegramSendMessageRequestDto
 import com.sigmabridge.app.data.telegram.dto.TelegramSendMessageResponseDto
@@ -17,10 +18,11 @@ import javax.inject.Inject
 class TelegramApiException(message: String) : Exception(message)
 
 /**
- * OkHttp's synchronous `execute()` is a blocking call, not a callback — run
- * on Dispatchers.IO inside a suspend function, it behaves exactly like any
- * other suspending I/O call. No Callback/Call.enqueue() anywhere, per the
- * "coroutines + Flow, not callbacks" requirement.
+ * Uses Call.await() (data/network/OkHttpCallExtensions.kt) instead of the
+ * blocking execute() — cancelling the coroutine calling these functions now
+ * actually aborts the in-flight HTTP call instead of waiting for it to
+ * finish on its own. withContext(Dispatchers.IO) is kept so that response
+ * parsing after the call resumes runs on the IO dispatcher, same as before.
  */
 class TelegramApiClient @Inject constructor(
     private val httpClient: OkHttpClient,
@@ -38,7 +40,7 @@ class TelegramApiClient @Inject constructor(
 
         val request = Request.Builder().url(url).build()
 
-        httpClient.newCall(request).execute().use { response ->
+        httpClient.newCall(request).await().use { response ->
             val body = response.body?.string().orEmpty()
             if (!response.isSuccessful) {
                 throw TelegramApiException("Telegram getUpdates failed: HTTP ${response.code} — $body")
@@ -60,7 +62,7 @@ class TelegramApiClient @Inject constructor(
 
         val request = Request.Builder().url(url).post(requestBody).build()
 
-        httpClient.newCall(request).execute().use { response ->
+        httpClient.newCall(request).await().use { response ->
             val body = response.body?.string().orEmpty()
             if (!response.isSuccessful) {
                 throw TelegramApiException("Telegram sendMessage failed: HTTP ${response.code} — $body")

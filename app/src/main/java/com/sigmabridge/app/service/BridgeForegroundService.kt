@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
+import com.sigmabridge.app.domain.logging.BridgeLogger
 import com.sigmabridge.app.domain.pipeline.BridgeOrchestrator
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
@@ -37,6 +38,9 @@ class BridgeForegroundService : Service() {
     @Inject
     lateinit var bridgeOrchestrator: BridgeOrchestrator
 
+    @Inject
+    lateinit var logger: BridgeLogger
+
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -49,10 +53,12 @@ class BridgeForegroundService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_START -> {
+                logger.debug(TAG, "Service received ACTION_START")
                 startForeground(NOTIFICATION_ID, buildNotification())
                 serviceScope.launch { bridgeOrchestrator.start() }
             }
             ACTION_STOP -> {
+                logger.debug(TAG, "Service received ACTION_STOP")
                 serviceScope.launch {
                     bridgeOrchestrator.stop()
                     stopForeground(STOP_FOREGROUND_REMOVE)
@@ -64,6 +70,7 @@ class BridgeForegroundService : Service() {
     }
 
     override fun onDestroy() {
+        logger.debug(TAG, "Service destroyed")
         serviceScope.cancel()
         super.onDestroy()
     }
@@ -90,6 +97,7 @@ class BridgeForegroundService : Service() {
     companion object {
         const val ACTION_START = "com.sigmabridge.app.action.START_BRIDGE"
         const val ACTION_STOP = "com.sigmabridge.app.action.STOP_BRIDGE"
+        private const val TAG = "SigmaBridge"
         private const val CHANNEL_ID = "sigma_bridge_channel"
         private const val NOTIFICATION_ID = 1001
 

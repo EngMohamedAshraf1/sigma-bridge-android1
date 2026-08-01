@@ -1,5 +1,6 @@
 package com.sigmabridge.app.data.telegram
 
+import com.sigmabridge.app.data.network.await
 import com.sigmabridge.app.data.telegram.dto.TelegramGetFileResponseDto
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -13,8 +14,8 @@ import javax.inject.Inject
 /**
  * Two Telegram Bot API calls, same two steps as downloader.py's
  * bot.get_file() + download_to_drive(): resolve file_id -> file_path, then
- * fetch the bytes from the file-serving host. Plain OkHttp + suspend
- * functions, same posture as TelegramApiClient — no separate SDK.
+ * fetch the bytes from the file-serving host. Uses Call.await() (cancellable),
+ * same posture as TelegramApiClient — no separate SDK.
  */
 class TelegramFileApiClient @Inject constructor(
     private val httpClient: OkHttpClient,
@@ -25,7 +26,7 @@ class TelegramFileApiClient @Inject constructor(
             .addQueryParameter("file_id", fileId)
             .build()
 
-        httpClient.newCall(Request.Builder().url(url).build()).execute().use { response ->
+        httpClient.newCall(Request.Builder().url(url).build()).await().use { response ->
             val body = response.body?.string().orEmpty()
             if (!response.isSuccessful) {
                 throw TelegramApiException("getFile failed: HTTP ${response.code} — $body")
@@ -41,7 +42,7 @@ class TelegramFileApiClient @Inject constructor(
         withContext(Dispatchers.IO) {
             val url = "https://api.telegram.org/file/bot$botToken/$filePath"
 
-            httpClient.newCall(Request.Builder().url(url).build()).execute().use { response ->
+            httpClient.newCall(Request.Builder().url(url).build()).await().use { response ->
                 if (!response.isSuccessful) {
                     throw TelegramApiException("File download failed: HTTP ${response.code}")
                 }

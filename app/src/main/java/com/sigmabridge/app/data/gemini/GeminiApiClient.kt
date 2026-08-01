@@ -9,6 +9,7 @@ import com.sigmabridge.app.data.gemini.dto.GeminiFileUploadMetadataDto
 import com.sigmabridge.app.data.gemini.dto.GeminiGenerateContentRequestDto
 import com.sigmabridge.app.data.gemini.dto.GeminiGenerateContentResponseDto
 import com.sigmabridge.app.data.gemini.dto.GeminiPartDto
+import com.sigmabridge.app.data.network.await
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -55,7 +56,7 @@ class GeminiApiClient @Inject constructor(
                 .post(metadataBody)
                 .build()
 
-            val uploadUrl = httpClient.newCall(startRequest).execute().use { response ->
+            val uploadUrl = httpClient.newCall(startRequest).await().use { response ->
                 if (!response.isSuccessful) {
                     throw GeminiApiException("Gemini upload session start failed: HTTP ${response.code}", response.code)
                 }
@@ -70,7 +71,7 @@ class GeminiApiClient @Inject constructor(
                 .post(file.readBytes().toRequestBody(mimeType.toMediaType()))
                 .build()
 
-            httpClient.newCall(uploadRequest).execute().use { response ->
+            httpClient.newCall(uploadRequest).await().use { response ->
                 val body = response.body?.string().orEmpty()
                 if (!response.isSuccessful) {
                     throw GeminiApiException("Gemini file upload failed: HTTP ${response.code} — $body", response.code)
@@ -84,7 +85,7 @@ class GeminiApiClient @Inject constructor(
             .addQueryParameter("key", apiKey)
             .build()
 
-        httpClient.newCall(Request.Builder().url(url).build()).execute().use { response ->
+        httpClient.newCall(Request.Builder().url(url).build()).await().use { response ->
             val body = response.body?.string().orEmpty()
             if (!response.isSuccessful) {
                 throw GeminiApiException("Gemini getFile failed: HTTP ${response.code} — $body", response.code)
@@ -119,7 +120,7 @@ class GeminiApiClient @Inject constructor(
 
         val request = Request.Builder().url(url).post(requestBody).build()
 
-        httpClient.newCall(request).execute().use { response ->
+        httpClient.newCall(request).await().use { response ->
             val body = response.body?.string().orEmpty()
             if (!response.isSuccessful) {
                 throw GeminiApiException("Gemini generateContent failed: HTTP ${response.code} — $body", response.code)
@@ -135,7 +136,7 @@ class GeminiApiClient @Inject constructor(
         val url = "$BASE_URL/v1beta/$fileName".toHttpUrl().newBuilder()
             .addQueryParameter("key", apiKey)
             .build()
-        httpClient.newCall(Request.Builder().url(url).delete().build()).execute().close()
+        httpClient.newCall(Request.Builder().url(url).delete().build()).await().close()
     }
 
     private companion object {

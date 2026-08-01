@@ -27,11 +27,19 @@ class TelegramDownloadRepository @Inject constructor(
         val telegramFilePath = fileApiClient.getFilePath(token, fileId)
         val destination = cacheManager.createTempVoice()
 
-        fileApiClient.downloadFile(
-            botToken = token,
-            filePath = telegramFilePath,
-            destinationPath = destination.path
-        )
+        try {
+            fileApiClient.downloadFile(
+                botToken = token,
+                filePath = telegramFilePath,
+                destinationPath = destination.path
+            )
+        } catch (error: Exception) {
+            // A partial write (network drop, timeout mid-download) would otherwise leave
+            // an orphaned file behind forever — nothing downstream ever learns this
+            // TemporaryVoiceFile existed, since this whole call is about to return failure.
+            cacheManager.delete(destination)
+            throw error
+        }
 
         destination
     }

@@ -1,6 +1,7 @@
 package com.sigmabridge.app.data.gemini
 
 import com.sigmabridge.app.data.gemini.dto.GeminiFileDto
+import com.sigmabridge.app.domain.logging.BridgeLogger
 import com.sigmabridge.app.domain.model.LanguagePair
 import com.sigmabridge.app.domain.model.TranslationRequest
 import com.sigmabridge.app.domain.model.TranslationResult
@@ -26,7 +27,8 @@ import javax.inject.Singleton
 @Singleton
 class GeminiTranslationRepository @Inject constructor(
     private val apiClient: GeminiApiClient,
-    private val settingsRepository: SettingsRepository
+    private val settingsRepository: SettingsRepository,
+    private val logger: BridgeLogger
 ) : TranslationRepository {
 
     override suspend fun translate(request: TranslationRequest): Result<TranslationResult> = runCatching {
@@ -62,6 +64,8 @@ class GeminiTranslationRepository @Inject constructor(
             // cleanup failure hide (or override) the actual translation result/error.
             uploadedFile?.let { runCatching { apiClient.deleteFile(apiKey, it.name) } }
         }
+    }.onFailure { error ->
+        logger.error(TAG, "Translation failed for ${request.sourceFile.id}", error)
     }
 
     private suspend fun awaitActiveState(apiKey: String, file: GeminiFileDto): GeminiFileDto {
@@ -95,6 +99,7 @@ class GeminiTranslationRepository @Inject constructor(
                 if (error.httpCode != HTTP_SERVICE_UNAVAILABLE || attempt >= MAX_RETRY_ATTEMPTS) {
                     throw error
                 }
+                logger.debug(TAG, "Gemini 503, retrying attempt $attempt/$MAX_RETRY_ATTEMPTS in ${backoffMillis}ms")
                 delay(backoffMillis)
                 backoffMillis *= 2
             }
@@ -134,6 +139,7 @@ class GeminiTranslationRepository @Inject constructor(
     }
 
     private companion object {
+        const val TAG = "SigmaBridge"
         const val MODEL = "gemini-3.6-flash"
         const val AUDIO_MIME_TYPE = "audio/ogg"
         const val STATE_ACTIVE = "ACTIVE"

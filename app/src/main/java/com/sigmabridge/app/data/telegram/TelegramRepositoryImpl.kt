@@ -1,5 +1,6 @@
 package com.sigmabridge.app.data.telegram
 
+import com.sigmabridge.app.domain.logging.BridgeLogger
 import com.sigmabridge.app.domain.model.BridgeServiceState
 import com.sigmabridge.app.domain.model.TelegramUpdate
 import com.sigmabridge.app.domain.repository.SettingsRepository
@@ -38,12 +39,19 @@ import javax.inject.Singleton
 @Singleton
 class TelegramRepositoryImpl @Inject constructor(
     private val apiClient: TelegramApiClient,
-    private val settingsRepository: SettingsRepository
+    private val settingsRepository: SettingsRepository,
+    private val logger: BridgeLogger
 ) : TelegramRepository {
 
     private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var pollingJob: Job? = null
     private var updateOffset: Long? = null
+
+    // High-water-mark guard: Telegram's offset mechanism should already prevent
+    // redelivery, but the API contract allows for it in edge cases. Cheap to check,
+    // and directly prevents ever dispatching (and re-translating/re-replying to) the
+    // same voice message twice within one running session.
+    private var lastEmittedUpdateId: Long? = null
 
     private val _state = MutableStateFlow(BridgeServiceState.STOPPED)
     override val state: StateFlow<BridgeServiceState> = _state.asStateFlow()
@@ -99,11 +107,20 @@ class TelegramRepositoryImpl @Inject constructor(
 
                 rawUpdates.forEach { dto ->
                     updateOffset = dto.updateId + 1
+
+                    val alreadySeen = lastEmittedUpdateId?.let { dto.updateId <= it } ?: false
+                    if (alreadySeen) {
+                        logger.debug(TAG, "Skipping already-seen update ${dto.updateId}")
+                        return@forEach
+                    }
+                    lastEmittedUpdateId = dto.updateId
+
                     dto.toDomain()?.let { _updates.emit(it) }
                 }
             } catch (cancellation: CancellationException) {
                 throw cancellation
             } catch (error: Exception) {
+                logger.error(TAG, "Telegram polling error; retrying with backoff", error)
                 _state.value = BridgeServiceState.ERROR
                 delay(backoffMillis)
                 backoffMillis = (backoffMillis * 2).coerceAtMost(MAX_BACKOFF_MS)
@@ -112,6 +129,7 @@ class TelegramRepositoryImpl @Inject constructor(
     }
 
     private companion object {
+        const val TAG = "SigmaBridge"
         const val LONG_POLL_TIMEOUT_SECONDS = 30
         const val UPDATE_BUFFER_CAPACITY = 64
         const val INITIAL_BACKOFF_MS = 2_000L

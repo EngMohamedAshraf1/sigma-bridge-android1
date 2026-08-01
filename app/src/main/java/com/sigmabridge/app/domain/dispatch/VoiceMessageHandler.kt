@@ -1,6 +1,7 @@
 package com.sigmabridge.app.domain.dispatch
 
 import com.sigmabridge.app.domain.cache.CacheManager
+import com.sigmabridge.app.domain.logging.BridgeLogger
 import com.sigmabridge.app.domain.model.LanguagePair
 import com.sigmabridge.app.domain.model.TelegramUpdate
 import com.sigmabridge.app.domain.model.TranslationMode
@@ -21,7 +22,8 @@ class VoiceMessageHandler @Inject constructor(
     private val downloadRepository: DownloadRepository,
     private val translationRepository: TranslationRepository,
     private val sendTelegramMessage: SendTelegramMessageUseCase,
-    private val cacheManager: CacheManager
+    private val cacheManager: CacheManager,
+    private val logger: BridgeLogger
 ) : UpdateHandler {
 
     override fun canHandle(update: TelegramUpdate): Boolean = update.voiceFileId != null
@@ -30,6 +32,7 @@ class VoiceMessageHandler @Inject constructor(
         val fileId = update.voiceFileId ?: return
 
         val voiceFile = downloadRepository.downloadVoice(fileId).getOrElse { error ->
+            logger.error(TAG, "Download failed for update ${update.updateId}", error)
             sendTelegramMessage(update.chatId, errorReply(error))
             return
         }
@@ -51,4 +54,8 @@ class VoiceMessageHandler @Inject constructor(
 
     private fun errorReply(error: Throwable): String =
         "${error::class.simpleName}: ${error.message}"
+
+    private companion object {
+        const val TAG = "SigmaBridge"
+    }
 }
