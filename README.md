@@ -38,6 +38,15 @@ What Phase 7 adds on top of that:
 Explicitly NOT in this phase (Phase 8, once the app has been built and tested): boot-time auto-start,
 battery-optimization exemption prompts, WorkManager health-check, OEM-specific guidance.
 
+**Post-Phase-7 fix**: the project was missing `res/mipmap-*`/launcher-icon resources entirely (an
+oversight from Phase 1 — `AndroidManifest.xml` referenced `@mipmap/ic_launcher` but nothing ever
+created it), which broke resource linking in Android Studio. Fixed with an adaptive icon
+(`mipmap-anydpi-v26/ic_launcher.xml` + `ic_launcher_round.xml`, vector `drawable/ic_launcher_background.xml`
++ `ic_launcher_foreground.xml`, `values/colors.xml`). Since `minSdk = 26` and adaptive icons are supported
+on every API level this app targets, this is the *only* mipmap qualifier needed — no legacy
+per-density PNG fallback. The foreground glyph is placeholder abstract art; swap it for real branding
+in Phase 9.
+
 ## Package layout
 
 ```

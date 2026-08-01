@@ -16,7 +16,7 @@ android {
         minSdk = 26 // Foreground Service + Doze APIs used from Phase 7 onward require this floor
         targetSdk = 35
         versionCode = 1
-        versionName = "0.7.0-phase7"
+        versionName = "0.7.1-phase7-fix-resources"
     }
 
     buildTypes {
