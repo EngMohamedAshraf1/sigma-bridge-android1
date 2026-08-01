@@ -1,12 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Only INTERNET is needed for Phase 1 (empty UI shell, no networking yet). -->
-    <!-- FOREGROUND_SERVICE, POST_NOTIFICATIONS, RECEIVE_BOOT_COMPLETED, and the -->
-    <!-- battery-optimization-exemption intent are added in Phase 7/8, not before, -->
-    <!-- so the manifest only ever asks for what the current phase actually uses. -->
+    <!-- Phase 7 adds exactly what a Foreground Service needs to run and show its
+         mandatory notification: FOREGROUND_SERVICE (+ the DATA_SYNC subtype required
+         on API 34+) and POST_NOTIFICATIONS (API 33+, or the notification is silently
+         hidden). RECEIVE_BOOT_COMPLETED and any battery-optimization-exemption intent
+         are still NOT here — those are Phase 8, not this one. -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
         android:name=".SigmaBridgeApplication"
@@ -26,6 +30,14 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Orchestration only: starts/stops BridgeOrchestrator and shows the
+             mandatory foreground notification. No boot-time auto-start (no
+             BOOT_COMPLETED receiver registered anywhere), per Phase 7 scope. -->
+        <service
+            android:name=".service.BridgeForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
 
     </application>
 

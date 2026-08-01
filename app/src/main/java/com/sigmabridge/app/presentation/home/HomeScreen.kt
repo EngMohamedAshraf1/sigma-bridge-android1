@@ -83,10 +83,11 @@ fun HomeScreen(
                 Text("Gemini Test (internal)")
             }
 
-            // Internal-only: manual Start/Stop for the full pipeline until Phase 7's
-            // Foreground Service replaces it.
+            // No longer a placeholder: this is the real control surface for
+            // BridgeForegroundService as of Phase 7. Still not a feature tile —
+            // that's Phase 9 UI polish territory.
             TextButton(onClick = onBridgeControlClick) {
-                Text("Bridge Control (internal)")
+                Text("Bridge Control")
             }
         }
     }
