@@ -109,14 +109,41 @@ class GeminiTranslationRepository @Inject constructor(
     /**
      * One request, one direction, no intermediate STT step — the model is
      * asked to listen to the audio and output only the translation, exactly
-     * as gemini_service.py's prompt did for Russian -> Arabic.
+     * as gemini_service.py's prompt did for Russian -> Arabic. Phase 8.2
+     * expanded the instructions themselves (translation quality only —
+     * still one call, still output-only, still no markdown) to address:
+     * naturalness over literalism, proper-noun/URL/phone-number/number
+     * preservation, emoji/formatting preservation, natural punctuation and
+     * sentence breaks, no duplicated phrases from stutters/restarts, and
+     * preserving the speaker's tone/register.
      */
-    private fun buildPrompt(languagePair: LanguagePair): String =
-        "You are a direct, real-time voice translator. Listen to the attached audio in " +
-            "${languagePair.source.displayName} and output ONLY its translation in " +
-            "${languagePair.target.displayName}. Do not transcribe or repeat the source language. " +
-            "Do not add explanations, notes, or any text other than the translation itself. " +
-            "Do not use markdown formatting."
+    private fun buildPrompt(languagePair: LanguagePair): String {
+        val source = languagePair.source.displayName
+        val target = languagePair.target.displayName
+        return """
+            You are a professional simultaneous interpreter, not a literal machine translator.
+            Listen to the attached audio in $source and produce a natural, fluent $target
+            translation of what is said — the meaning and tone a native $target speaker would
+            actually use, not a word-for-word rendering.
+
+            Follow these rules exactly:
+            - Output ONLY the translation. No transcription of the source language, no
+              explanations, no notes, no markdown formatting, no labels like "Translation:".
+            - Preserve proper nouns (people's names, place names, brand names) as spoken —
+              transliterate into $target script only if there is no established convention;
+              never translate or replace a name.
+            - Preserve URLs, email addresses, phone numbers, and numeric values (dates, prices,
+              quantities) exactly as spoken, without altering their format.
+            - Preserve emojis, symbols, and any formatting present in the speaker's words exactly
+              as they occur.
+            - Use natural punctuation and sentence breaks that match how the sentence would
+              actually be written in $target, not the exact pause structure of the spoken audio.
+            - If the speaker repeats themselves, stutters, or restarts a sentence, translate the
+              intended final meaning once — do not duplicate the repeated phrase in the output.
+            - Preserve the speaker's original intent, tone, and register (formal, casual, urgent,
+              etc.) rather than flattening it.
+        """.trimIndent()
+    }
 
     /** Strips a wrapping code fence and a leading language-label prefix, same intent as _clean() in gemini_service.py. */
     private fun cleanTranslation(rawText: String): String {
