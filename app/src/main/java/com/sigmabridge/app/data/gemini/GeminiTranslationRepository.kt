@@ -2,12 +2,16 @@ package com.sigmabridge.app.data.gemini
 
 import com.sigmabridge.app.data.gemini.dto.GeminiFileDto
 import com.sigmabridge.app.domain.logging.BridgeLogger
+import com.sigmabridge.app.domain.model.GeminiHealth
 import com.sigmabridge.app.domain.model.LanguagePair
 import com.sigmabridge.app.domain.model.TranslationRequest
 import com.sigmabridge.app.domain.model.TranslationResult
 import com.sigmabridge.app.domain.repository.SettingsRepository
 import com.sigmabridge.app.domain.repository.TranslationRepository
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -23,6 +27,11 @@ import javax.inject.Singleton
  * single generateContent call that transcribes AND translates in one shot
  * (no separate STT pass), clean the response text, then delete the remote
  * file whether the call succeeded or not.
+ *
+ * Phase 8.3 adds [health] purely as an observability side-effect around
+ * this existing sequence — BUSY while translate() is running, then READY
+ * or a specific failure classification once it finishes. None of the
+ * upload/poll/generate/clean/retry logic above is touched.
  */
 @Singleton
 class GeminiTranslationRepository @Inject constructor(
@@ -31,7 +40,12 @@ class GeminiTranslationRepository @Inject constructor(
     private val logger: BridgeLogger
 ) : TranslationRepository {
 
+    private val _health = MutableStateFlow(GeminiHealth.UNKNOWN)
+    override val health: StateFlow<GeminiHealth> = _health.asStateFlow()
+
     override suspend fun translate(request: TranslationRequest): Result<TranslationResult> = runCatching {
+        _health.value = GeminiHealth.BUSY
+
         val apiKey = settingsRepository.geminiApiKey.first()
             ?: error("Cannot translate: Gemini API key not set")
 
@@ -64,8 +78,18 @@ class GeminiTranslationRepository @Inject constructor(
             // cleanup failure hide (or override) the actual translation result/error.
             uploadedFile?.let { runCatching { apiClient.deleteFile(apiKey, it.name) } }
         }
+    }.onSuccess {
+        _health.value = GeminiHealth.READY
     }.onFailure { error ->
         logger.error(TAG, "Translation failed for ${request.sourceFile.id}", error)
+        _health.value = classifyFailure(error)
+    }
+
+    private fun classifyFailure(error: Throwable): GeminiHealth = when {
+        error is GeminiApiException && error.httpCode == HTTP_TOO_MANY_REQUESTS -> GeminiHealth.QUOTA_EXCEEDED
+        error is GeminiApiException && (error.httpCode == HTTP_UNAUTHORIZED || error.httpCode == HTTP_FORBIDDEN) ->
+            GeminiHealth.AUTHENTICATION_FAILED
+        else -> GeminiHealth.NETWORK_ERROR
     }
 
     private suspend fun awaitActiveState(apiKey: String, file: GeminiFileDto): GeminiFileDto {
@@ -175,6 +199,9 @@ class GeminiTranslationRepository @Inject constructor(
         const val ACTIVE_POLL_TIMEOUT_MS = 60_000L
 
         const val HTTP_SERVICE_UNAVAILABLE = 503
+        const val HTTP_TOO_MANY_REQUESTS = 429
+        const val HTTP_UNAUTHORIZED = 401
+        const val HTTP_FORBIDDEN = 403
         const val MAX_RETRY_ATTEMPTS = 4
         const val INITIAL_BACKOFF_MS = 2_000L
 

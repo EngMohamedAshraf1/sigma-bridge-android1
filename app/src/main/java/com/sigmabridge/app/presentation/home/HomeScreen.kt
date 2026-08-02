@@ -27,7 +27,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.sigmabridge.app.domain.model.ServiceHealth
+import com.sigmabridge.app.domain.model.HomeHealthState
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -94,20 +94,31 @@ fun HomeScreen(
     }
 }
 
+/**
+ * Four rows, each reflecting a real live signal (Phase 8.3) instead of a
+ * placeholder — Home recomposes automatically whenever any of the four
+ * combined Flows in ObserveHealthUseCase emits, no restart, no UI polling.
+ */
 @Composable
-private fun HealthSection(items: List<ServiceHealth>) {
+private fun HealthSection(health: HomeHealthState) {
     Column {
         Text(text = "Status", style = MaterialTheme.typography.titleMedium)
-        items.forEach { health ->
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 4.dp)
-            ) {
-                Text(text = health.component.name, modifier = Modifier.padding(end = 8.dp))
-                Text(text = "\u2014 ${health.status.name}")
-            }
-        }
+        HealthRow("Bridge", health.bridge.name)
+        HealthRow("Telegram", health.telegram.name)
+        HealthRow("Gemini", health.gemini.name)
+        HealthRow("Internet", health.internet.name)
+    }
+}
+
+@Composable
+private fun HealthRow(label: String, value: String) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+    ) {
+        Text(text = label, modifier = Modifier.padding(end = 8.dp))
+        Text(text = "\u2014 $value")
     }
 }
 

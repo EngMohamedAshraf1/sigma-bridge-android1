@@ -31,7 +31,7 @@ class BridgeControlViewModel @Inject constructor(
 ) : ViewModel() {
 
     val state: StateFlow<BridgeServiceState> = bridgeOrchestrator.state
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), BridgeServiceState.STOPPED)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), BridgeServiceState.DISABLED)
 
     fun start() {
         ContextCompat.startForegroundService(context, BridgeForegroundService.startIntent(context))

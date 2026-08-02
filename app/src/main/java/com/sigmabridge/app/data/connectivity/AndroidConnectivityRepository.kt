@@ -5,6 +5,7 @@ import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
+import com.sigmabridge.app.domain.model.InternetHealth
 import com.sigmabridge.app.domain.repository.ConnectivityRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.channels.awaitClose
@@ -19,8 +20,8 @@ import javax.inject.Singleton
  * Android side — there's no suspend/Flow equivalent in the platform API.
  * This class is the one place that callback is allowed to exist; it's
  * wrapped in callbackFlow immediately so every caller above this class
- * (use cases, ViewModels) only ever sees a cold Flow<Boolean>, consistent
- * with "coroutines + Flow, not callbacks" as the app's boundary.
+ * (use cases, ViewModels) only ever sees a cold Flow<InternetHealth>,
+ * consistent with "coroutines + Flow, not callbacks" as the app's boundary.
  */
 @Singleton
 class AndroidConnectivityRepository @Inject constructor(
@@ -30,27 +31,32 @@ class AndroidConnectivityRepository @Inject constructor(
     private val connectivityManager =
         context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
 
-    override val isConnected: Flow<Boolean> = callbackFlow {
-        fun currentlyConnected(): Boolean {
-            val network = connectivityManager.activeNetwork ?: return false
-            val capabilities = connectivityManager.getNetworkCapabilities(network) ?: return false
-            return capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
-                capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+    override val health: Flow<InternetHealth> = callbackFlow {
+        fun currentHealth(): InternetHealth {
+            val network = connectivityManager.activeNetwork ?: return InternetHealth.OFFLINE
+            val capabilities = connectivityManager.getNetworkCapabilities(network) ?: return InternetHealth.OFFLINE
+            val hasInternetCapability = capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            val isValidated = capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+            return when {
+                hasInternetCapability && isValidated -> InternetHealth.CONNECTED
+                hasInternetCapability -> InternetHealth.LIMITED
+                else -> InternetHealth.OFFLINE
+            }
         }
 
-        trySend(currentlyConnected())
+        trySend(currentHealth())
 
         val callback = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) {
-                trySend(currentlyConnected())
+                trySend(currentHealth())
             }
 
             override fun onLost(network: Network) {
-                trySend(currentlyConnected())
+                trySend(currentHealth())
             }
 
             override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
-                trySend(currentlyConnected())
+                trySend(currentHealth())
             }
         }
 

@@ -15,7 +15,8 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import javax.inject.Inject
 
-class TelegramApiException(message: String) : Exception(message)
+/** [httpCode] is null for a response that parsed but reported ok=false; set whenever the HTTP status itself indicates the failure. */
+class TelegramApiException(message: String, val httpCode: Int? = null) : Exception(message)
 
 /**
  * Uses Call.await() (data/network/OkHttpCallExtensions.kt) instead of the
@@ -43,7 +44,7 @@ class TelegramApiClient @Inject constructor(
         httpClient.newCall(request).await().use { response ->
             val body = response.body?.string().orEmpty()
             if (!response.isSuccessful) {
-                throw TelegramApiException("Telegram getUpdates failed: HTTP ${response.code} — $body")
+                throw TelegramApiException("Telegram getUpdates failed: HTTP ${response.code} — $body", response.code)
             }
             val parsed = json.decodeFromString(TelegramGetUpdatesResponseDto.serializer(), body)
             if (!parsed.ok) {
@@ -65,7 +66,7 @@ class TelegramApiClient @Inject constructor(
         httpClient.newCall(request).await().use { response ->
             val body = response.body?.string().orEmpty()
             if (!response.isSuccessful) {
-                throw TelegramApiException("Telegram sendMessage failed: HTTP ${response.code} — $body")
+                throw TelegramApiException("Telegram sendMessage failed: HTTP ${response.code} — $body", response.code)
             }
             val parsed = json.decodeFromString(TelegramSendMessageResponseDto.serializer(), body)
             if (!parsed.ok) {

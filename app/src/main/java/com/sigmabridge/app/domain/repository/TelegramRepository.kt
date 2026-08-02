@@ -1,6 +1,7 @@
 package com.sigmabridge.app.domain.repository
 
 import com.sigmabridge.app.domain.model.BridgeServiceState
+import com.sigmabridge.app.domain.model.TelegramHealth
 import com.sigmabridge.app.domain.model.TelegramUpdate
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -22,6 +23,13 @@ interface TelegramRepository {
 
     /** Current state of the bridge, observed by the Service and the UI. */
     val state: StateFlow<BridgeServiceState>
+
+    /**
+     * Connection-level health of the polling loop itself (Phase 8.3) —
+     * distinct from [state]: the bridge can be RUNNING while this is
+     * momentarily NETWORK_ERROR mid-retry, for example.
+     */
+    val health: StateFlow<TelegramHealth>
 
     /** Raw stream of incoming updates while running. Voice-specific handling (download, filtering) is Phase 4's job, not this repository's. */
     val updates: SharedFlow<TelegramUpdate>
