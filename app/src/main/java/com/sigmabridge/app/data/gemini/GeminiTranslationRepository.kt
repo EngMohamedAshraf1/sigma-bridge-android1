@@ -1,18 +1,18 @@
 package com.sigmabridge.app.data.gemini
 
 import com.sigmabridge.app.data.gemini.dto.GeminiFileDto
+import com.sigmabridge.app.domain.gemini.GeminiApiKeyManager
+import com.sigmabridge.app.domain.gemini.NoAvailableGeminiKeyException
 import com.sigmabridge.app.domain.logging.BridgeLogger
 import com.sigmabridge.app.domain.model.GeminiHealth
 import com.sigmabridge.app.domain.model.LanguagePair
 import com.sigmabridge.app.domain.model.TranslationRequest
 import com.sigmabridge.app.domain.model.TranslationResult
-import com.sigmabridge.app.domain.repository.SettingsRepository
 import com.sigmabridge.app.domain.repository.TranslationRepository
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.first
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -26,29 +26,79 @@ import javax.inject.Singleton
  * file (no local transcoding), poll until the file reaches ACTIVE, make a
  * single generateContent call that transcribes AND translates in one shot
  * (no separate STT pass), clean the response text, then delete the remote
- * file whether the call succeeded or not.
+ * file whether the call succeeded or not. That whole sequence lives in
+ * [translateWithKey], completely unchanged by Phase 8.4 — multi-key support
+ * is purely an outer loop in [translate] deciding *which key* to pass in.
  *
- * Phase 8.3 adds [health] purely as an observability side-effect around
- * this existing sequence — BUSY while translate() is running, then READY
- * or a specific failure classification once it finishes. None of the
- * upload/poll/generate/clean/retry logic above is touched.
+ * Phase 8.3 added [health] as an observability side-effect around this
+ * sequence — BUSY while translate() is running, then READY or a specific
+ * failure classification once it finishes.
  */
 @Singleton
 class GeminiTranslationRepository @Inject constructor(
     private val apiClient: GeminiApiClient,
-    private val settingsRepository: SettingsRepository,
+    private val keyManager: GeminiApiKeyManager,
     private val logger: BridgeLogger
 ) : TranslationRepository {
 
     private val _health = MutableStateFlow(GeminiHealth.UNKNOWN)
     override val health: StateFlow<GeminiHealth> = _health.asStateFlow()
 
+    /**
+     * Tries each configured key at most once, in GeminiApiKeyManager's
+     * deterministic round-robin order — never random, per the Phase 8.4
+     * requirement. Bounded by the total configured key count fixed at the
+     * start of this call, so it always terminates even if every key comes
+     * back 429/401 (no infinite loop). A 429 just moves on to the next key;
+     * a 401/403 additionally marks that key invalid for the rest of the
+     * process. Any other failure (network error, malformed response, an
+     * exhausted 503-retry inside translateWithKey) is not key-specific, so
+     * it propagates immediately instead of cycling through remaining keys.
+     */
     override suspend fun translate(request: TranslationRequest): Result<TranslationResult> = runCatching {
         _health.value = GeminiHealth.BUSY
 
-        val apiKey = settingsRepository.geminiApiKey.first()
-            ?: error("Cannot translate: Gemini API key not set")
+        val maxAttempts = keyManager.totalKeyCount()
+        if (maxAttempts == 0) {
+            throw NoAvailableGeminiKeyException("No Gemini API key configured")
+        }
 
+        var lastError: Throwable = NoAvailableGeminiKeyException("All configured Gemini API keys are unavailable")
+        var attempt = 0
+
+        while (attempt < maxAttempts) {
+            val apiKey = keyManager.nextKey() ?: break
+            attempt++
+            try {
+                return@runCatching translateWithKey(apiKey, request).also {
+                    keyManager.markSucceeded(apiKey)
+                }
+            } catch (error: GeminiApiException) {
+                lastError = error
+                when (error.httpCode) {
+                    HTTP_TOO_MANY_REQUESTS -> {
+                        logger.debug(TAG, "Key ending in \"${apiKey.takeLast(4)}\" hit quota (429); trying next key")
+                        keyManager.markQuotaExceeded(apiKey)
+                    }
+                    HTTP_UNAUTHORIZED, HTTP_FORBIDDEN -> {
+                        logger.error(TAG, "Key ending in \"${apiKey.takeLast(4)}\" failed auth (${error.httpCode}); marking invalid for this session", error)
+                        keyManager.markInvalid(apiKey)
+                    }
+                    else -> throw error
+                }
+            }
+        }
+
+        throw lastError
+    }.onSuccess {
+        _health.value = GeminiHealth.READY
+    }.onFailure { error ->
+        logger.error(TAG, "Translation failed for ${request.sourceFile.id}", error)
+        _health.value = classifyFailure(error)
+    }
+
+    /** The exact single-key sequence that existed before Phase 8.4 — untouched. */
+    private suspend fun translateWithKey(apiKey: String, request: TranslationRequest): TranslationResult {
         var uploadedFile: GeminiFileDto? = null
         try {
             uploadedFile = apiClient.uploadFile(
@@ -72,24 +122,22 @@ class GeminiTranslationRepository @Inject constructor(
                 )
             }
 
-            TranslationResult(translatedText = cleanTranslation(rawText))
+            return TranslationResult(translatedText = cleanTranslation(rawText))
         } finally {
             // Best-effort remote cleanup, same as the Python finally block — never lets a
             // cleanup failure hide (or override) the actual translation result/error.
             uploadedFile?.let { runCatching { apiClient.deleteFile(apiKey, it.name) } }
         }
-    }.onSuccess {
-        _health.value = GeminiHealth.READY
-    }.onFailure { error ->
-        logger.error(TAG, "Translation failed for ${request.sourceFile.id}", error)
-        _health.value = classifyFailure(error)
     }
 
-    private fun classifyFailure(error: Throwable): GeminiHealth = when {
-        error is GeminiApiException && error.httpCode == HTTP_TOO_MANY_REQUESTS -> GeminiHealth.QUOTA_EXCEEDED
-        error is GeminiApiException && (error.httpCode == HTTP_UNAUTHORIZED || error.httpCode == HTTP_FORBIDDEN) ->
-            GeminiHealth.AUTHENTICATION_FAILED
-        else -> GeminiHealth.NETWORK_ERROR
+    private fun classifyFailure(error: Throwable): GeminiHealth {
+        val effective = if (error is NoAvailableGeminiKeyException) error.cause ?: error else error
+        return when {
+            effective is GeminiApiException && effective.httpCode == HTTP_TOO_MANY_REQUESTS -> GeminiHealth.QUOTA_EXCEEDED
+            effective is GeminiApiException && (effective.httpCode == HTTP_UNAUTHORIZED || effective.httpCode == HTTP_FORBIDDEN) ->
+                GeminiHealth.AUTHENTICATION_FAILED
+            else -> GeminiHealth.NETWORK_ERROR
+        }
     }
 
     private suspend fun awaitActiveState(apiKey: String, file: GeminiFileDto): GeminiFileDto {
@@ -110,7 +158,8 @@ class GeminiTranslationRepository @Inject constructor(
      * Same retry philosophy as gemini_service.py: only 503 (transient server
      * overload) is retried, with exponential backoff starting at 2s, capped
      * at [MAX_RETRY_ATTEMPTS] attempts. Any other failure — 4xx, malformed
-     * response, network error — propagates immediately.
+     * response, network error — propagates immediately (up to translate()'s
+     * key-cycling loop, as of Phase 8.4).
      */
     private suspend fun <T> withRetryOnTransientFailure(block: suspend () -> T): T {
         var attempt = 0

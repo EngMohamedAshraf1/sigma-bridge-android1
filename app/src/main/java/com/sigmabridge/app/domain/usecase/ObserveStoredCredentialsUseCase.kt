@@ -8,14 +8,14 @@ import javax.inject.Inject
 
 /**
  * Read side of settings. SettingsViewModel calls this instead of reading
- * SettingsRepository.botToken/geminiApiKey directly — the ViewModel talks
+ * SettingsRepository.botToken/geminiApiKeys directly — the ViewModel talks
  * to the domain layer only, never to a repository.
  */
 class ObserveStoredCredentialsUseCase @Inject constructor(
     private val settingsRepository: SettingsRepository
 ) {
     operator fun invoke(): Flow<StoredCredentials> =
-        combine(settingsRepository.botToken, settingsRepository.geminiApiKey) { token, key ->
-            StoredCredentials(botToken = token, geminiApiKey = key)
+        combine(settingsRepository.botToken, settingsRepository.geminiApiKeys) { token, keys ->
+            StoredCredentials(botToken = token, geminiApiKeys = keys)
         }
 }
