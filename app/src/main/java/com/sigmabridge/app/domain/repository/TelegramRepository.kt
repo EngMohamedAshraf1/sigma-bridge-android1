@@ -39,7 +39,7 @@ interface TelegramRepository {
      * SendTelegramMessageUseCase (domain/usecase) is the sole allowed caller,
      * same discipline as SettingsRepository behind SaveSettingsUseCase.
      */
-    suspend fun sendMessage(chatId: Long, text: String): Result<Unit>
+    suspend fun sendMessage(chatId: Long, text: String, replyToMessageId: Long? = null): Result<Unit>
 
     /** Begins long-polling Telegram for updates. Safe to call when already running (no-op). */
     suspend fun start()

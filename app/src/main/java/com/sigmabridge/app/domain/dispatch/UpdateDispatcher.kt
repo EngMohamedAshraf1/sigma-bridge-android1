@@ -25,7 +25,17 @@ class UpdateDispatcher @Inject constructor(
     private val logger: BridgeLogger
 ) {
     suspend fun dispatch(update: TelegramUpdate) {
-        val handler = handlers.firstOrNull { it.canHandle(update) } ?: return
+        val handler = handlers.firstOrNull { it.canHandle(update) }
+
+        // --- TEMPORARY DIAGNOSTIC (remove after root cause found) ---
+        logger.debug(
+            TAG,
+            "DISPATCH update_id=${update.updateId} chat.id=${update.chatId} chat.type=${update.chatType} " +
+                "claimedBy=${handler?.let { it::class.simpleName } ?: "none"}"
+        )
+        // --- END TEMPORARY DIAGNOSTIC ---
+
+        if (handler == null) return
         try {
             handler.handle(update)
         } catch (cancellation: CancellationException) {

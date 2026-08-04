@@ -1,6 +1,7 @@
 package com.sigmabridge.app.data.telegram
 
 import com.sigmabridge.app.data.telegram.dto.TelegramUpdateDto
+import com.sigmabridge.app.domain.model.TelegramChatType
 import com.sigmabridge.app.domain.model.TelegramUpdate
 
 /**
@@ -13,6 +14,17 @@ fun TelegramUpdateDto.toDomain(): TelegramUpdate? {
     return TelegramUpdate(
         updateId = updateId,
         chatId = chatMessage.chat.id,
+        messageId = chatMessage.messageId,
+        chatType = chatMessage.chat.type.toChatType(),
+        senderUserId = chatMessage.from?.id,
         voiceFileId = chatMessage.voice?.fileId
     )
+}
+
+private fun String?.toChatType(): TelegramChatType = when (this) {
+    "private" -> TelegramChatType.PRIVATE
+    "group" -> TelegramChatType.GROUP
+    "supergroup" -> TelegramChatType.SUPERGROUP
+    "channel" -> TelegramChatType.CHANNEL
+    else -> TelegramChatType.UNKNOWN
 }

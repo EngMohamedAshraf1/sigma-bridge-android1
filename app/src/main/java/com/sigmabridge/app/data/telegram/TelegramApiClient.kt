@@ -54,11 +54,16 @@ class TelegramApiClient @Inject constructor(
         }
     }
 
-    suspend fun sendMessage(botToken: String, chatId: Long, text: String) = withContext(Dispatchers.IO) {
+    suspend fun sendMessage(
+        botToken: String,
+        chatId: Long,
+        text: String,
+        replyToMessageId: Long? = null
+    ) = withContext(Dispatchers.IO) {
         val url = "https://api.telegram.org/bot$botToken/sendMessage".toHttpUrl()
         val requestBody = json.encodeToString(
             TelegramSendMessageRequestDto.serializer(),
-            TelegramSendMessageRequestDto(chatId = chatId, text = text)
+            TelegramSendMessageRequestDto(chatId = chatId, text = text, replyToMessageId = replyToMessageId)
         ).toRequestBody("application/json".toMediaType())
 
         val request = Request.Builder().url(url).post(requestBody).build()

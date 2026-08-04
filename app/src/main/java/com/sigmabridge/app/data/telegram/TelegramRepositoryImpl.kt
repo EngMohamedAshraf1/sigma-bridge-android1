@@ -67,10 +67,10 @@ class TelegramRepositoryImpl @Inject constructor(
     private val _updates = MutableSharedFlow<TelegramUpdate>(extraBufferCapacity = UPDATE_BUFFER_CAPACITY)
     override val updates: SharedFlow<TelegramUpdate> = _updates.asSharedFlow()
 
-    override suspend fun sendMessage(chatId: Long, text: String): Result<Unit> = runCatching {
+    override suspend fun sendMessage(chatId: Long, text: String, replyToMessageId: Long?): Result<Unit> = runCatching {
         val token = settingsRepository.botToken.first()
             ?: error("Cannot send message: bot token not set")
-        apiClient.sendMessage(token, chatId, text)
+        apiClient.sendMessage(token, chatId, text, replyToMessageId)
     }
 
     override suspend fun start() {
@@ -119,6 +119,15 @@ class TelegramRepositoryImpl @Inject constructor(
                 backoffMillis = INITIAL_BACKOFF_MS
 
                 rawUpdates.forEach { dto ->
+                    // --- TEMPORARY DIAGNOSTIC (remove after root cause found) ---
+                    logger.debug(
+                        TAG,
+                        "RAW update_id=${dto.updateId} chat.id=${dto.message?.chat?.id} " +
+                            "chat.type=${dto.message?.chat?.type} message_id=${dto.message?.messageId} " +
+                            "from.id=${dto.message?.from?.id} hasVoice=${dto.message?.voice != null}"
+                    )
+                    // --- END TEMPORARY DIAGNOSTIC ---
+
                     updateOffset = dto.updateId + 1
 
                     val alreadySeen = lastEmittedUpdateId?.let { dto.updateId <= it } ?: false

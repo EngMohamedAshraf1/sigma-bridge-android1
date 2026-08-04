@@ -12,6 +12,6 @@ import javax.inject.Inject
 class SendTelegramMessageUseCase @Inject constructor(
     private val telegramRepository: TelegramRepository
 ) {
-    suspend operator fun invoke(chatId: Long, text: String): Result<Unit> =
-        telegramRepository.sendMessage(chatId, text)
+    suspend operator fun invoke(chatId: Long, text: String, replyToMessageId: Long? = null): Result<Unit> =
+        telegramRepository.sendMessage(chatId, text, replyToMessageId)
 }

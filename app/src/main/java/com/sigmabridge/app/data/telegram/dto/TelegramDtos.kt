@@ -19,11 +19,18 @@ data class TelegramUpdateDto(
 data class TelegramMessageDto(
     @SerialName("message_id") val messageId: Long,
     val chat: TelegramChatDto,
+    val from: TelegramUserDto? = null,
     val voice: TelegramVoiceDto? = null
 )
 
 @Serializable
 data class TelegramChatDto(
+    val id: Long,
+    val type: String? = null
+)
+
+@Serializable
+data class TelegramUserDto(
     val id: Long
 )
 
@@ -35,7 +42,8 @@ data class TelegramVoiceDto(
 @Serializable
 data class TelegramSendMessageRequestDto(
     @SerialName("chat_id") val chatId: Long,
-    val text: String
+    val text: String,
+    @SerialName("reply_to_message_id") val replyToMessageId: Long? = null
 )
 
 @Serializable
