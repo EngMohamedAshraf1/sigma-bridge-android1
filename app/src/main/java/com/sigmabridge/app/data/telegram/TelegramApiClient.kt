@@ -1,6 +1,7 @@
 package com.sigmabridge.app.data.telegram
 
 import com.sigmabridge.app.data.network.await
+import com.sigmabridge.app.data.telegram.dto.TelegramGetChatAdministratorsResponseDto
 import com.sigmabridge.app.data.telegram.dto.TelegramGetUpdatesResponseDto
 import com.sigmabridge.app.data.telegram.dto.TelegramSendMessageRequestDto
 import com.sigmabridge.app.data.telegram.dto.TelegramSendMessageResponseDto
@@ -77,6 +78,25 @@ class TelegramApiClient @Inject constructor(
             if (!parsed.ok) {
                 throw TelegramApiException("Telegram sendMessage returned ok=false")
             }
+        }
+    }
+
+    /** Used only by the chat-admin permission check (Phase 9.3) - not part of the translation pipeline. */
+    suspend fun getChatAdministrators(botToken: String, chatId: Long): List<Long> = withContext(Dispatchers.IO) {
+        val url = "https://api.telegram.org/bot$botToken/getChatAdministrators".toHttpUrl().newBuilder()
+            .addQueryParameter("chat_id", chatId.toString())
+            .build()
+
+        httpClient.newCall(Request.Builder().url(url).build()).await().use { response ->
+            val body = response.body?.string().orEmpty()
+            if (!response.isSuccessful) {
+                throw TelegramApiException("getChatAdministrators failed: HTTP ${response.code} — $body", response.code)
+            }
+            val parsed = json.decodeFromString(TelegramGetChatAdministratorsResponseDto.serializer(), body)
+            if (!parsed.ok) {
+                throw TelegramApiException("getChatAdministrators returned ok=false")
+            }
+            parsed.result.map { it.user.id }
         }
     }
 }

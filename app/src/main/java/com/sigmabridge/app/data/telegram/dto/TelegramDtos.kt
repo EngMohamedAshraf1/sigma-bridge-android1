@@ -20,7 +20,8 @@ data class TelegramMessageDto(
     @SerialName("message_id") val messageId: Long,
     val chat: TelegramChatDto,
     val from: TelegramUserDto? = null,
-    val voice: TelegramVoiceDto? = null
+    val voice: TelegramVoiceDto? = null,
+    val text: String? = null
 )
 
 @Serializable
@@ -37,6 +38,18 @@ data class TelegramUserDto(
 @Serializable
 data class TelegramVoiceDto(
     @SerialName("file_id") val fileId: String
+)
+
+@Serializable
+data class TelegramGetChatAdministratorsResponseDto(
+    val ok: Boolean,
+    val result: List<TelegramChatMemberDto> = emptyList()
+)
+
+@Serializable
+data class TelegramChatMemberDto(
+    val user: TelegramUserDto,
+    val status: String
 )
 
 @Serializable

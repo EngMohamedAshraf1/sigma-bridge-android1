@@ -1,8 +1,8 @@
 package com.sigmabridge.app.domain.dispatch
 
 import com.sigmabridge.app.domain.cache.CacheManager
+import com.sigmabridge.app.domain.language.LanguageResolver
 import com.sigmabridge.app.domain.logging.BridgeLogger
-import com.sigmabridge.app.domain.model.LanguagePair
 import com.sigmabridge.app.domain.model.TelegramUpdate
 import com.sigmabridge.app.domain.model.TranslationMode
 import com.sigmabridge.app.domain.model.TranslationRequest
@@ -21,21 +21,22 @@ import javax.inject.Inject
  * update.chatId already identifies the exact chat an update came from,
  * private or group/supergroup alike — Telegram's chat_id is uniform across
  * chat types, so no per-type branching was ever needed here for "reply to
- * the right chat". What Phase 9.0 actually added: every reply now threads
- * via reply_to_message_id (update.messageId) instead of posting as a bare
- * new message — this matters most in a busy group, where it's otherwise
- * ambiguous which voice note a translation belongs to.
+ * the right chat". Phase 9.0 added reply threading (reply_to_message_id).
  *
- * LanguagePair.DEFAULT_MVP_PAIR is still the single global default for
- * every chat type — no group-specific or per-sender language logic here;
- * that is out of scope for this phase (see TelegramChatType's doc comment).
+ * Phase 9.2: the language pair is no longer hardcoded to
+ * LanguagePair.DEFAULT_MVP_PAIR. LanguageResolver decides which
+ * LanguageConfiguration applies (user > chat > global > DEFAULT); this
+ * handler only orchestrates — it converts that decision to a LanguagePair
+ * via toLanguagePair() at the one point that actually needs one: building
+ * the TranslationRequest. Everything else about the flow is unchanged.
  */
 class VoiceMessageHandler @Inject constructor(
     private val downloadRepository: DownloadRepository,
     private val translationRepository: TranslationRepository,
     private val sendTelegramMessage: SendTelegramMessageUseCase,
     private val cacheManager: CacheManager,
-    private val logger: BridgeLogger
+    private val logger: BridgeLogger,
+    private val languageResolver: LanguageResolver
 ) : UpdateHandler {
 
     override fun canHandle(update: TelegramUpdate): Boolean {
@@ -60,9 +61,14 @@ class VoiceMessageHandler @Inject constructor(
         }
 
         try {
+            val languageConfiguration = languageResolver.resolve(
+                chatId = update.chatId,
+                userId = update.senderUserId
+            )
+
             val request = TranslationRequest(
                 mode = TranslationMode.VOICE,
-                languagePair = LanguagePair.DEFAULT_MVP_PAIR,
+                languagePair = languageConfiguration.toLanguagePair(),
                 sourceFile = voiceFile
             )
 

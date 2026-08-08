@@ -17,7 +17,8 @@ fun TelegramUpdateDto.toDomain(): TelegramUpdate? {
         messageId = chatMessage.messageId,
         chatType = chatMessage.chat.type.toChatType(),
         senderUserId = chatMessage.from?.id,
-        voiceFileId = chatMessage.voice?.fileId
+        voiceFileId = chatMessage.voice?.fileId,
+        messageText = chatMessage.text
     )
 }
 

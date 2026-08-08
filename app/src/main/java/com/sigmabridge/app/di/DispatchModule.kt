@@ -1,5 +1,6 @@
 package com.sigmabridge.app.di
 
+import com.sigmabridge.app.domain.dispatch.LanguageCommandHandler
 import com.sigmabridge.app.domain.dispatch.UpdateHandler
 import com.sigmabridge.app.domain.dispatch.VoiceMessageHandler
 import dagger.Binds
@@ -19,4 +20,8 @@ abstract class DispatchModule {
     @Binds
     @IntoSet
     abstract fun bindVoiceMessageHandler(impl: VoiceMessageHandler): UpdateHandler
+
+    @Binds
+    @IntoSet
+    abstract fun bindLanguageCommandHandler(impl: LanguageCommandHandler): UpdateHandler
 }

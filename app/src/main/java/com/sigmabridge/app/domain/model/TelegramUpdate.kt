@@ -15,5 +15,6 @@ data class TelegramUpdate(
     val messageId: Long,
     val chatType: TelegramChatType,
     val senderUserId: Long?,
-    val voiceFileId: String?
+    val voiceFileId: String?,
+    val messageText: String?
 )
