@@ -29,6 +29,13 @@ import javax.inject.Inject
  * up any change automatically, purely because VoiceMessageHandler already
  * asks LanguageResolver fresh on every call (Phase 9.2) — no wiring needed
  * here for that to work.
+ *
+ * Phase 9.4: every command shape, every parsing rule, and every permission
+ * rule is byte-for-byte unchanged from Phase 9.3 — only the text returned
+ * to the user changed. "Not configured" is printed whenever a scope's
+ * getter returns LanguageConfiguration.DEFAULT — the same sentinel-based
+ * "nothing set for this scope" signal Phase 9.1/9.2/9.3 already relied on,
+ * just made visible in the reply instead of being silently invisible.
  */
 class LanguageCommandHandler @Inject constructor(
     private val commandParser: LanguageCommandParser,
@@ -56,13 +63,13 @@ class LanguageCommandHandler @Inject constructor(
 
         when (command) {
             is LanguageCommand.ShowAll -> handleShowAll(update, senderId)
-            is LanguageCommand.ShowGlobal -> reply(update, "Global: ${getGlobalLanguage().describe()}")
-            is LanguageCommand.ShowUser -> reply(update, "Your language: ${getUserLanguage(senderId).describe()}")
-            is LanguageCommand.ShowChat -> reply(update, "Chat language: ${getChatLanguage(update.chatId).describe()}")
+            is LanguageCommand.ShowGlobal -> reply(update, "Global language\n\n${getGlobalLanguage().describeOrUnset()}")
+            is LanguageCommand.ShowUser -> reply(update, "Your language\n\n${getUserLanguage(senderId).describeOrUnset()}")
+            is LanguageCommand.ShowChat -> reply(update, "Chat language\n\n${getChatLanguage(update.chatId).describeOrUnset()}")
             is LanguageCommand.SetGlobal -> handleSetGlobal(update, senderId, command)
             is LanguageCommand.SetChat -> handleSetChat(update, senderId, command)
             is LanguageCommand.SetUser -> handleSetUser(update, senderId, command)
-            is LanguageCommand.Unrecognized -> reply(update, USAGE_TEXT)
+            is LanguageCommand.Unrecognized -> reply(update, HELP_TEXT)
         }
     }
 
@@ -73,10 +80,11 @@ class LanguageCommandHandler @Inject constructor(
         val effective = languageResolver.resolve(chatId = update.chatId, userId = senderId)
         reply(
             update,
-            "User: ${user.describe()}\n" +
-                "Chat: ${chat.describe()}\n" +
-                "Global: ${global.describe()}\n" +
-                "Effective: ${effective.describe()}"
+            "Current configuration\n\n" +
+                "Global:\n${global.describeOrUnset()}\n\n" +
+                "Chat:\n${chat.describeOrUnset()}\n\n" +
+                "You:\n${user.describeOrUnset()}\n\n" +
+                "Effective:\n${effective.describe()}"
         )
     }
 
@@ -87,7 +95,7 @@ class LanguageCommandHandler @Inject constructor(
         }
         val configuration = parseConfiguration(update, command.sourceCode, command.targetCode) ?: return
         setGlobalLanguage(configuration)
-        reply(update, "Global language set to ${configuration.describe()}")
+        reply(update, confirmationText(scope = "Global", configuration = configuration))
     }
 
     private suspend fun handleSetChat(update: TelegramUpdate, senderId: Long, command: LanguageCommand.SetChat) {
@@ -97,7 +105,7 @@ class LanguageCommandHandler @Inject constructor(
         }
         val configuration = parseConfiguration(update, command.sourceCode, command.targetCode) ?: return
         setChatLanguage(update.chatId, configuration)
-        reply(update, "Chat language set to ${configuration.describe()}")
+        reply(update, confirmationText(scope = "Chat", configuration = configuration))
     }
 
     private suspend fun handleSetUser(update: TelegramUpdate, senderId: Long, command: LanguageCommand.SetUser) {
@@ -109,15 +117,15 @@ class LanguageCommandHandler @Inject constructor(
         }
         val configuration = parseConfiguration(update, command.sourceCode, command.targetCode) ?: return
         setUserLanguage(senderId, configuration)
-        reply(update, "Your language set to ${configuration.describe()}")
+        reply(update, confirmationText(scope = "User", configuration = configuration))
     }
 
     private suspend fun parseConfiguration(update: TelegramUpdate, sourceCode: String, targetCode: String): LanguageConfiguration? {
         val source = Language.SUPPORTED.firstOrNull { it.code.equals(sourceCode, ignoreCase = true) }
         val target = Language.SUPPORTED.firstOrNull { it.code.equals(targetCode, ignoreCase = true) }
         if (source == null || target == null) {
-            val supportedCodes = Language.SUPPORTED.joinToString(", ") { it.code }
-            reply(update, "Unsupported language code. Supported: $supportedCodes")
+            val supportedCodes = Language.SUPPORTED.joinToString("\n") { it.code }
+            reply(update, "Unknown language code.\n\nSupported languages:\n$supportedCodes")
             return null
         }
         return LanguageConfiguration(source = source, target = target)
@@ -127,15 +135,40 @@ class LanguageCommandHandler @Inject constructor(
         sendTelegramMessage(update.chatId, text, update.messageId)
     }
 
+    private fun confirmationText(scope: String, configuration: LanguageConfiguration): String =
+        "Language updated successfully.\n\n" +
+            "Scope: $scope\n" +
+            "Translation: ${configuration.describe()}\n\n" +
+            "This will affect future translations only."
+
     private fun LanguageConfiguration.describe(): String = "${source.displayName} \u2192 ${target.displayName}"
 
+    /** "Not configured" for the DEFAULT sentinel (Phase 9.1's "nothing set for this scope" signal), the real pair otherwise. */
+    private fun LanguageConfiguration.describeOrUnset(): String =
+        if (this == LanguageConfiguration.DEFAULT) "Not configured" else describe()
+
     private companion object {
-        val USAGE_TEXT = """
-            Usage:
-            /language - show current configuration
-            /language global|user|chat - show one scope
-            /language set global|user|chat <source> <target>
-            Example: /language set user ru ar
+        val HELP_TEXT = """
+            Language Commands
+
+            Show current language
+            /language
+
+            Set your language
+            /language set user ar ru
+
+            Set current group language
+            /language set chat ar ru
+
+            Set default language
+            /language set global ar ru
+
+            Examples:
+            Arabic → Russian
+            /language set user ar ru
+
+            Russian → Arabic
+            /language set user ru ar
         """.trimIndent()
     }
 }
