@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import com.sigmabridge.app.domain.language.LanguageCatalog
 import com.sigmabridge.app.domain.model.Language
 import com.sigmabridge.app.domain.model.LanguageConfiguration
 import com.sigmabridge.app.domain.repository.LanguagePreferencesRepository
@@ -23,10 +24,22 @@ private const val KEY_GLOBAL_TARGET = "language_global_target"
  * differs at all.
  *
  * Only the language *code* (e.g. "ru") is stored per scope, not the whole
- * Language object — displayName is re-derived from Language.SUPPORTED on
+ * Language object — displayName is re-derived from LanguageCatalog on
  * read, falling back to Language(code, code) for a code that catalog
  * doesn't (yet) recognize, so a future catalog addition can never make an
  * old stored preference unreadable.
+ *
+ * Phase 9.7: "user" preferences moved from a single userId-keyed slot to a
+ * (chatId, userId)-keyed slot, so the same person can have a different
+ * language per chat. The old userId-only slot is never deleted or
+ * overwritten by this class again — getUser() falls back to reading it
+ * (once per chat, on first access) as the seed value for any chat that
+ * hasn't been explicitly configured yet, and immediately writes that value
+ * forward into the new composite key for that chat so future reads for
+ * this exact chat skip the fallback. This means an existing single-group
+ * user sees zero behavior change, and every new chat they interact with
+ * starts from their old preference as a reasonable default, independently
+ * customizable from there without touching any other chat.
  */
 @Singleton
 class SecureLanguagePreferencesRepository @Inject constructor(
@@ -59,11 +72,28 @@ class SecureLanguagePreferencesRepository @Inject constructor(
         writeConfiguration(chatSourceKey(chatId), chatTargetKey(chatId), configuration)
     }
 
-    override suspend fun getUser(userId: Long): LanguageConfiguration =
-        readConfiguration(userSourceKey(userId), userTargetKey(userId))
+    override suspend fun getUser(chatId: Long, userId: Long): LanguageConfiguration {
+        val composite = readConfiguration(userSourceKey(chatId, userId), userTargetKey(chatId, userId))
+        if (composite != LanguageConfiguration.DEFAULT) {
+            return composite
+        }
 
-    override suspend fun setUser(userId: Long, configuration: LanguageConfiguration) {
-        writeConfiguration(userSourceKey(userId), userTargetKey(userId), configuration)
+        // Nothing set for this exact chat yet - fall back to the pre-9.7 legacy
+        // userId-only slot, if the user configured one before chats were tracked.
+        val legacy = readConfiguration(legacyUserSourceKey(userId), legacyUserTargetKey(userId))
+        if (legacy != LanguageConfiguration.DEFAULT) {
+            // Migrate: write it forward for THIS chat so it no longer needs the
+            // fallback. The legacy key itself is left untouched - it remains the
+            // seed for any other chat this user hasn't customized yet.
+            writeConfiguration(userSourceKey(chatId, userId), userTargetKey(chatId, userId), legacy)
+            return legacy
+        }
+
+        return LanguageConfiguration.DEFAULT
+    }
+
+    override suspend fun setUser(chatId: Long, userId: Long, configuration: LanguageConfiguration) {
+        writeConfiguration(userSourceKey(chatId, userId), userTargetKey(chatId, userId), configuration)
     }
 
     private fun readConfiguration(sourceKey: String, targetKey: String): LanguageConfiguration {
@@ -84,10 +114,12 @@ class SecureLanguagePreferencesRepository @Inject constructor(
     }
 
     private fun codeToLanguage(code: String): Language =
-        Language.SUPPORTED.firstOrNull { it.code == code } ?: Language(code = code, displayName = code)
+        LanguageCatalog.findByCode(code) ?: Language(code = code, displayName = code)
 
     private fun chatSourceKey(chatId: Long) = "language_chat_${chatId}_source"
     private fun chatTargetKey(chatId: Long) = "language_chat_${chatId}_target"
-    private fun userSourceKey(userId: Long) = "language_user_${userId}_source"
-    private fun userTargetKey(userId: Long) = "language_user_${userId}_target"
+    private fun userSourceKey(chatId: Long, userId: Long) = "language_user_${chatId}_${userId}_source"
+    private fun userTargetKey(chatId: Long, userId: Long) = "language_user_${chatId}_${userId}_target"
+    private fun legacyUserSourceKey(userId: Long) = "language_user_${userId}_source"
+    private fun legacyUserTargetKey(userId: Long) = "language_user_${userId}_target"
 }

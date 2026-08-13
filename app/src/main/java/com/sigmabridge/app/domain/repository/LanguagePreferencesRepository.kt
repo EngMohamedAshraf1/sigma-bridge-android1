@@ -6,12 +6,12 @@ import com.sigmabridge.app.domain.model.LanguageConfiguration
  * Three independent scopes, each with its own get/set — no precedence or
  * fallback logic between them lives here. Every getter transparently
  * returns LanguageConfiguration.DEFAULT until something has been
- * explicitly set for that exact scope (Phase 9.1 requirement: backward
- * compatibility with the current single-global-default behavior).
+ * explicitly set for that exact scope.
  *
- * Nothing in the app calls this yet — VoiceMessageHandler still always
- * uses LanguagePair.DEFAULT_MVP_PAIR directly. This interface is pure
- * infrastructure for a future phase.
+ * Phase 9.7: "user" is scoped by (chatId, userId), not userId alone — the
+ * same person can have a different language in different chats. Private
+ * chats need no special case: chatId there is just the private chat's own
+ * id, so the same (chatId, userId) key scheme applies uniformly.
  */
 interface LanguagePreferencesRepository {
     suspend fun getGlobal(): LanguageConfiguration
@@ -20,6 +20,6 @@ interface LanguagePreferencesRepository {
     suspend fun getChat(chatId: Long): LanguageConfiguration
     suspend fun setChat(chatId: Long, configuration: LanguageConfiguration)
 
-    suspend fun getUser(userId: Long): LanguageConfiguration
-    suspend fun setUser(userId: Long, configuration: LanguageConfiguration)
+    suspend fun getUser(chatId: Long, userId: Long): LanguageConfiguration
+    suspend fun setUser(chatId: Long, userId: Long, configuration: LanguageConfiguration)
 }

@@ -12,7 +12,16 @@ data class TelegramGetUpdatesResponseDto(
 @Serializable
 data class TelegramUpdateDto(
     @SerialName("update_id") val updateId: Long,
-    val message: TelegramMessageDto? = null
+    val message: TelegramMessageDto? = null,
+    @SerialName("callback_query") val callbackQuery: TelegramCallbackQueryDto? = null
+)
+
+@Serializable
+data class TelegramCallbackQueryDto(
+    val id: String,
+    val from: TelegramUserDto,
+    val message: TelegramMessageDto? = null,
+    val data: String? = null
 )
 
 @Serializable
@@ -53,15 +62,40 @@ data class TelegramChatMemberDto(
 )
 
 @Serializable
+data class TelegramInlineKeyboardMarkupDto(
+    @SerialName("inline_keyboard") val inlineKeyboard: List<List<TelegramInlineKeyboardButtonDto>>
+)
+
+@Serializable
+data class TelegramInlineKeyboardButtonDto(
+    val text: String,
+    @SerialName("callback_data") val callbackData: String
+)
+
+@Serializable
 data class TelegramSendMessageRequestDto(
     @SerialName("chat_id") val chatId: Long,
     val text: String,
-    @SerialName("reply_to_message_id") val replyToMessageId: Long? = null
+    @SerialName("reply_to_message_id") val replyToMessageId: Long? = null,
+    @SerialName("reply_markup") val replyMarkup: TelegramInlineKeyboardMarkupDto? = null
 )
 
 @Serializable
 data class TelegramSendMessageResponseDto(
     val ok: Boolean
+)
+
+@Serializable
+data class TelegramEditMessageTextRequestDto(
+    @SerialName("chat_id") val chatId: Long,
+    @SerialName("message_id") val messageId: Long,
+    val text: String,
+    @SerialName("reply_markup") val replyMarkup: TelegramInlineKeyboardMarkupDto? = null
+)
+
+@Serializable
+data class TelegramAnswerCallbackQueryRequestDto(
+    @SerialName("callback_query_id") val callbackQueryId: String
 )
 
 @Serializable

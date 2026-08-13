@@ -1,11 +1,15 @@
 package com.sigmabridge.app.domain.dispatch
 
+import com.sigmabridge.app.domain.language.LanguageCallbackParser
+import com.sigmabridge.app.domain.language.LanguageCatalog
 import com.sigmabridge.app.domain.language.LanguageCommand
 import com.sigmabridge.app.domain.language.LanguageCommandParser
 import com.sigmabridge.app.domain.language.LanguagePermissionChecker
 import com.sigmabridge.app.domain.language.LanguageResolver
-import com.sigmabridge.app.domain.model.Language
+import com.sigmabridge.app.domain.language.LanguageScope
 import com.sigmabridge.app.domain.model.LanguageConfiguration
+import com.sigmabridge.app.domain.model.TelegramKeyboard
+import com.sigmabridge.app.domain.model.TelegramKeyboardButton
 import com.sigmabridge.app.domain.model.TelegramUpdate
 import com.sigmabridge.app.domain.usecase.GetChatLanguageUseCase
 import com.sigmabridge.app.domain.usecase.GetGlobalLanguageUseCase
@@ -64,17 +68,17 @@ class LanguageCommandHandler @Inject constructor(
         when (command) {
             is LanguageCommand.ShowAll -> handleShowAll(update, senderId)
             is LanguageCommand.ShowGlobal -> reply(update, "Global language\n\n${getGlobalLanguage().describeOrUnset()}")
-            is LanguageCommand.ShowUser -> reply(update, "Your language\n\n${getUserLanguage(senderId).describeOrUnset()}")
+            is LanguageCommand.ShowUser -> reply(update, "Your language\n\n${getUserLanguage(update.chatId, senderId).describeOrUnset()}")
             is LanguageCommand.ShowChat -> reply(update, "Chat language\n\n${getChatLanguage(update.chatId).describeOrUnset()}")
             is LanguageCommand.SetGlobal -> handleSetGlobal(update, senderId, command)
             is LanguageCommand.SetChat -> handleSetChat(update, senderId, command)
             is LanguageCommand.SetUser -> handleSetUser(update, senderId, command)
-            is LanguageCommand.Unrecognized -> reply(update, HELP_TEXT)
+            is LanguageCommand.Unrecognized -> reply(update, buildHelpText())
         }
     }
 
     private suspend fun handleShowAll(update: TelegramUpdate, senderId: Long) {
-        val user = getUserLanguage(senderId)
+        val user = getUserLanguage(update.chatId, senderId)
         val chat = getChatLanguage(update.chatId)
         val global = getGlobalLanguage()
         val effective = languageResolver.resolve(chatId = update.chatId, userId = senderId)
@@ -84,9 +88,27 @@ class LanguageCommandHandler @Inject constructor(
                 "Global:\n${global.describeOrUnset()}\n\n" +
                 "Chat:\n${chat.describeOrUnset()}\n\n" +
                 "You:\n${user.describeOrUnset()}\n\n" +
-                "Effective:\n${effective.describe()}"
+                "Effective:\n${effective.describe()}\n\n" +
+                "Choose Language Settings",
+            keyboard = scopeMenuKeyboard()
         )
     }
+
+    /**
+     * Phase 9.8: the same three scopes /language user|chat|global already
+     * address, now offered as tappable buttons so a user never has to
+     * remember a language code to get started. Purely an alternative
+     * entry point — LanguageCallbackHandler (domain/dispatch) picks up
+     * from here and reuses the exact same use cases/permission checks
+     * this class already calls for the text-command path.
+     */
+    private fun scopeMenuKeyboard(): TelegramKeyboard = TelegramKeyboard.singleColumn(
+        listOf(
+            TelegramKeyboardButton("\uD83D\uDC64 My Language", LanguageCallbackParser.menuData(LanguageScope.USER)),
+            TelegramKeyboardButton("\uD83D\uDC65 Group Language", LanguageCallbackParser.menuData(LanguageScope.CHAT)),
+            TelegramKeyboardButton("\uD83C\uDF0D Global Language", LanguageCallbackParser.menuData(LanguageScope.GLOBAL))
+        )
+    )
 
     private suspend fun handleSetGlobal(update: TelegramUpdate, senderId: Long, command: LanguageCommand.SetGlobal) {
         if (!permissionChecker.authorizeGlobalChange(senderId)) {
@@ -116,23 +138,23 @@ class LanguageCommandHandler @Inject constructor(
             return
         }
         val configuration = parseConfiguration(update, command.sourceCode, command.targetCode) ?: return
-        setUserLanguage(senderId, configuration)
+        setUserLanguage(update.chatId, senderId, configuration)
         reply(update, confirmationText(scope = "User", configuration = configuration))
     }
 
     private suspend fun parseConfiguration(update: TelegramUpdate, sourceCode: String, targetCode: String): LanguageConfiguration? {
-        val source = Language.SUPPORTED.firstOrNull { it.code.equals(sourceCode, ignoreCase = true) }
-        val target = Language.SUPPORTED.firstOrNull { it.code.equals(targetCode, ignoreCase = true) }
+        val source = LanguageCatalog.findByCode(sourceCode)
+        val target = LanguageCatalog.findByCode(targetCode)
         if (source == null || target == null) {
-            val supportedCodes = Language.SUPPORTED.joinToString("\n") { it.code }
+            val supportedCodes = LanguageCatalog.ALL.joinToString("\n") { it.code }
             reply(update, "Unknown language code.\n\nSupported languages:\n$supportedCodes")
             return null
         }
         return LanguageConfiguration(source = source, target = target)
     }
 
-    private suspend fun reply(update: TelegramUpdate, text: String) {
-        sendTelegramMessage(update.chatId, text, update.messageId)
+    private suspend fun reply(update: TelegramUpdate, text: String, keyboard: TelegramKeyboard? = null) {
+        sendTelegramMessage(update.chatId, text, update.messageId, keyboard)
     }
 
     private fun confirmationText(scope: String, configuration: LanguageConfiguration): String =
@@ -147,8 +169,14 @@ class LanguageCommandHandler @Inject constructor(
     private fun LanguageConfiguration.describeOrUnset(): String =
         if (this == LanguageConfiguration.DEFAULT) "Not configured" else describe()
 
-    private companion object {
-        val HELP_TEXT = """
+    /**
+     * Static example commands stay as illustrative text (they'll always be
+     * valid as long as ru/ar exist), but the "Supported languages" line is
+     * built from LanguageCatalog.ALL at call time — requirement 4.
+     */
+    private fun buildHelpText(): String {
+        val supportedCodes = LanguageCatalog.ALL.joinToString("\n") { "${it.code} (${it.displayName})" }
+        return """
             Language Commands
 
             Show current language
@@ -169,6 +197,9 @@ class LanguageCommandHandler @Inject constructor(
 
             Russian → Arabic
             /language set user ru ar
+
+            Supported languages:
+            $supportedCodes
         """.trimIndent()
     }
 }

@@ -8,10 +8,14 @@ import javax.inject.Singleton
 /**
  * Selects which LanguageConfiguration applies for a given message — never
  * translates, never touches Gemini, never touches Telegram. Priority:
- * user > chat > global > LanguageConfiguration.DEFAULT.
+ * per-user-per-chat > chat > global > LanguageConfiguration.DEFAULT.
  *
- * Known limitation, inherited from Phase 9.1's repository design (not
- * changed here — "no repository changes" is out of scope this phase):
+ * Phase 9.7: "user" became (chatId, userId)-scoped (see
+ * LanguagePreferencesRepository) — the only change here is passing chatId
+ * into getUser() alongside userId. The priority order itself (user beats
+ * chat beats global beats default) is unchanged from Phase 9.2.
+ *
+ * Known limitation, inherited from Phase 9.1's repository design:
  * getUser()/getChat()/getGlobal() each return LanguageConfiguration.DEFAULT
  * as their own "nothing configured for this scope" sentinel, not null.
  * That means a preference explicitly set to the exact same value as
@@ -28,7 +32,7 @@ class LanguageResolver @Inject constructor(
 ) {
     suspend fun resolve(chatId: Long, userId: Long?): LanguageConfiguration {
         if (userId != null) {
-            val userConfiguration = languagePreferencesRepository.getUser(userId)
+            val userConfiguration = languagePreferencesRepository.getUser(chatId, userId)
             if (userConfiguration != LanguageConfiguration.DEFAULT) {
                 return userConfiguration
             }

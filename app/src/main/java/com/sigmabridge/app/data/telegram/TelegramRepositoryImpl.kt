@@ -3,6 +3,7 @@ package com.sigmabridge.app.data.telegram
 import com.sigmabridge.app.domain.logging.BridgeLogger
 import com.sigmabridge.app.domain.model.BridgeServiceState
 import com.sigmabridge.app.domain.model.TelegramHealth
+import com.sigmabridge.app.domain.model.TelegramKeyboard
 import com.sigmabridge.app.domain.model.TelegramUpdate
 import com.sigmabridge.app.domain.repository.SettingsRepository
 import com.sigmabridge.app.domain.repository.TelegramRepository
@@ -67,10 +68,32 @@ class TelegramRepositoryImpl @Inject constructor(
     private val _updates = MutableSharedFlow<TelegramUpdate>(extraBufferCapacity = UPDATE_BUFFER_CAPACITY)
     override val updates: SharedFlow<TelegramUpdate> = _updates.asSharedFlow()
 
-    override suspend fun sendMessage(chatId: Long, text: String, replyToMessageId: Long?): Result<Unit> = runCatching {
+    override suspend fun sendMessage(
+        chatId: Long,
+        text: String,
+        replyToMessageId: Long?,
+        keyboard: TelegramKeyboard?
+    ): Result<Unit> = runCatching {
         val token = settingsRepository.botToken.first()
             ?: error("Cannot send message: bot token not set")
-        apiClient.sendMessage(token, chatId, text, replyToMessageId)
+        apiClient.sendMessage(token, chatId, text, replyToMessageId, keyboard)
+    }
+
+    override suspend fun editMessage(
+        chatId: Long,
+        messageId: Long,
+        text: String,
+        keyboard: TelegramKeyboard?
+    ): Result<Unit> = runCatching {
+        val token = settingsRepository.botToken.first()
+            ?: error("Cannot edit message: bot token not set")
+        apiClient.editMessageText(token, chatId, messageId, text, keyboard)
+    }
+
+    override suspend fun answerCallbackQuery(callbackQueryId: String): Result<Unit> = runCatching {
+        val token = settingsRepository.botToken.first()
+            ?: error("Cannot answer callback query: bot token not set")
+        apiClient.answerCallbackQuery(token, callbackQueryId)
     }
 
     override suspend fun start() {

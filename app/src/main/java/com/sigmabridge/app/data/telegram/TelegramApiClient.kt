@@ -1,11 +1,16 @@
 package com.sigmabridge.app.data.telegram
 
 import com.sigmabridge.app.data.network.await
+import com.sigmabridge.app.data.telegram.dto.TelegramAnswerCallbackQueryRequestDto
+import com.sigmabridge.app.data.telegram.dto.TelegramEditMessageTextRequestDto
 import com.sigmabridge.app.data.telegram.dto.TelegramGetChatAdministratorsResponseDto
 import com.sigmabridge.app.data.telegram.dto.TelegramGetUpdatesResponseDto
+import com.sigmabridge.app.data.telegram.dto.TelegramInlineKeyboardButtonDto
+import com.sigmabridge.app.data.telegram.dto.TelegramInlineKeyboardMarkupDto
 import com.sigmabridge.app.data.telegram.dto.TelegramSendMessageRequestDto
 import com.sigmabridge.app.data.telegram.dto.TelegramSendMessageResponseDto
 import com.sigmabridge.app.data.telegram.dto.TelegramUpdateDto
+import com.sigmabridge.app.domain.model.TelegramKeyboard
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -59,12 +64,18 @@ class TelegramApiClient @Inject constructor(
         botToken: String,
         chatId: Long,
         text: String,
-        replyToMessageId: Long? = null
+        replyToMessageId: Long? = null,
+        keyboard: TelegramKeyboard? = null
     ) = withContext(Dispatchers.IO) {
         val url = "https://api.telegram.org/bot$botToken/sendMessage".toHttpUrl()
         val requestBody = json.encodeToString(
             TelegramSendMessageRequestDto.serializer(),
-            TelegramSendMessageRequestDto(chatId = chatId, text = text, replyToMessageId = replyToMessageId)
+            TelegramSendMessageRequestDto(
+                chatId = chatId,
+                text = text,
+                replyToMessageId = replyToMessageId,
+                replyMarkup = keyboard.toDto()
+            )
         ).toRequestBody("application/json".toMediaType())
 
         val request = Request.Builder().url(url).post(requestBody).build()
@@ -77,6 +88,61 @@ class TelegramApiClient @Inject constructor(
             val parsed = json.decodeFromString(TelegramSendMessageResponseDto.serializer(), body)
             if (!parsed.ok) {
                 throw TelegramApiException("Telegram sendMessage returned ok=false")
+            }
+        }
+    }
+
+    /** Used by the interactive language flow (Phase 9.8) to step through menu -> source -> target in place. */
+    suspend fun editMessageText(
+        botToken: String,
+        chatId: Long,
+        messageId: Long,
+        text: String,
+        keyboard: TelegramKeyboard? = null
+    ) = withContext(Dispatchers.IO) {
+        val url = "https://api.telegram.org/bot$botToken/editMessageText".toHttpUrl()
+        val requestBody = json.encodeToString(
+            TelegramEditMessageTextRequestDto.serializer(),
+            TelegramEditMessageTextRequestDto(
+                chatId = chatId,
+                messageId = messageId,
+                text = text,
+                replyMarkup = keyboard.toDto()
+            )
+        ).toRequestBody("application/json".toMediaType())
+
+        val request = Request.Builder().url(url).post(requestBody).build()
+
+        httpClient.newCall(request).await().use { response ->
+            val body = response.body?.string().orEmpty()
+            if (!response.isSuccessful) {
+                throw TelegramApiException("Telegram editMessageText failed: HTTP ${response.code} — $body", response.code)
+            }
+            val parsed = json.decodeFromString(TelegramSendMessageResponseDto.serializer(), body)
+            if (!parsed.ok) {
+                throw TelegramApiException("Telegram editMessageText returned ok=false")
+            }
+        }
+    }
+
+    /** Required by Telegram to stop the tapped button's client-side loading spinner. */
+    suspend fun answerCallbackQuery(botToken: String, callbackQueryId: String) = withContext(Dispatchers.IO) {
+        val url = "https://api.telegram.org/bot$botToken/answerCallbackQuery".toHttpUrl()
+        val requestBody = json.encodeToString(
+            TelegramAnswerCallbackQueryRequestDto.serializer(),
+            TelegramAnswerCallbackQueryRequestDto(callbackQueryId = callbackQueryId)
+        ).toRequestBody("application/json".toMediaType())
+
+        val request = Request.Builder().url(url).post(requestBody).build()
+
+        httpClient.newCall(request).await().use { response ->
+            val body = response.body?.string().orEmpty()
+            if (!response.isSuccessful) {
+                throw TelegramApiException("Telegram answerCallbackQuery failed: HTTP ${response.code} — $body", response.code)
+            }
+            val parsed = json.decodeFromString(TelegramSendMessageResponseDto.serializer(), body)
+            if (!parsed.ok) {
+                throw TelegramApiException("Telegram answerCallbackQuery returned ok=false")
             }
         }
     }
@@ -98,5 +164,14 @@ class TelegramApiClient @Inject constructor(
             }
             parsed.result.map { it.user.id }
         }
+    }
+
+    private fun TelegramKeyboard?.toDto(): TelegramInlineKeyboardMarkupDto? {
+        if (this == null) return null
+        return TelegramInlineKeyboardMarkupDto(
+            inlineKeyboard = rows.map { row ->
+                row.map { button -> TelegramInlineKeyboardButtonDto(text = button.text, callbackData = button.callbackData) }
+            }
+        )
     }
 }
