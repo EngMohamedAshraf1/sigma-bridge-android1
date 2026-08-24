@@ -30,6 +30,7 @@ data class TelegramMessageDto(
     val chat: TelegramChatDto,
     val from: TelegramUserDto? = null,
     val voice: TelegramVoiceDto? = null,
+    val audio: TelegramAudioDto? = null,
     val text: String? = null
 )
 
@@ -47,6 +48,13 @@ data class TelegramUserDto(
 @Serializable
 data class TelegramVoiceDto(
     @SerialName("file_id") val fileId: String
+)
+
+@Serializable
+data class TelegramAudioDto(
+    @SerialName("file_id") val fileId: String,
+    @SerialName("file_name") val fileName: String? = null,
+    @SerialName("mime_type") val mimeType: String? = null
 )
 
 @Serializable
