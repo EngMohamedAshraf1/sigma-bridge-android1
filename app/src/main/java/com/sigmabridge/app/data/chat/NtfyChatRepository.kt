@@ -1,6 +1,7 @@
 package com.sigmabridge.app.data.chat
 
 import com.sigmabridge.app.domain.chat.ChatMessage
+import com.sigmabridge.app.domain.chat.ChatRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
