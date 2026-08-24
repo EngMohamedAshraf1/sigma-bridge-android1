@@ -26,7 +26,7 @@ import javax.inject.Inject
  * plain REST request built with OkHttp + kotlinx.serialization, the same
  * stack already used for Telegram in Phase 3/4. [httpCode] is attached to
  * every thrown exception so GeminiTranslationRepository can decide
- * retryability (503 only) without re-parsing anything.
+ * retryability without re-parsing anything.
  */
 class GeminiApiException(message: String, val httpCode: Int? = null) : Exception(message)
 
@@ -128,6 +128,38 @@ class GeminiApiClient @Inject constructor(
             val parsed = json.decodeFromString(GeminiGenerateContentResponseDto.serializer(), body)
             parsed.candidates.firstOrNull()?.content?.parts?.firstOrNull { it.text != null }?.text
                 ?: throw GeminiApiException("Gemini generateContent returned no text")
+        }
+    }
+
+    suspend fun generateTextContent(
+        apiKey: String,
+        model: String,
+        prompt: String
+    ): String = withContext(Dispatchers.IO) {
+        val url = "$BASE_URL/v1beta/models/$model:generateContent".toHttpUrl().newBuilder()
+            .addQueryParameter("key", apiKey)
+            .build()
+
+        val requestDto = GeminiGenerateContentRequestDto(
+            contents = listOf(
+                GeminiContentDto(
+                    parts = listOf(GeminiPartDto(text = prompt))
+                )
+            )
+        )
+        val requestBody = json.encodeToString(GeminiGenerateContentRequestDto.serializer(), requestDto)
+            .toRequestBody("application/json".toMediaType())
+
+        val request = Request.Builder().url(url).post(requestBody).build()
+
+        httpClient.newCall(request).await().use { response ->
+            val body = response.body?.string().orEmpty()
+            if (!response.isSuccessful) {
+                throw GeminiApiException("Gemini generateTextContent failed: HTTP ${response.code} — $body", response.code)
+            }
+            val parsed = json.decodeFromString(GeminiGenerateContentResponseDto.serializer(), body)
+            parsed.candidates.firstOrNull()?.content?.parts?.firstOrNull { it.text != null }?.text
+                ?: throw GeminiApiException("Gemini generateTextContent returned no text")
         }
     }
 
