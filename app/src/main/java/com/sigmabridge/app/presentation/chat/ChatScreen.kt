@@ -1,5 +1,9 @@
 package com.sigmabridge.app.presentation.chat
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -30,6 +34,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalContext
 import androidx.hilt.navigation.compose.hiltViewModel
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -45,6 +50,7 @@ fun ChatScreen(
     val connected by viewModel.connected.collectAsState()
     val partnerId by viewModel.partnerId.collectAsState()
     val error by viewModel.error.collectAsState()
+    val context = LocalContext.current
 
     var partnerInput by remember { mutableStateOf(partnerId) }
     var input by remember { mutableStateOf("") }
@@ -74,7 +80,12 @@ fun ChatScreen(
             Text(
                 text = viewModel.myId,
                 style = MaterialTheme.typography.bodyLarge,
-                modifier = Modifier.padding(top = 4.dp)
+                modifier = Modifier
+                    .padding(top = 4.dp)
+                    .clickable {
+                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        clipboard.setPrimaryClip(ClipData.newPlainText("Sigma Bridge ID", viewModel.myId))
+                    }
             )
 
             Row(
