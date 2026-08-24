@@ -54,7 +54,8 @@ data class TelegramVoiceDto(
 data class TelegramAudioDto(
     @SerialName("file_id") val fileId: String,
     @SerialName("file_name") val fileName: String? = null,
-    @SerialName("mime_type") val mimeType: String? = null
+    @SerialName("mime_type") val mimeType: String? = null,
+    @SerialName("file_size") val fileSize: Long? = null
 )
 
 @Serializable
