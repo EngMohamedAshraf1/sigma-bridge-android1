@@ -37,6 +37,7 @@ class ChatCrypto @Inject constructor(
         private const val IV_BYTES = 12
         private const val SECRET_BYTES = 32
         private const val MESSAGE_VERSION = 1
+        private const val WRAPPED_SECRET_PREFIX = "wrapped_secret_v1"
 
         private fun encode(value: ByteArray): String =
             Base64.encodeToString(value, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
@@ -143,8 +144,4 @@ class ChatCrypto @Inject constructor(
     }
 
     private fun secretKey(secret: ByteArray): SecretKey = SecretKeySpec(secret, "AES")
-
-    private companion object {
-        const val WRAPPED_SECRET_PREFIX = "wrapped_secret_v1"
-    }
 }
