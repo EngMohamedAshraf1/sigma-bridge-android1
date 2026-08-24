@@ -22,10 +22,9 @@ import javax.inject.Singleton
  * or any Gemini-specific type directly; everyone else depends on
  * TranslationRepository.
  *
- * Uploads the raw voice/audio file with the MIME type carried by the temp
- * media value object, waits for ACTIVE, makes one generateContent call that
- * listens and translates in one shot, cleans the response, then deletes the
- * remote file. Multi-key support remains an outer concern of translate().
+ * The existing file/audio path is unchanged. Phase Chat adds [translateText]
+ * as an additive text-only entry point so Private Chat can reuse the same
+ * Gemini key manager, rotation, status tracking, and transient retry policy.
  */
 @Singleton
 class GeminiTranslationRepository @Inject constructor(
@@ -85,6 +84,54 @@ class GeminiTranslationRepository @Inject constructor(
         _health.value = classifyFailure(error)
     }
 
+    /**
+     * Text-only Gemini entry point used by Private Chat.
+     * It deliberately reuses the same key manager and retry policy as the
+     * existing audio pipeline but does not alter the TranslationRepository
+     * contract or the Telegram path.
+     */
+    suspend fun translateText(text: String, languagePair: LanguagePair): Result<String> = runCatching {
+        _health.value = GeminiHealth.BUSY
+
+        val maxAttempts = keyManager.totalKeyCount()
+        if (maxAttempts == 0) {
+            throw NoAvailableGeminiKeyException("No Gemini API key configured")
+        }
+
+        var lastError: Throwable = NoAvailableGeminiKeyException("All configured Gemini API keys are unavailable")
+        var attempt = 0
+
+        while (attempt < maxAttempts) {
+            val apiKey = keyManager.nextKey() ?: break
+            attempt++
+            try {
+                return@runCatching translateTextWithKey(apiKey, text, languagePair).also {
+                    keyManager.markSucceeded(apiKey)
+                }
+            } catch (error: GeminiApiException) {
+                lastError = error
+                when (error.httpCode) {
+                    HTTP_TOO_MANY_REQUESTS -> {
+                        logger.debug(TAG, "Chat key ending in \"${apiKey.takeLast(4)}\" hit quota (429); trying next key")
+                        keyManager.markQuotaExceeded(apiKey)
+                    }
+                    HTTP_UNAUTHORIZED, HTTP_FORBIDDEN -> {
+                        logger.error(TAG, "Chat key ending in \"${apiKey.takeLast(4)}\" failed auth (${error.httpCode}); marking invalid for this session", error)
+                        keyManager.markInvalid(apiKey)
+                    }
+                    else -> throw error
+                }
+            }
+        }
+
+        throw lastError
+    }.onSuccess {
+        _health.value = GeminiHealth.READY
+    }.onFailure { error ->
+        logger.error(TAG, "Chat text translation failed", error)
+        _health.value = classifyFailure(error)
+    }
+
     private suspend fun translateWithKey(apiKey: String, request: TranslationRequest): TranslationResult {
         var uploadedFile: GeminiFileDto? = null
         try {
@@ -114,6 +161,22 @@ class GeminiTranslationRepository @Inject constructor(
         } finally {
             uploadedFile?.let { runCatching { apiClient.deleteFile(apiKey, it.name) } }
         }
+    }
+
+    private suspend fun translateTextWithKey(
+        apiKey: String,
+        text: String,
+        languagePair: LanguagePair
+    ): String {
+        val prompt = buildTextPrompt(text, languagePair)
+        val rawText = withRetryOnTransientFailure {
+            apiClient.generateTextContent(
+                apiKey = apiKey,
+                model = MODEL,
+                prompt = prompt
+            )
+        }
+        return cleanTranslation(rawText)
     }
 
     private fun classifyFailure(error: Throwable): GeminiHealth {
@@ -194,6 +257,25 @@ class GeminiTranslationRepository @Inject constructor(
               intended final meaning once — do not duplicate the repeated phrase in the output.
             - Preserve the speaker's original intent, tone, and register (formal, casual, urgent,
               etc.) rather than flattening it.
+        """.trimIndent()
+    }
+
+    private fun buildTextPrompt(text: String, languagePair: LanguagePair): String {
+        val source = languagePair.source.displayName
+        val target = languagePair.target.displayName
+        return """
+            You are a professional interpreter.
+            Translate the following message from $source to natural, fluent $target.
+
+            Rules:
+            - Output ONLY the translation.
+            - Do not explain, summarize, or add commentary.
+            - Preserve names, URLs, email addresses, phone numbers, numbers, emojis, and symbols.
+            - Preserve the original intent, tone, and register.
+            - Do not translate the speaker's name or proper nouns unless a standard $target form exists.
+
+            Message:
+            $text
         """.trimIndent()
     }
 
