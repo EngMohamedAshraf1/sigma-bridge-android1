@@ -7,7 +7,9 @@ import android.util.Base64
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.nio.ByteBuffer
 import java.security.KeyStore
+import java.security.MessageDigest
 import java.security.SecureRandom
+import java.util.Locale
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
@@ -22,6 +24,8 @@ import javax.inject.Singleton
  * A random 256-bit conversation secret is shared by the two paired devices.
  * The secret is wrapped at rest by an AES-GCM key held in Android Keystore,
  * while message content is encrypted with a fresh random IV per message.
+ * Pairing is not considered verified until both users compare the displayed
+ * security code out-of-band and explicitly confirm it on their devices.
  */
 @Singleton
 class ChatCrypto @Inject constructor(
@@ -31,12 +35,14 @@ class ChatCrypto @Inject constructor(
         const val PAIRING_PREFIX = "SB1"
         private const val PREFS_NAME = "sigma_bridge_chat_security"
         private const val KEY_WRAPPED_SECRET = "wrapped_secret"
+        private const val KEY_VERIFIED = "pairing_verified"
         private const val KEYSTORE = "AndroidKeyStore"
         private const val WRAP_ALIAS = "SigmaBridgeChatWrapKey"
         private const val GCM_TAG_BITS = 128
         private const val IV_BYTES = 12
         private const val SECRET_BYTES = 32
         private const val MESSAGE_VERSION = 1
+        private const val SECURITY_CODE_MODULUS = 1_000_000L
         private const val WRAPPED_SECRET_PREFIX = "wrapped_secret_v1"
 
         private fun encode(value: ByteArray): String =
@@ -52,9 +58,13 @@ class ChatCrypto @Inject constructor(
     fun hasPairing(): Boolean = preferences.getString(KEY_WRAPPED_SECRET, null) != null
 
     @Synchronized
+    fun isVerified(): Boolean = hasPairing() && preferences.getBoolean(KEY_VERIFIED, false)
+
+    @Synchronized
     fun generatePairingCode(roomCode: String): String {
         val secret = ByteArray(SECRET_BYTES).also(SecureRandom()::nextBytes)
         saveSecret(secret)
+        preferences.edit().putBoolean(KEY_VERIFIED, false).apply()
         return "$PAIRING_PREFIX.${roomCode.trim()}.${encode(secret)}"
     }
 
@@ -69,7 +79,34 @@ class ChatCrypto @Inject constructor(
         val secret = decode(parts[2])
         require(secret.size == SECRET_BYTES) { "Invalid pairing secret." }
         saveSecret(secret)
+        preferences.edit().putBoolean(KEY_VERIFIED, false).apply()
         return roomCode
+    }
+
+    @Synchronized
+    fun markVerified() {
+        require(hasPairing()) { "Chat is not paired." }
+        preferences.edit().putBoolean(KEY_VERIFIED, true).apply()
+    }
+
+    @Synchronized
+    fun securityCode(): String {
+        val secret = loadSecret() ?: error("Chat is not paired.")
+        val digest = MessageDigest.getInstance("SHA-256").digest(secret)
+        var value = 0L
+        for (index in 0 until 4) {
+            value = (value shl 8) or (digest[index].toLong() and 0xffL)
+        }
+        return String.format(Locale.US, "%06d", value % SECURITY_CODE_MODULUS)
+    }
+
+    @Synchronized
+    fun pairingFingerprint(): String {
+        val secret = loadSecret() ?: error("Chat is not paired.")
+        return MessageDigest.getInstance("SHA-256")
+            .digest(secret)
+            .joinToString("") { "%02x".format(it) }
+            .take(24)
     }
 
     @Synchronized
@@ -106,13 +143,15 @@ class ChatCrypto @Inject constructor(
     private fun saveSecret(secret: ByteArray) {
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         // Android Keystore keys configured with setRandomizedEncryptionRequired(true)
-        // must generate the GCM IV themselves during encryption. Using a caller-
-        // supplied IV causes "Caller-provided IV not permitted" on some devices.
+        // must generate the GCM IV themselves during encryption.
         cipher.init(Cipher.ENCRYPT_MODE, wrappingKey())
         val iv = cipher.iv
         val ciphertext = cipher.doFinal(secret)
         val wrapped = "$WRAPPED_SECRET_PREFIX:${encode(iv)}:${encode(ciphertext)}"
-        preferences.edit().putString(KEY_WRAPPED_SECRET, wrapped).apply()
+        preferences.edit()
+            .putString(KEY_WRAPPED_SECRET, wrapped)
+            .putBoolean(KEY_VERIFIED, false)
+            .apply()
     }
 
     private fun loadSecret(): ByteArray? {
