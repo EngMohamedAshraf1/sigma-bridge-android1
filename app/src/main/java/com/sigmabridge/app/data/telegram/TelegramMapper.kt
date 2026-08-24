@@ -6,8 +6,8 @@ import com.sigmabridge.app.domain.model.TelegramUpdate
 
 /**
  * A message-based update and a callback_query-based update both map to the
- * same TelegramUpdate. Message media now preserves both voice and Telegram
- * audio metadata so the dispatch layer can handle them independently.
+ * same TelegramUpdate. Message media preserves voice and Telegram audio
+ * metadata so the dispatch layer can handle them independently.
  */
 fun TelegramUpdateDto.toDomain(): TelegramUpdate? {
     val chatMessage = message
@@ -24,6 +24,7 @@ fun TelegramUpdateDto.toDomain(): TelegramUpdate? {
             audioFileId = chatMessage.audio?.fileId,
             audioMimeType = chatMessage.audio?.mimeType,
             audioFileName = chatMessage.audio?.fileName,
+            audioFileSizeBytes = chatMessage.audio?.fileSize,
             messageText = chatMessage.text,
             callbackQueryId = null,
             callbackData = null
@@ -41,6 +42,7 @@ fun TelegramUpdateDto.toDomain(): TelegramUpdate? {
                 audioFileId = null,
                 audioMimeType = null,
                 audioFileName = null,
+                audioFileSizeBytes = null,
                 messageText = null,
                 callbackQueryId = callbackQuery.id,
                 callbackData = callbackQuery.data
