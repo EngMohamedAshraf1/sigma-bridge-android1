@@ -1,6 +1,7 @@
 package com.sigmabridge.app.presentation.navigation
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -12,7 +13,10 @@ import com.sigmabridge.app.presentation.home.HomeScreen
 import com.sigmabridge.app.presentation.settings.SettingsScreen
 
 @Composable
-fun SigmaBridgeNavGraph(navController: NavHostController = rememberNavController()) {
+fun SigmaBridgeNavGraph(
+    navController: NavHostController = rememberNavController(),
+    openPrivateChat: Boolean = false
+) {
     NavHost(navController = navController, startDestination = SigmaBridgeDestination.Home.route) {
         composable(SigmaBridgeDestination.Home.route) {
             HomeScreen(
@@ -33,6 +37,12 @@ fun SigmaBridgeNavGraph(navController: NavHostController = rememberNavController
         }
         composable(SigmaBridgeDestination.BridgeControl.route) {
             BridgeControlScreen()
+        }
+    }
+
+    LaunchedEffect(openPrivateChat) {
+        if (openPrivateChat && navController.currentDestination?.route != SigmaBridgeDestination.PrivateChat.route) {
+            navController.navigate(SigmaBridgeDestination.PrivateChat.route)
         }
     }
 }
