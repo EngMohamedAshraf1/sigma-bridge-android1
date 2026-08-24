@@ -46,6 +46,14 @@ class ChatViewModel @Inject constructor(
         if (normalized.isNotBlank()) connect()
     }
 
+    fun startNewChat() {
+        identity.partnerId = ""
+        _partnerId.value = ""
+        disconnect()
+        _messages.value = emptyList()
+        _error.value = null
+    }
+
     fun connect() {
         val partner = identity.partnerId
         if (partner.isBlank()) { _error.value = "Enter the partner ID first."; return }
