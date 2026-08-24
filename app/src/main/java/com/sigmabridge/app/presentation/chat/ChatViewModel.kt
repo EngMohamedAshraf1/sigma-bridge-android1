@@ -3,6 +3,7 @@ package com.sigmabridge.app.presentation.chat
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.sigmabridge.app.data.chat.ChatHistoryStore
 import com.sigmabridge.app.data.chat.NtfyChatRepository
 import com.sigmabridge.app.domain.chat.ChatMessage
 import com.sigmabridge.app.domain.chat.ChatRepository
@@ -21,6 +22,7 @@ class ChatViewModel @Inject constructor(
     private val chatRepository: ChatRepository,
     private val ntfyRepository: NtfyChatRepository,
     private val chatTranslationService: ChatTranslationService,
+    private val historyStore: ChatHistoryStore,
     @ApplicationContext context: Context
 ) : ViewModel() {
 
@@ -45,9 +47,7 @@ class ChatViewModel @Inject constructor(
     private var currentTopic: String? = null
 
     init {
-        if (savedRoomCode.isNotBlank()) {
-            connect(savedRoomCode)
-        }
+        if (savedRoomCode.isNotBlank()) connect(savedRoomCode)
     }
 
     fun connect(topic: String) {
@@ -60,26 +60,32 @@ class ChatViewModel @Inject constructor(
 
         preferences.edit().putString(KEY_ROOM_CODE, normalized).apply()
         currentTopic = normalized
-        _messages.value = emptyList()
+        _messages.value = historyStore.load(normalized)
         _error.value = null
         _connected.value = true
 
         viewModelScope.launch {
-            chatRepository.observe(normalized, ownSenderId)
-                .collect { message ->
+            runCatching {
+                chatRepository.observe(normalized, ownSenderId).collect { message ->
                     if (_messages.value.any { it.id == message.id }) return@collect
 
-                    viewModelScope.launch {
-                        val translated = chatTranslationService.translateIncoming(message.text)
-                        val visibleMessage = message.copy(
-                            text = translated.getOrElse { error ->
-                                _error.value = error.message ?: "Unable to translate incoming message."
-                                message.text
-                            }
-                        )
-                        _messages.value = _messages.value + visibleMessage
-                    }
+                    val translated = chatTranslationService.translateIncoming(message.text)
+                    val visibleMessage = message.copy(
+                        text = translated.getOrElse { error ->
+                            _error.value = error.message ?: "Unable to translate incoming message."
+                            message.text
+                        }
+                    )
+                    val updated = _messages.value + visibleMessage
+                    _messages.value = updated
+                    historyStore.save(normalized, updated)
                 }
+            }.onFailure { error ->
+                if (currentTopic == normalized) {
+                    _connected.value = false
+                    _error.value = error.message ?: "Chat connection lost."
+                }
+            }
         }
     }
 
@@ -100,15 +106,16 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch {
             val translated = chatTranslationService.translateOutgoing(clean)
             if (translated.isFailure) {
+                _messages.value = _messages.value.filterNot { it.id == localMessage.id }
                 _error.value = translated.exceptionOrNull()?.message ?: "Unable to translate message."
                 return@launch
             }
 
-            val outboundMessage = localMessage.copy(
-                text = translated.getOrThrow()
-            )
-
+            val outboundMessage = localMessage.copy(text = translated.getOrThrow())
             chatRepository.send(topic, outboundMessage)
+                .onSuccess {
+                    historyStore.save(topic, _messages.value)
+                }
                 .onFailure { error ->
                     _messages.value = _messages.value.filterNot { it.id == localMessage.id }
                     _error.value = error.message ?: "Unable to send message."
