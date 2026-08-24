@@ -1,25 +1,30 @@
 package com.sigmabridge.app.data.chat
 
 import android.content.Context
+import android.os.Build
+import android.security.KeyPairGeneratorSpec
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
 import com.sigmabridge.app.domain.chat.ChatProfile
 import dagger.hilt.android.qualifiers.ApplicationContext
+import java.math.BigInteger
 import java.nio.charset.StandardCharsets
 import java.security.KeyPairGenerator
 import java.security.KeyStore
 import java.security.SecureRandom
 import java.security.interfaces.ECPublicKey
 import java.security.spec.ECGenParameterSpec
+import java.util.Date
 import javax.crypto.KeyAgreement
 import java.security.MessageDigest
 import javax.inject.Inject
 import javax.inject.Singleton
+import javax.security.auth.x500.X500Principal
 
 @Singleton
 class ChatIdentity @Inject constructor(
-    @ApplicationContext context: Context
+    @ApplicationContext private val context: Context
 ) {
     private val preferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
@@ -82,12 +87,29 @@ class ChatIdentity @Inject constructor(
     private fun ensureKeyPair() {
         val keyStore = KeyStore.getInstance(KEYSTORE).apply { load(null) }
         if (keyStore.containsAlias(KEY_ALIAS)) return
+
         val generator = KeyPairGenerator.getInstance(KeyProperties.KEY_ALGORITHM_EC, KEYSTORE)
-        generator.initialize(
-            KeyGenParameterSpec.Builder(KEY_ALIAS, KeyProperties.PURPOSE_AGREE_KEY)
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            generator.initialize(
+                KeyGenParameterSpec.Builder(KEY_ALIAS, KeyProperties.PURPOSE_AGREE_KEY)
+                    .setAlgorithmParameterSpec(ECGenParameterSpec("secp256r1"))
+                    .build()
+            )
+        } else {
+            val now = Date()
+            val end = Date(now.time + LEGACY_KEY_VALIDITY_MS)
+            val legacySpec = KeyPairGeneratorSpec.Builder(context)
+                .setAlias(KEY_ALIAS)
+                .setSubject(X500Principal("CN=SigmaBridgeChat"))
+                .setSerialNumber(BigInteger.ONE)
+                .setStartDate(now)
+                .setEndDate(end)
                 .setAlgorithmParameterSpec(ECGenParameterSpec("secp256r1"))
                 .build()
-        )
+            generator.initialize(legacySpec)
+        }
+
         generator.generateKeyPair()
     }
 
@@ -125,5 +147,6 @@ class ChatIdentity @Inject constructor(
         const val KEY_PARTNER_PROFILE = "partner_profile"
         const val KEY_ALIAS = "SigmaBridgeChatEcdhKey"
         const val KEYSTORE = "AndroidKeyStore"
+        const val LEGACY_KEY_VALIDITY_MS = 10L * 365L * 24L * 60L * 60L * 1000L
     }
 }
