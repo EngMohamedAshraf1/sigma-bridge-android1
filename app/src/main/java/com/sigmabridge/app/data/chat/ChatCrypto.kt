@@ -104,9 +104,12 @@ class ChatCrypto @Inject constructor(
     }
 
     private fun saveSecret(secret: ByteArray) {
-        val iv = ByteArray(IV_BYTES).also(SecureRandom()::nextBytes)
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-        cipher.init(Cipher.ENCRYPT_MODE, wrappingKey(), GCMParameterSpec(GCM_TAG_BITS, iv))
+        // Android Keystore keys configured with setRandomizedEncryptionRequired(true)
+        // must generate the GCM IV themselves during encryption. Using a caller-
+        // supplied IV causes "Caller-provided IV not permitted" on some devices.
+        cipher.init(Cipher.ENCRYPT_MODE, wrappingKey())
+        val iv = cipher.iv
         val ciphertext = cipher.doFinal(secret)
         val wrapped = "$WRAPPED_SECRET_PREFIX:${encode(iv)}:${encode(ciphertext)}"
         preferences.edit().putString(KEY_WRAPPED_SECRET, wrapped).apply()
