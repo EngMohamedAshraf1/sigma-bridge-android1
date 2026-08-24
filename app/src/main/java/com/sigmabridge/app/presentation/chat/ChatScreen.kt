@@ -19,13 +19,14 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 
@@ -110,14 +111,14 @@ fun ChatScreen(
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 items(messages, key = { it.id }) { message ->
-                    val mine = message.senderId != null && message.senderId != ""
+                    val mine = message.senderId == viewModel.ownSenderId
                     Text(
                         text = message.text,
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(8.dp),
                         style = MaterialTheme.typography.bodyLarge,
-                        textAlign = if (mine) androidx.compose.ui.text.style.TextAlign.End else androidx.compose.ui.text.style.TextAlign.Start
+                        textAlign = if (mine) TextAlign.End else TextAlign.Start
                     )
                 }
             }
