@@ -3,8 +3,9 @@ package com.sigmabridge.app.data.chat
 import com.sigmabridge.app.domain.chat.ChatMessage
 import com.sigmabridge.app.domain.chat.ChatRepository
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import okhttp3.MediaType.Companion.toMediaType
@@ -12,9 +13,9 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.util.UUID
+import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
-import java.util.concurrent.TimeUnit
 
 /**
  * Phase 1 transport only.
@@ -55,35 +56,47 @@ class NtfyChatRepository @Inject constructor(
         }
     }
 
-    override fun observe(topic: String, ownSenderId: String): Flow<ChatMessage> = flow {
+    override fun observe(topic: String, ownSenderId: String): Flow<ChatMessage> = callbackFlow {
         val request = Request.Builder()
             .url("$BASE_URL/${topic.trim()}/json?since=10m")
             .get()
             .build()
 
-        withContext(Dispatchers.IO) {
-            streamClient.newCall(request).execute().use { response ->
-                check(response.isSuccessful) { "Chat relay returned HTTP ${response.code}" }
-                val body = response.body ?: error("Chat relay returned an empty response")
+        val call = streamClient.newCall(request)
+        val worker = kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+            runCatching {
+                call.execute().use { response ->
+                    check(response.isSuccessful) { "Chat relay returned HTTP ${response.code}" }
+                    val body = response.body ?: error("Chat relay returned an empty response")
 
-                body.byteStream().bufferedReader().useLines { lines ->
-                    lines.forEach { line ->
-                        if (line.isBlank()) return@forEach
-                        val envelope = runCatching {
-                            json.decodeFromString(NtfyEnvelope.serializer(), line)
-                        }.getOrNull() ?: return@forEach
+                    body.byteStream().bufferedReader().useLines { lines ->
+                        lines.forEach { line ->
+                            if (line.isBlank()) return@forEach
+                            val envelope = runCatching {
+                                json.decodeFromString(NtfyEnvelope.serializer(), line)
+                            }.getOrNull() ?: return@forEach
 
-                        if (envelope.event != "message" || envelope.message.isNullOrBlank()) return@forEach
+                            if (envelope.event != "message" || envelope.message.isNullOrBlank()) return@forEach
 
-                        val message = runCatching {
-                            json.decodeFromString(ChatMessage.serializer(), envelope.message)
-                        }.getOrNull() ?: return@forEach
+                            val message = runCatching {
+                                json.decodeFromString(ChatMessage.serializer(), envelope.message)
+                            }.getOrNull() ?: return@forEach
 
-                        if (message.senderId != ownSenderId) emit(message)
+                            if (message.senderId != ownSenderId) trySend(message).isSuccess
+                        }
                     }
                 }
-            }
+            }.onFailure { trySendFailure(it) }
         }
+
+        awaitClose {
+            worker.cancel()
+            call.cancel()
+        }
+    }
+
+    private fun kotlinx.coroutines.channels.ProducerScope<ChatMessage>.trySendFailure(error: Throwable) {
+        close(error)
     }
 
     fun createMessage(senderId: String, text: String): ChatMessage = ChatMessage(
