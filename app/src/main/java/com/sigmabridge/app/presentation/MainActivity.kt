@@ -11,10 +11,15 @@ import dagger.hilt.android.AndroidEntryPoint
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val openPrivateChat = intent?.getBooleanExtra(EXTRA_OPEN_PRIVATE_CHAT, false) == true
         setContent {
             SigmaBridgeTheme {
-                SigmaBridgeNavGraph()
+                SigmaBridgeNavGraph(openPrivateChat = openPrivateChat)
             }
         }
+    }
+
+    companion object {
+        const val EXTRA_OPEN_PRIVATE_CHAT = "open_private_chat"
     }
 }
