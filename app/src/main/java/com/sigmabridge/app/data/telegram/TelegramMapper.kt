@@ -5,13 +5,9 @@ import com.sigmabridge.app.domain.model.TelegramChatType
 import com.sigmabridge.app.domain.model.TelegramUpdate
 
 /**
- * A message-based update and a callback_query-based update (Phase 9.8,
- * an inline keyboard button tap) both map to the same TelegramUpdate,
- * mirroring how voice updates and text-command updates already share it —
- * only one of {voiceFileId/messageText} vs {callbackQueryId/callbackData}
- * is populated at a time. An update with neither a `message` nor a
- * `callback_query` (e.g. edited_message, channel_post — not handled yet)
- * maps to null and is dropped by the caller.
+ * A message-based update and a callback_query-based update both map to the
+ * same TelegramUpdate. Message media now preserves both voice and Telegram
+ * audio metadata so the dispatch layer can handle them independently.
  */
 fun TelegramUpdateDto.toDomain(): TelegramUpdate? {
     val chatMessage = message
@@ -25,16 +21,15 @@ fun TelegramUpdateDto.toDomain(): TelegramUpdate? {
             chatType = chatMessage.chat.type.toChatType(),
             senderUserId = chatMessage.from?.id,
             voiceFileId = chatMessage.voice?.fileId,
+            audioFileId = chatMessage.audio?.fileId,
+            audioMimeType = chatMessage.audio?.mimeType,
+            audioFileName = chatMessage.audio?.fileName,
             messageText = chatMessage.text,
             callbackQueryId = null,
             callbackData = null
         )
 
         callbackQuery != null -> {
-            // The message the tapped keyboard is attached to - needed so the
-            // handler can edit it in place. Absent only if that message was
-            // deleted; a callback_query with no attached message is dropped,
-            // same as a message-less update.
             val attachedMessage = callbackQuery.message ?: return null
             TelegramUpdate(
                 updateId = updateId,
@@ -43,6 +38,9 @@ fun TelegramUpdateDto.toDomain(): TelegramUpdate? {
                 chatType = attachedMessage.chat.type.toChatType(),
                 senderUserId = callbackQuery.from.id,
                 voiceFileId = null,
+                audioFileId = null,
+                audioMimeType = null,
+                audioFileName = null,
                 messageText = null,
                 callbackQueryId = callbackQuery.id,
                 callbackData = callbackQuery.data
