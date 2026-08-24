@@ -59,10 +59,9 @@ class ChatViewModel @Inject constructor(
     }
 
     fun generatePairingCode() {
-        val room = savedRoomCode.trim()
-        if (room.isBlank()) {
-            _error.value = "Connect once with a room code before creating a pairing code."
-            return
+        val room = savedRoomCode.trim().ifBlank {
+            "bridge-${UUID.randomUUID().toString().replace("-", "").take(18)}"
+                .also { preferences.edit().putString(KEY_ROOM_CODE, it).apply() }
         }
 
         runCatching { chatCrypto.generatePairingCode(room) }
