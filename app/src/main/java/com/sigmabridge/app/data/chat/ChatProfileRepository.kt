@@ -39,7 +39,7 @@ class ChatProfileRepository @Inject constructor(
         withContext(Dispatchers.IO) {
             client.newCall(
                 Request.Builder()
-                    .url("$BASE_URL/${profileTopic(normalized)}/json?since=24h")
+                    .url("$BASE_URL/${profileTopic(normalized)}/json?poll=1&since=24h")
                     .get()
                     .build()
             ).execute().use { response ->
