@@ -48,14 +48,25 @@ class ChatNotificationService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (identity.partnerId.isBlank()) {
-            stopSelf()
-            return START_NOT_STICKY
-        }
+        when (intent?.action) {
+            ACTION_STOP -> {
+                serviceScope.coroutineContext.cancelChildren()
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                stopSelf()
+                return START_NOT_STICKY
+            }
+            ACTION_START -> {
+                if (identity.partnerId.isBlank()) {
+                    stopSelf()
+                    return START_NOT_STICKY
+                }
 
-        serviceScope.coroutineContext.cancelChildren()
-        observeMessages()
-        return START_STICKY
+                serviceScope.coroutineContext.cancelChildren()
+                observeMessages()
+                return START_STICKY
+            }
+            else -> return START_NOT_STICKY
+        }
     }
 
     private fun observeMessages() {
@@ -158,6 +169,8 @@ class ChatNotificationService : Service() {
     }
 
     companion object {
+        const val ACTION_START = "com.sigmabridge.app.action.START_CHAT_NOTIFICATIONS"
+        const val ACTION_STOP = "com.sigmabridge.app.action.STOP_CHAT_NOTIFICATIONS"
         private const val SERVICE_CHANNEL_ID = "sigma_chat_service"
         private const val CHAT_CHANNEL_ID = "sigma_chat_messages"
         private const val SERVICE_NOTIFICATION_ID = 2001
@@ -166,5 +179,10 @@ class ChatNotificationService : Service() {
 
         fun startIntent(context: Context): Intent =
             Intent(context, ChatNotificationService::class.java)
+                .setAction(ACTION_START)
+
+        fun stopIntent(context: Context): Intent =
+            Intent(context, ChatNotificationService::class.java)
+                .setAction(ACTION_STOP)
     }
 }
