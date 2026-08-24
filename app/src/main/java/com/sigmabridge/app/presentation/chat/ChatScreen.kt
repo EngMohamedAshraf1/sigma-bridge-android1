@@ -45,7 +45,9 @@ fun ChatScreen(
     val messages by viewModel.messages.collectAsState()
     val connected by viewModel.connected.collectAsState()
     val paired by viewModel.paired.collectAsState()
+    val verified by viewModel.verified.collectAsState()
     val generatedPairingCode by viewModel.pairingCode.collectAsState()
+    val securityCode by viewModel.securityCode.collectAsState()
     val error by viewModel.error.collectAsState()
 
     var pairingInput by remember { mutableStateOf("") }
@@ -76,17 +78,22 @@ fun ChatScreen(
 
             Text(
                 text = when {
-                    paired && connected -> "Paired • Connected • encrypted • history saved locally"
-                    paired -> "Paired • encrypted"
+                    verified && connected -> "Paired • Verified • Connected • encrypted • history saved locally"
+                    verified -> "Paired • Verified • encrypted"
+                    paired -> "Paired • waiting for verification"
                     else -> "Not paired"
                 },
-                color = if (paired && connected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                color = if (verified && connected) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
                 modifier = Modifier.padding(top = 8.dp)
             )
 
             if (!paired) {
                 Text(
-                    text = "Pair the two phones once. The public relay will only receive encrypted message content.",
+                    text = "Create a pairing code on one phone, then paste it on the other phone.",
                     style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier.padding(top = 12.dp)
                 )
@@ -112,26 +119,66 @@ fun ChatScreen(
                 )
 
                 Button(
-                    onClick = { viewModel.pairWithCode(pairingInput) },
+                    onClick = {
+                        viewModel.pairWithCode(pairingInput)
+                        pairingInput = ""
+                    },
                     enabled = pairingInput.isNotBlank(),
                     modifier = Modifier.padding(top = 8.dp)
                 ) {
-                    Text("Pair & connect")
+                    Text("Pair")
                 }
-            } else if (generatedPairingCode.isNotBlank()) {
+            }
+
+            if (paired && !verified) {
+                if (generatedPairingCode.isNotBlank()) {
+                    Text(
+                        text = "Send this pairing code to the other phone:",
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(top = 12.dp)
+                    )
+                    SelectionContainer {
+                        Text(
+                            text = generatedPairingCode,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 8.dp),
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
+                }
+
                 Text(
-                    text = "Share this pairing code with the other phone:",
+                    text = "Compare this security code with the other phone. It must be identical.",
                     style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier.padding(top = 12.dp)
                 )
-                SelectionContainer {
-                    Text(
-                        text = generatedPairingCode,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 8.dp),
-                        style = MaterialTheme.typography.bodyMedium
-                    )
+                Text(
+                    text = securityCode,
+                    style = MaterialTheme.typography.headlineMedium,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 6.dp),
+                    textAlign = TextAlign.Center
+                )
+
+                Button(
+                    onClick = viewModel::verifyPairing,
+                    enabled = securityCode.isNotBlank(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 10.dp)
+                ) {
+                    Text("I verified the matching code")
+                }
+
+                Button(
+                    onClick = viewModel::generatePairingCode,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 6.dp)
+                ) {
+                    Text("Create a new pairing code")
                 }
             }
 
@@ -195,14 +242,14 @@ fun ChatScreen(
                     modifier = Modifier.weight(1f),
                     label = { Text("Message") },
                     singleLine = true,
-                    enabled = connected
+                    enabled = verified && connected
                 )
                 Button(
                     onClick = {
                         viewModel.send(input)
                         input = ""
                     },
-                    enabled = connected && input.isNotBlank()
+                    enabled = verified && connected && input.isNotBlank()
                 ) {
                     Text("Send")
                 }
