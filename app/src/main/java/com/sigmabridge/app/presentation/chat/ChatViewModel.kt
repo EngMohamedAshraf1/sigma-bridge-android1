@@ -50,7 +50,7 @@ class ChatViewModel @Inject constructor(
     }
 
     fun saveUsername(value: String) {
-        runCatching { identity.setUsername(value) }
+        runCatching { identity.updateUsername(value) }
             .onSuccess {
                 _error.value = null
                 viewModelScope.launch { profileRepository.publish(identity.myProfile()) }
