@@ -22,14 +22,14 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Tiny public relay for the private chat. The stream is kept alive by reconnecting
- * after a network/relay interruption, so a temporary disconnect does not require
- * the user to leave and re-enter the room.
+ * Tiny public relay for the private chat. Message text is encrypted locally
+ * with ChatCrypto before it reaches ntfy; the relay only sees encrypted text.
  */
 @Singleton
 class NtfyChatRepository @Inject constructor(
     private val baseClient: OkHttpClient,
-    private val json: Json
+    private val json: Json,
+    private val crypto: ChatCrypto
 ) : ChatRepository {
 
     private val streamClient by lazy {
@@ -40,7 +40,8 @@ class NtfyChatRepository @Inject constructor(
 
     override suspend fun send(topic: String, message: ChatMessage): Result<Unit> = runCatching {
         val url = "$BASE_URL/${topic.trim()}"
-        val body = json.encodeToString(ChatMessage.serializer(), message)
+        val encryptedMessage = message.copy(text = crypto.encrypt(message.text))
+        val body = json.encodeToString(ChatMessage.serializer(), encryptedMessage)
             .toRequestBody(JSON_MEDIA_TYPE)
 
         withContext(Dispatchers.IO) {
@@ -58,6 +59,7 @@ class NtfyChatRepository @Inject constructor(
     }
 
     override fun observe(topic: String, ownSenderId: String): Flow<ChatMessage> = callbackFlow {
+        check(crypto.hasPairing()) { "Chat is not paired." }
         val normalizedTopic = topic.trim()
         val worker = CoroutineScope(Dispatchers.IO).launch {
             var retryDelayMs = INITIAL_RETRY_MS
@@ -89,21 +91,21 @@ class NtfyChatRepository @Inject constructor(
                                     json.decodeFromString(ChatMessage.serializer(), envelope.message)
                                 }.getOrNull() ?: return@forEach
 
-                                if (message.senderId != ownSenderId) trySend(message)
+                                if (message.senderId == ownSenderId) return@forEach
+
+                                val decrypted = runCatching { message.copy(text = crypto.decrypt(message.text)) }
+                                    .getOrNull() ?: return@forEach
+                                trySend(decrypted)
                             }
                         }
                     }
                 } catch (error: Throwable) {
                     if (!isActive) break
-                    // Reconnect silently; the ViewModel keeps the chat screen connected.
                     delay(retryDelayMs)
                     retryDelayMs = minOf(retryDelayMs * 2, MAX_RETRY_MS)
-                    continue
                 }
 
-                if (isActive) {
-                    delay(retryDelayMs)
-                }
+                if (isActive) delay(retryDelayMs)
             }
         }
 
