@@ -10,9 +10,9 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Filenames are always a freshly generated UUID, never Telegram's file_id —
- * so nothing sitting in local temp storage can be correlated back to a
- * specific Telegram file or message just by looking at the filename.
+ * Filenames are always freshly generated UUIDs, never Telegram file_ids.
+ * The extension mirrors the MIME type so local temp files remain internally
+ * consistent with the media bytes and Gemini upload metadata.
  */
 @Singleton
 class FileCacheManager @Inject constructor(
@@ -23,10 +23,10 @@ class FileCacheManager @Inject constructor(
         File(context.cacheDir, VOICE_SUBDIR).apply { mkdirs() }
     }
 
-    override fun createTempVoice(): TemporaryVoiceFile {
+    override fun createTempVoice(mimeType: String): TemporaryVoiceFile {
         val id = UUID.randomUUID().toString()
-        val file = File(voiceCacheDir, "$id.ogg")
-        return TemporaryVoiceFile(id = id, path = file.absolutePath)
+        val file = File(voiceCacheDir, "$id.${extensionForMimeType(mimeType)}")
+        return TemporaryVoiceFile(id = id, path = file.absolutePath, mimeType = mimeType)
     }
 
     override fun delete(file: TemporaryVoiceFile) {
@@ -35,6 +35,16 @@ class FileCacheManager @Inject constructor(
 
     override fun cleanup() {
         voiceCacheDir.listFiles()?.forEach { it.delete() }
+    }
+
+    private fun extensionForMimeType(mimeType: String): String = when (mimeType) {
+        "audio/mp3" -> "mp3"
+        "audio/aac" -> "aac"
+        "audio/ogg" -> "ogg"
+        "audio/flac" -> "flac"
+        "audio/wav" -> "wav"
+        "audio/aiff" -> "aiff"
+        else -> "bin"
     }
 
     private companion object {
