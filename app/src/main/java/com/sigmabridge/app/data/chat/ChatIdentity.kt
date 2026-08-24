@@ -28,7 +28,7 @@ class ChatIdentity @Inject constructor(
     }
 
     var username: String
-        get() = preferences.getString(KEY_USERNAME, null) ?: defaultUsername().also { setUsername(it) }
+        get() = preferences.getString(KEY_USERNAME, null) ?: defaultUsername().also { updateUsername(it) }
         private set(value) { preferences.edit().putString(KEY_USERNAME, value).apply() }
 
     var partner: ChatProfile?
@@ -45,7 +45,7 @@ class ChatIdentity @Inject constructor(
 
     init { ensureKeyPair() }
 
-    fun setUsername(value: String) {
+    fun updateUsername(value: String) {
         val normalized = value.trim().removePrefix("@").lowercase()
         require(Regex("^[a-z0-9_]{5,32}$").matches(normalized)) {
             "Username must be 5-32 characters: a-z, 0-9, _."
