@@ -40,7 +40,7 @@ fun ChatScreen(
     val connected by viewModel.connected.collectAsState()
     val error by viewModel.error.collectAsState()
 
-    var roomCode by remember { mutableStateOf("") }
+    var roomCode by remember { mutableStateOf(viewModel.savedRoomCode) }
     var input by remember { mutableStateOf("") }
 
     Scaffold(
