@@ -39,6 +39,12 @@
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 
+        <!-- Private chat notification listener. It is independent from Telegram Bridge. -->
+        <service
+            android:name=".service.ChatNotificationService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
     </application>
 
 </manifest>
