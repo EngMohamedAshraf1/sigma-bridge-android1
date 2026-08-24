@@ -37,118 +37,112 @@ import java.util.Locale
 
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
-fun ChatScreen(
-    onBack: () -> Unit,
-    viewModel: ChatViewModel = hiltViewModel()
-) {
+fun ChatScreen(onBack: () -> Unit, viewModel: ChatViewModel = hiltViewModel()) {
     val messages by viewModel.messages.collectAsState()
     val connected by viewModel.connected.collectAsState()
-    val partnerId by viewModel.partnerId.collectAsState()
+    val result by viewModel.searchResult.collectAsState()
+    val searching by viewModel.searching.collectAsState()
     val error by viewModel.error.collectAsState()
 
-    var partnerInput by remember { mutableStateOf(partnerId) }
+    var myUsername by remember(viewModel.myUsername) { mutableStateOf(viewModel.myUsername) }
+    var search by remember { mutableStateOf("") }
     var input by remember { mutableStateOf("") }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Private Chat") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                }
-            )
-        }
-    ) { padding ->
+    Scaffold(topBar = {
+        TopAppBar(
+            title = { Text("Private Chat") },
+            navigationIcon = {
+                IconButton(onClick = onBack) { Icon(Icons.Filled.ArrowBack, "Back") }
+            }
+        )
+    }) { padding ->
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .padding(16.dp)
+            modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp)
         ) {
-            Text(
-                text = "Your ID",
-                style = MaterialTheme.typography.labelMedium
-            )
-            Text(
-                text = viewModel.myId,
-                style = MaterialTheme.typography.bodyLarge,
-                modifier = Modifier.padding(top = 4.dp)
-            )
-
+            Text("Your public username", style = MaterialTheme.typography.labelLarge)
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 12.dp),
+                modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 OutlinedTextField(
-                    value = partnerInput,
-                    onValueChange = { partnerInput = it },
+                    value = myUsername,
+                    onValueChange = { myUsername = it },
                     modifier = Modifier.weight(1f),
-                    label = { Text("Partner ID") },
                     singleLine = true,
-                    enabled = !connected
+                    leadingIcon = { Text("@") }
                 )
-                Button(
-                    onClick = { viewModel.setPartnerId(partnerInput) },
-                    enabled = !connected && partnerInput.isNotBlank()
+                Button(onClick = { viewModel.saveUsername(myUsername) }) { Text("Save") }
+            }
+            Text("Anyone can find you by this username.", style = MaterialTheme.typography.bodySmall)
+
+            Text("Search users", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 14.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                OutlinedTextField(
+                    value = search,
+                    onValueChange = { search = it },
+                    modifier = Modifier.weight(1f),
+                    singleLine = true,
+                    placeholder = { Text("@username") }
+                )
+                Button(onClick = { viewModel.search(search) }, enabled = search.isNotBlank() && !searching) {
+                    Text(if (searching) "…" else "Search")
+                }
+            }
+
+            result?.let { profile ->
+                Card(
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
                 ) {
-                    Text("Connect")
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("@${profile.username}", style = MaterialTheme.typography.titleMedium)
+                            Text(profile.userId, style = MaterialTheme.typography.bodySmall)
+                        }
+                        Button(onClick = { viewModel.startChat(profile) }) { Text("Chat") }
+                    }
                 }
             }
 
             Text(
-                text = if (connected) "Connected • encrypted" else "Not connected",
+                text = when {
+                    connected -> "@${viewModel.partner?.username ?: ""} • Connected • encrypted"
+                    viewModel.partner != null -> "@${viewModel.partner?.username}"
+                    else -> "No chat selected"
+                },
                 color = if (connected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 8.dp)
+                modifier = Modifier.padding(top = 10.dp)
             )
-
-            error?.let {
-                Text(
-                    text = it,
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.padding(top = 8.dp)
-                )
-            }
+            error?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 6.dp)) }
 
             LazyColumn(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f)
-                    .padding(top = 12.dp),
+                modifier = Modifier.fillMaxWidth().weight(1f).padding(top = 10.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 items(messages, key = { it.id }) { message ->
                     val mine = message.senderId == viewModel.ownSenderId
-                    val background = if (mine) {
-                        MaterialTheme.colorScheme.primaryContainer
-                    } else {
-                        MaterialTheme.colorScheme.surfaceVariant
-                    }
                     Card(
                         modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(containerColor = background)
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (mine) MaterialTheme.colorScheme.primaryContainer
+                            else MaterialTheme.colorScheme.surfaceVariant
+                        )
                     ) {
                         Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(10.dp),
+                            modifier = Modifier.fillMaxWidth().padding(10.dp),
                             horizontalAlignment = if (mine) Alignment.End else Alignment.Start
                         ) {
-                            Text(
-                                text = message.text,
-                                modifier = Modifier.fillMaxWidth(),
-                                style = MaterialTheme.typography.bodyLarge,
-                                textAlign = if (mine) TextAlign.End else TextAlign.Start
-                            )
-                            Text(
-                                text = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(message.createdAt)),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                            Text(message.text, modifier = Modifier.fillMaxWidth(), textAlign = if (mine) TextAlign.End else TextAlign.Start)
+                            Text(SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(message.createdAt)), style = MaterialTheme.typography.labelSmall)
                         }
                     }
                 }
@@ -167,10 +161,7 @@ fun ChatScreen(
                     singleLine = true,
                     enabled = connected
                 )
-                Button(
-                    onClick = { viewModel.send(input); input = "" },
-                    enabled = connected && input.isNotBlank()
-                ) {
+                Button(onClick = { viewModel.send(input); input = "" }, enabled = connected && input.isNotBlank()) {
                     Text("Send")
                 }
             }
