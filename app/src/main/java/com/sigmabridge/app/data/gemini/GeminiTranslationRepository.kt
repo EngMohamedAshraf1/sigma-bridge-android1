@@ -22,17 +22,10 @@ import javax.inject.Singleton
  * or any Gemini-specific type directly; everyone else depends on
  * TranslationRepository.
  *
- * Mirrors services/gemini_service.py step for step: upload the raw audio
- * file (no local transcoding), poll until the file reaches ACTIVE, make a
- * single generateContent call that transcribes AND translates in one shot
- * (no separate STT pass), clean the response text, then delete the remote
- * file whether the call succeeded or not. That whole sequence lives in
- * [translateWithKey], completely unchanged by Phase 8.4 — multi-key support
- * is purely an outer loop in [translate] deciding *which key* to pass in.
- *
- * Phase 8.3 added [health] as an observability side-effect around this
- * sequence — BUSY while translate() is running, then READY or a specific
- * failure classification once it finishes.
+ * Uploads the raw voice/audio file with the MIME type carried by the temp
+ * media value object, waits for ACTIVE, makes one generateContent call that
+ * listens and translates in one shot, cleans the response, then deletes the
+ * remote file. Multi-key support remains an outer concern of translate().
  */
 @Singleton
 class GeminiTranslationRepository @Inject constructor(
@@ -46,14 +39,9 @@ class GeminiTranslationRepository @Inject constructor(
 
     /**
      * Tries each configured key at most once, in GeminiApiKeyManager's
-     * deterministic round-robin order — never random, per the Phase 8.4
-     * requirement. Bounded by the total configured key count fixed at the
-     * start of this call, so it always terminates even if every key comes
-     * back 429/401 (no infinite loop). A 429 just moves on to the next key;
-     * a 401/403 additionally marks that key invalid for the rest of the
-     * process. Any other failure (network error, malformed response, an
-     * exhausted transient retry inside translateWithKey) is not key-specific,
-     * so it propagates immediately instead of cycling through remaining keys.
+     * deterministic round-robin order. 429 moves to the next key; 401/403
+     * mark the current key invalid for this process. Other failures propagate
+     * after the bounded transient retry inside translateWithKey.
      */
     override suspend fun translate(request: TranslationRequest): Result<TranslationResult> = runCatching {
         _health.value = GeminiHealth.BUSY
@@ -97,14 +85,14 @@ class GeminiTranslationRepository @Inject constructor(
         _health.value = classifyFailure(error)
     }
 
-    /** The exact single-key sequence that existed before Phase 8.4 — untouched. */
     private suspend fun translateWithKey(apiKey: String, request: TranslationRequest): TranslationResult {
         var uploadedFile: GeminiFileDto? = null
         try {
+            val mimeType = request.sourceFile.mimeType
             uploadedFile = apiClient.uploadFile(
                 apiKey = apiKey,
                 sourceFilePath = request.sourceFile.path,
-                mimeType = AUDIO_MIME_TYPE,
+                mimeType = mimeType,
                 displayName = request.sourceFile.id
             )
 
@@ -118,14 +106,12 @@ class GeminiTranslationRepository @Inject constructor(
                     model = MODEL,
                     prompt = prompt,
                     fileUri = fileUri,
-                    mimeType = AUDIO_MIME_TYPE
+                    mimeType = mimeType
                 )
             }
 
             return TranslationResult(translatedText = cleanTranslation(rawText))
         } finally {
-            // Best-effort remote cleanup, same as the Python finally block — never lets a
-            // cleanup failure hide (or override) the actual translation result/error.
             uploadedFile?.let { runCatching { apiClient.deleteFile(apiKey, it.name) } }
         }
     }
@@ -154,15 +140,7 @@ class GeminiTranslationRepository @Inject constructor(
         return current
     }
 
-    /**
-     * Retry policy for transient generation failures.
-     *
-     * Gemini documents 408/429/5xx as transient classes suitable for
-     * exponential-backoff retry. 429 remains handled by the outer key
-     * rotation loop, so this helper intentionally retries 408 and the
-     * server-side 5xx cases only. This includes HTTP 500 INTERNAL, which was
-     * the failure observed during Audio testing, as well as 503 and 504.
-     */
+    /** Retry 408 and 5xx generation failures with exponential backoff. */
     private suspend fun <T> withRetryOnTransientFailure(block: suspend () -> T): T {
         var attempt = 0
         var backoffMillis = INITIAL_BACKOFF_MS
@@ -190,17 +168,7 @@ class GeminiTranslationRepository @Inject constructor(
         }
     }
 
-    /**
-     * One request, one direction, no intermediate STT step — the model is
-     * asked to listen to the audio and output only the translation, exactly
-     * as gemini_service.py's prompt did for Russian -> Arabic. Phase 8.2
-     * expanded the instructions themselves (translation quality only —
-     * still one call, still output-only, still no markdown) to address:
-     * naturalness over literalism, proper-noun/URL/phone-number/number
-     * preservation, emoji/formatting preservation, natural punctuation and
-     * sentence breaks, no duplicated phrases from stutters/restarts, and
-     * preserving the speaker's tone/register.
-     */
+    /** One request, one direction: the model listens and outputs only the translation. */
     private fun buildPrompt(languagePair: LanguagePair): String {
         val source = languagePair.source.displayName
         val target = languagePair.target.displayName
@@ -229,7 +197,6 @@ class GeminiTranslationRepository @Inject constructor(
         """.trimIndent()
     }
 
-    /** Strips a wrapping code fence and a leading language-label prefix, same intent as _clean() in gemini_service.py. */
     private fun cleanTranslation(rawText: String): String {
         var text = rawText.trim()
 
@@ -252,7 +219,6 @@ class GeminiTranslationRepository @Inject constructor(
     private companion object {
         const val TAG = "SigmaBridge"
         const val MODEL = "gemini-3.6-flash"
-        const val AUDIO_MIME_TYPE = "audio/ogg"
         const val STATE_ACTIVE = "ACTIVE"
 
         const val ACTIVE_POLL_INTERVAL_MS = 1_000L
