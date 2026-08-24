@@ -28,7 +28,7 @@ class ChatViewModel @Inject constructor(
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error.asStateFlow()
 
-    private val senderId = UUID.randomUUID().toString()
+    val ownSenderId: String = UUID.randomUUID().toString()
     private var currentTopic: String? = null
 
     fun connect(topic: String) {
@@ -45,7 +45,7 @@ class ChatViewModel @Inject constructor(
         _connected.value = true
 
         viewModelScope.launch {
-            chatRepository.observe(normalized, senderId)
+            chatRepository.observe(normalized, ownSenderId)
                 .collect { message ->
                     if (_messages.value.none { it.id == message.id }) {
                         _messages.value = _messages.value + message
@@ -64,7 +64,7 @@ class ChatViewModel @Inject constructor(
         val clean = text.trim()
         if (clean.isBlank()) return
 
-        val message = ntfyRepository.createMessage(senderId, clean)
+        val message = ntfyRepository.createMessage(ownSenderId, clean)
         _messages.value = _messages.value + message
         _error.value = null
 
