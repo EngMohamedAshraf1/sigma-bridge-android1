@@ -39,6 +39,8 @@ class NtfyChatRepository @Inject constructor(
     }
 
     override suspend fun send(topic: String, message: ChatMessage): Result<Unit> = runCatching {
+        check(crypto.isVerified()) { "Chat pairing is not verified." }
+
         val url = "$BASE_URL/${topic.trim()}"
         val encryptedMessage = message.copy(text = crypto.encrypt(message.text))
         val body = json.encodeToString(ChatMessage.serializer(), encryptedMessage)
@@ -59,7 +61,7 @@ class NtfyChatRepository @Inject constructor(
     }
 
     override fun observe(topic: String, ownSenderId: String): Flow<ChatMessage> = callbackFlow {
-        check(crypto.hasPairing()) { "Chat is not paired." }
+        check(crypto.isVerified()) { "Chat pairing is not verified." }
         val normalizedTopic = topic.trim()
         val worker = CoroutineScope(Dispatchers.IO).launch {
             var retryDelayMs = INITIAL_RETRY_MS
@@ -93,8 +95,10 @@ class NtfyChatRepository @Inject constructor(
 
                                 if (message.senderId == ownSenderId) return@forEach
 
-                                val decrypted = runCatching { message.copy(text = crypto.decrypt(message.text)) }
-                                    .getOrNull() ?: return@forEach
+                                val decrypted = runCatching {
+                                    message.copy(text = crypto.decrypt(message.text))
+                                }.getOrNull() ?: return@forEach
+
                                 trySend(decrypted)
                             }
                         }
