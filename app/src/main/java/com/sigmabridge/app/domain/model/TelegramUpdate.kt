@@ -15,6 +15,7 @@ data class TelegramUpdate(
     val audioFileId: String?,
     val audioMimeType: String?,
     val audioFileName: String?,
+    val audioFileSizeBytes: Long?,
     val messageText: String?,
     val callbackQueryId: String?,
     val callbackData: String?
