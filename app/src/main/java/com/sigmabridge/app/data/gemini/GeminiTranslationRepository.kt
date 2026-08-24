@@ -52,8 +52,8 @@ class GeminiTranslationRepository @Inject constructor(
      * back 429/401 (no infinite loop). A 429 just moves on to the next key;
      * a 401/403 additionally marks that key invalid for the rest of the
      * process. Any other failure (network error, malformed response, an
-     * exhausted 503-retry inside translateWithKey) is not key-specific, so
-     * it propagates immediately instead of cycling through remaining keys.
+     * exhausted transient retry inside translateWithKey) is not key-specific,
+     * so it propagates immediately instead of cycling through remaining keys.
      */
     override suspend fun translate(request: TranslationRequest): Result<TranslationResult> = runCatching {
         _health.value = GeminiHealth.BUSY
@@ -155,11 +155,13 @@ class GeminiTranslationRepository @Inject constructor(
     }
 
     /**
-     * Same retry philosophy as gemini_service.py: only 503 (transient server
-     * overload) is retried, with exponential backoff starting at 2s, capped
-     * at [MAX_RETRY_ATTEMPTS] attempts. Any other failure — 4xx, malformed
-     * response, network error — propagates immediately (up to translate()'s
-     * key-cycling loop, as of Phase 8.4).
+     * Retry policy for transient generation failures.
+     *
+     * Gemini documents 408/429/5xx as transient classes suitable for
+     * exponential-backoff retry. 429 remains handled by the outer key
+     * rotation loop, so this helper intentionally retries 408 and the
+     * server-side 5xx cases only. This includes HTTP 500 INTERNAL, which was
+     * the failure observed during Audio testing, as well as 503 and 504.
      */
     private suspend fun <T> withRetryOnTransientFailure(block: suspend () -> T): T {
         var attempt = 0
@@ -169,12 +171,21 @@ class GeminiTranslationRepository @Inject constructor(
                 return block()
             } catch (error: GeminiApiException) {
                 attempt++
-                if (error.httpCode != HTTP_SERVICE_UNAVAILABLE || attempt >= MAX_RETRY_ATTEMPTS) {
+                val retryable = error.httpCode == HTTP_REQUEST_TIMEOUT ||
+                    error.httpCode == HTTP_INTERNAL_SERVER_ERROR ||
+                    error.httpCode == HTTP_SERVICE_UNAVAILABLE ||
+                    error.httpCode == HTTP_GATEWAY_TIMEOUT
+
+                if (!retryable || attempt >= MAX_RETRY_ATTEMPTS) {
                     throw error
                 }
-                logger.debug(TAG, "Gemini 503, retrying attempt $attempt/$MAX_RETRY_ATTEMPTS in ${backoffMillis}ms")
+
+                logger.debug(
+                    TAG,
+                    "Transient Gemini HTTP ${error.httpCode}; retrying attempt $attempt/$MAX_RETRY_ATTEMPTS in ${backoffMillis}ms"
+                )
                 delay(backoffMillis)
-                backoffMillis *= 2
+                backoffMillis = minOf(backoffMillis * 2, MAX_BACKOFF_MS)
             }
         }
     }
@@ -247,12 +258,16 @@ class GeminiTranslationRepository @Inject constructor(
         const val ACTIVE_POLL_INTERVAL_MS = 1_000L
         const val ACTIVE_POLL_TIMEOUT_MS = 60_000L
 
-        const val HTTP_SERVICE_UNAVAILABLE = 503
+        const val HTTP_REQUEST_TIMEOUT = 408
         const val HTTP_TOO_MANY_REQUESTS = 429
+        const val HTTP_INTERNAL_SERVER_ERROR = 500
+        const val HTTP_SERVICE_UNAVAILABLE = 503
+        const val HTTP_GATEWAY_TIMEOUT = 504
         const val HTTP_UNAUTHORIZED = 401
         const val HTTP_FORBIDDEN = 403
         const val MAX_RETRY_ATTEMPTS = 4
         const val INITIAL_BACKOFF_MS = 2_000L
+        const val MAX_BACKOFF_MS = 30_000L
 
         val LEADING_LABEL_REGEX = Regex("^(arabic|ar)\\s*[:\\-]\\s*", RegexOption.IGNORE_CASE)
     }
