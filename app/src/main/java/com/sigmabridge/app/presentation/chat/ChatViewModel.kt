@@ -4,8 +4,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.sigmabridge.app.data.chat.ChatHistoryStore
 import com.sigmabridge.app.data.chat.ChatIdentity
+import com.sigmabridge.app.data.chat.ChatProfileRepository
 import com.sigmabridge.app.data.chat.NtfyChatRepository
 import com.sigmabridge.app.domain.chat.ChatMessage
+import com.sigmabridge.app.domain.chat.ChatProfile
 import com.sigmabridge.app.domain.chat.ChatRepository
 import com.sigmabridge.app.domain.chat.ChatTranslationService
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -21,42 +23,72 @@ class ChatViewModel @Inject constructor(
     private val ntfyRepository: NtfyChatRepository,
     private val chatTranslationService: ChatTranslationService,
     private val historyStore: ChatHistoryStore,
-    private val identity: ChatIdentity
+    private val identity: ChatIdentity,
+    private val profileRepository: ChatProfileRepository
 ) : ViewModel() {
-    val myId: String = identity.myId
-    private val _partnerId = MutableStateFlow(identity.partnerId)
-    val partnerId: StateFlow<String> = _partnerId.asStateFlow()
+    val myUsername: String get() = identity.username
+    val myUserId: String get() = identity.userId
+    val partner: ChatProfile? get() = identity.partner
+
     private val _messages = MutableStateFlow<List<ChatMessage>>(emptyList())
     val messages: StateFlow<List<ChatMessage>> = _messages.asStateFlow()
     private val _connected = MutableStateFlow(false)
     val connected: StateFlow<Boolean> = _connected.asStateFlow()
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error.asStateFlow()
-    val ownSenderId: String = myId
+    private val _searchResult = MutableStateFlow<ChatProfile?>(null)
+    val searchResult: StateFlow<ChatProfile?> = _searchResult.asStateFlow()
+    private val _searching = MutableStateFlow(false)
+    val searching: StateFlow<Boolean> = _searching.asStateFlow()
+    val ownSenderId: String get() = identity.userId
     private var currentTopic: String? = null
     private var currentHistoryKey: String? = null
 
-    init { if (_partnerId.value.isNotBlank()) connect() }
+    init {
+        viewModelScope.launch { profileRepository.publish(identity.myProfile()) }
+        if (identity.partner != null) connect()
+    }
 
-    fun setPartnerId(value: String) {
-        val normalized = value.trim()
-        identity.partnerId = normalized
-        _partnerId.value = normalized
-        disconnect()
-        if (normalized.isNotBlank()) connect()
+    fun saveUsername(value: String) {
+        runCatching { identity.setUsername(value) }
+            .onSuccess {
+                _error.value = null
+                viewModelScope.launch { profileRepository.publish(identity.myProfile()) }
+            }
+            .onFailure { _error.value = it.message ?: "Invalid username." }
+    }
+
+    fun search(username: String) {
+        viewModelScope.launch {
+            _searching.value = true
+            _error.value = null
+            val result = profileRepository.find(username)
+            _searchResult.value = result.getOrNull()
+            if (result.isFailure) _error.value = result.exceptionOrNull()?.message
+            if (_searchResult.value == null && _error.value == null) _error.value = "User not found."
+            _searching.value = false
+        }
+    }
+
+    fun startChat(profile: ChatProfile) {
+        runCatching { identity.setPartner(profile) }
+            .onSuccess {
+                _searchResult.value = null
+                disconnect()
+                connect()
+            }
+            .onFailure { _error.value = it.message ?: "Unable to start chat." }
     }
 
     fun connect() {
-        val partner = identity.partnerId
-        if (partner.isBlank()) { _error.value = "Enter the partner ID first."; return }
-        if (partner == myId) { _error.value = "Partner ID must be different from your own ID."; return }
+        val profile = identity.partner ?: return
         val topic = runCatching { identity.conversationTopic() }.getOrElse {
             _error.value = it.message ?: "Unable to create conversation."; return
         }
         if (currentTopic == topic && _connected.value) return
         currentTopic = topic
-        currentHistoryKey = identity.conversationKey().joinToString("") { "%02x".format(it) }
-        _messages.value = historyStore.load(currentHistoryKey!!)
+        currentHistoryKey = topic
+        _messages.value = historyStore.load(topic)
         _error.value = null
         _connected.value = true
 
@@ -93,7 +125,6 @@ class ChatViewModel @Inject constructor(
         val localMessage = ntfyRepository.createMessage(ownSenderId, clean)
         _messages.value = _messages.value + localMessage
         _error.value = null
-
         viewModelScope.launch {
             val translated = chatTranslationService.translateOutgoing(clean)
             if (translated.isFailure) {
