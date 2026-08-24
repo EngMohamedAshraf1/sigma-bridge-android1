@@ -9,9 +9,9 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Never touches java.io.File or Context.cacheDir itself — it asks
- * CacheManager for a destination (UUID-named) and asks TelegramFileApiClient
- * to write bytes there. This class only orchestrates the two.
+ * Orchestrates Telegram file lookup/download and CacheManager allocation.
+ * Voice behavior remains unchanged; Audio supplies its MIME type so the
+ * temporary file and later Gemini upload preserve the actual format.
  */
 @Singleton
 class TelegramDownloadRepository @Inject constructor(
@@ -20,12 +20,23 @@ class TelegramDownloadRepository @Inject constructor(
     private val cacheManager: CacheManager
 ) : DownloadRepository {
 
-    override suspend fun downloadVoice(fileId: String): Result<TemporaryVoiceFile> = runCatching {
+    override suspend fun downloadVoice(fileId: String): Result<TemporaryVoiceFile> =
+        download(fileId, "audio/ogg")
+
+    override suspend fun downloadAudio(
+        fileId: String,
+        mimeType: String
+    ): Result<TemporaryVoiceFile> = download(fileId, mimeType)
+
+    private suspend fun download(
+        fileId: String,
+        mimeType: String
+    ): Result<TemporaryVoiceFile> = runCatching {
         val token = settingsRepository.botToken.first()
             ?: error("Cannot download: bot token not set")
 
         val telegramFilePath = fileApiClient.getFilePath(token, fileId)
-        val destination = cacheManager.createTempVoice()
+        val destination = cacheManager.createTempVoice(mimeType)
 
         try {
             fileApiClient.downloadFile(
@@ -34,9 +45,6 @@ class TelegramDownloadRepository @Inject constructor(
                 destinationPath = destination.path
             )
         } catch (error: Exception) {
-            // A partial write (network drop, timeout mid-download) would otherwise leave
-            // an orphaned file behind forever — nothing downstream ever learns this
-            // TemporaryVoiceFile existed, since this whole call is about to return failure.
             cacheManager.delete(destination)
             throw error
         }
