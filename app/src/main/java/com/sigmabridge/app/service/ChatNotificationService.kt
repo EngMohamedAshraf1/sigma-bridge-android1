@@ -146,7 +146,7 @@ class ChatNotificationService : Service() {
     private fun checkSelfPermissionCompat(permission: String): Int =
         androidx.core.content.ContextCompat.checkSelfPermission(this, permission)
 
-    override fun onTimeout(startId: Int) {
+    override fun onTimeout(startId: Int, fgsType: Int) {
         serviceScope.cancel()
         stopSelf()
     }
