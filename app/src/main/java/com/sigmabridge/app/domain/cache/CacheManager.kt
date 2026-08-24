@@ -3,20 +3,17 @@ package com.sigmabridge.app.domain.cache
 import com.sigmabridge.app.domain.model.TemporaryVoiceFile
 
 /**
- * Sole owner of "where do temporary voice files live on disk". Business
- * logic (repositories, use cases) never touches Context.cacheDir or
- * java.io.File directly — it asks this abstraction for a location and
- * hands cleanup back to it. Exactly one implementation (FileCacheManager,
- * data layer) is allowed to actually touch the filesystem's cache directory.
+ * Sole owner of temporary voice/audio file locations. Business logic never
+ * touches Context.cacheDir or java.io.File directly.
  */
 interface CacheManager {
 
-    /** Allocates a new temp location for one voice file, named with a fresh UUID — never the Telegram file_id. */
-    fun createTempVoice(): TemporaryVoiceFile
+    /** Allocates a fresh UUID-named temp location for one voice/audio file. */
+    fun createTempVoice(mimeType: String = "audio/ogg"): TemporaryVoiceFile
 
-    /** Deletes one previously-created temp file. Safe to call if it's already gone. */
+    /** Deletes one previously-created temp file. Safe to call if already gone. */
     fun delete(file: TemporaryVoiceFile)
 
-    /** Deletes every file left in the temp voice cache — orphan cleanup (e.g. after a crash mid-pipeline). */
+    /** Deletes every file left in the temp media cache, e.g. after a crash. */
     fun cleanup()
 }
