@@ -6,16 +6,11 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.sigmabridge.app.presentation.bridge_control.BridgeControlScreen
+import com.sigmabridge.app.presentation.chat.ChatScreen
 import com.sigmabridge.app.presentation.gemini_test.GeminiTestScreen
 import com.sigmabridge.app.presentation.home.HomeScreen
 import com.sigmabridge.app.presentation.settings.SettingsScreen
 
-/**
- * Home + Settings + the two internal debug screens exist as of Phase 6.
- * Ocr/Photos/Pdf routes are still declared in [SigmaBridgeDestination] with
- * no composable() entry — same "only wire a route once the screen behind
- * it exists" rule as before.
- */
 @Composable
 fun SigmaBridgeNavGraph(navController: NavHostController = rememberNavController()) {
     NavHost(navController = navController, startDestination = SigmaBridgeDestination.Home.route) {
@@ -23,11 +18,15 @@ fun SigmaBridgeNavGraph(navController: NavHostController = rememberNavController
             HomeScreen(
                 onSettingsClick = { navController.navigate(SigmaBridgeDestination.Settings.route) },
                 onGeminiTestClick = { navController.navigate(SigmaBridgeDestination.GeminiTest.route) },
-                onBridgeControlClick = { navController.navigate(SigmaBridgeDestination.BridgeControl.route) }
+                onBridgeControlClick = { navController.navigate(SigmaBridgeDestination.BridgeControl.route) },
+                onChatClick = { navController.navigate(SigmaBridgeDestination.PrivateChat.route) }
             )
         }
         composable(SigmaBridgeDestination.Settings.route) {
             SettingsScreen()
+        }
+        composable(SigmaBridgeDestination.PrivateChat.route) {
+            ChatScreen(onBack = { navController.popBackStack() })
         }
         composable(SigmaBridgeDestination.GeminiTest.route) {
             GeminiTestScreen()
