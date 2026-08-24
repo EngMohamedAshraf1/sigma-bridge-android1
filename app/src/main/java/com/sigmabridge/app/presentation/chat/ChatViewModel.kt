@@ -1,19 +1,18 @@
 package com.sigmabridge.app.presentation.chat
 
-import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.sigmabridge.app.data.chat.ChatHistoryStore
+import com.sigmabridge.app.data.chat.ChatIdentity
 import com.sigmabridge.app.data.chat.NtfyChatRepository
 import com.sigmabridge.app.domain.chat.ChatMessage
 import com.sigmabridge.app.domain.chat.ChatRepository
 import com.sigmabridge.app.domain.chat.ChatTranslationService
 import dagger.hilt.android.lifecycle.HiltViewModel
-import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import java.util.UUID
 import javax.inject.Inject
 
 @HiltViewModel
@@ -21,70 +20,69 @@ class ChatViewModel @Inject constructor(
     private val chatRepository: ChatRepository,
     private val ntfyRepository: NtfyChatRepository,
     private val chatTranslationService: ChatTranslationService,
-    @ApplicationContext context: Context
+    private val historyStore: ChatHistoryStore,
+    private val identity: ChatIdentity
 ) : ViewModel() {
-
-    private companion object {
-        const val PREFS_NAME = "sigma_bridge_chat"
-        const val KEY_ROOM_CODE = "room_code"
-    }
-
-    private val preferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-    val savedRoomCode: String = preferences.getString(KEY_ROOM_CODE, "").orEmpty()
-
+    val myId: String = identity.myId
+    private val _partnerId = MutableStateFlow(identity.partnerId)
+    val partnerId: StateFlow<String> = _partnerId.asStateFlow()
     private val _messages = MutableStateFlow<List<ChatMessage>>(emptyList())
     val messages: StateFlow<List<ChatMessage>> = _messages.asStateFlow()
-
     private val _connected = MutableStateFlow(false)
     val connected: StateFlow<Boolean> = _connected.asStateFlow()
-
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error.asStateFlow()
-
-    val ownSenderId: String = UUID.randomUUID().toString()
+    val ownSenderId: String = myId
     private var currentTopic: String? = null
+    private var currentHistoryKey: String? = null
 
-    init {
-        if (savedRoomCode.isNotBlank()) {
-            connect(savedRoomCode)
-        }
+    init { if (_partnerId.value.isNotBlank()) connect() }
+
+    fun setPartnerId(value: String) {
+        val normalized = value.trim()
+        identity.partnerId = normalized
+        _partnerId.value = normalized
+        disconnect()
+        if (normalized.isNotBlank()) connect()
     }
 
-    fun connect(topic: String) {
-        val normalized = topic.trim()
-        if (normalized.isBlank()) {
-            _error.value = "Enter a room code first."
-            return
+    fun connect() {
+        val partner = identity.partnerId
+        if (partner.isBlank()) { _error.value = "Enter the partner ID first."; return }
+        if (partner == myId) { _error.value = "Partner ID must be different from your own ID."; return }
+        val topic = runCatching { identity.conversationTopic() }.getOrElse {
+            _error.value = it.message ?: "Unable to create conversation."; return
         }
-        if (currentTopic == normalized && _connected.value) return
-
-        preferences.edit().putString(KEY_ROOM_CODE, normalized).apply()
-        currentTopic = normalized
-        _messages.value = emptyList()
+        if (currentTopic == topic && _connected.value) return
+        currentTopic = topic
+        currentHistoryKey = identity.conversationKey().joinToString("") { "%02x".format(it) }
+        _messages.value = historyStore.load(currentHistoryKey!!)
         _error.value = null
         _connected.value = true
 
         viewModelScope.launch {
-            chatRepository.observe(normalized, ownSenderId)
-                .collect { message ->
+            runCatching {
+                chatRepository.observe(topic, ownSenderId).collect { message ->
                     if (_messages.value.any { it.id == message.id }) return@collect
-
-                    viewModelScope.launch {
-                        val translated = chatTranslationService.translateIncoming(message.text)
-                        val visibleMessage = message.copy(
-                            text = translated.getOrElse { error ->
-                                _error.value = error.message ?: "Unable to translate incoming message."
-                                message.text
-                            }
-                        )
-                        _messages.value = _messages.value + visibleMessage
-                    }
+                    val translated = chatTranslationService.translateIncoming(message.text)
+                    val visible = message.copy(text = translated.getOrElse { error ->
+                        _error.value = error.message ?: "Unable to translate incoming message."
+                        message.text
+                    })
+                    val updated = _messages.value + visible
+                    _messages.value = updated
+                    currentHistoryKey?.let { historyStore.save(it, updated) }
                 }
+            }.onFailure { error ->
+                _connected.value = false
+                _error.value = error.message ?: "Chat connection lost."
+            }
         }
     }
 
     fun disconnect() {
         currentTopic = null
+        currentHistoryKey = null
         _connected.value = false
     }
 
@@ -92,7 +90,6 @@ class ChatViewModel @Inject constructor(
         val topic = currentTopic ?: return
         val clean = text.trim()
         if (clean.isBlank()) return
-
         val localMessage = ntfyRepository.createMessage(ownSenderId, clean)
         _messages.value = _messages.value + localMessage
         _error.value = null
@@ -100,15 +97,12 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch {
             val translated = chatTranslationService.translateOutgoing(clean)
             if (translated.isFailure) {
+                _messages.value = _messages.value.filterNot { it.id == localMessage.id }
                 _error.value = translated.exceptionOrNull()?.message ?: "Unable to translate message."
                 return@launch
             }
-
-            val outboundMessage = localMessage.copy(
-                text = translated.getOrThrow()
-            )
-
-            chatRepository.send(topic, outboundMessage)
+            chatRepository.send(topic, localMessage.copy(text = translated.getOrThrow()))
+                .onSuccess { currentHistoryKey?.let { historyStore.save(it, _messages.value) } }
                 .onFailure { error ->
                     _messages.value = _messages.value.filterNot { it.id == localMessage.id }
                     _error.value = error.message ?: "Unable to send message."

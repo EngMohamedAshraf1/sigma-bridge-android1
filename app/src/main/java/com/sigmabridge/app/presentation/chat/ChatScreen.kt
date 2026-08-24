@@ -11,6 +11,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -29,6 +31,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
@@ -38,9 +43,10 @@ fun ChatScreen(
 ) {
     val messages by viewModel.messages.collectAsState()
     val connected by viewModel.connected.collectAsState()
+    val partnerId by viewModel.partnerId.collectAsState()
     val error by viewModel.error.collectAsState()
 
-    var roomCode by remember { mutableStateOf(viewModel.savedRoomCode) }
+    var partnerInput by remember { mutableStateOf(partnerId) }
     var input by remember { mutableStateOf("") }
 
     Scaffold(
@@ -62,8 +68,13 @@ fun ChatScreen(
                 .padding(16.dp)
         ) {
             Text(
-                text = "Phase 1: text transport only",
-                style = MaterialTheme.typography.bodySmall
+                text = "Your ID",
+                style = MaterialTheme.typography.labelMedium
+            )
+            Text(
+                text = viewModel.myId,
+                style = MaterialTheme.typography.bodyLarge,
+                modifier = Modifier.padding(top = 4.dp)
             )
 
             Row(
@@ -74,23 +85,23 @@ fun ChatScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 OutlinedTextField(
-                    value = roomCode,
-                    onValueChange = { roomCode = it },
+                    value = partnerInput,
+                    onValueChange = { partnerInput = it },
                     modifier = Modifier.weight(1f),
-                    label = { Text("Room code") },
+                    label = { Text("Partner ID") },
                     singleLine = true,
                     enabled = !connected
                 )
                 Button(
-                    onClick = { viewModel.connect(roomCode) },
-                    enabled = !connected && roomCode.isNotBlank()
+                    onClick = { viewModel.setPartnerId(partnerInput) },
+                    enabled = !connected && partnerInput.isNotBlank()
                 ) {
                     Text("Connect")
                 }
             }
 
             Text(
-                text = if (connected) "Connected" else "Not connected",
+                text = if (connected) "Connected • encrypted" else "Not connected",
                 color = if (connected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 8.dp)
             )
@@ -112,14 +123,34 @@ fun ChatScreen(
             ) {
                 items(messages, key = { it.id }) { message ->
                     val mine = message.senderId == viewModel.ownSenderId
-                    Text(
-                        text = message.text,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(8.dp),
-                        style = MaterialTheme.typography.bodyLarge,
-                        textAlign = if (mine) TextAlign.End else TextAlign.Start
-                    )
+                    val background = if (mine) {
+                        MaterialTheme.colorScheme.primaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.surfaceVariant
+                    }
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = background)
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(10.dp),
+                            horizontalAlignment = if (mine) Alignment.End else Alignment.Start
+                        ) {
+                            Text(
+                                text = message.text,
+                                modifier = Modifier.fillMaxWidth(),
+                                style = MaterialTheme.typography.bodyLarge,
+                                textAlign = if (mine) TextAlign.End else TextAlign.Start
+                            )
+                            Text(
+                                text = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(message.createdAt)),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
                 }
             }
 
@@ -137,10 +168,7 @@ fun ChatScreen(
                     enabled = connected
                 )
                 Button(
-                    onClick = {
-                        viewModel.send(input)
-                        input = ""
-                    },
+                    onClick = { viewModel.send(input); input = "" },
                     enabled = connected && input.isNotBlank()
                 ) {
                     Text("Send")
