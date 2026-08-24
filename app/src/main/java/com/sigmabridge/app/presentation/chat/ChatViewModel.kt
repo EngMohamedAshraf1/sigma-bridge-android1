@@ -42,66 +42,101 @@ class ChatViewModel @Inject constructor(
     private val _connected = MutableStateFlow(false)
     val connected: StateFlow<Boolean> = _connected.asStateFlow()
 
-    private val _error = MutableStateFlow<String?>(null)
-    val error: StateFlow<String?> = _error.asStateFlow()
-
     private val _paired = MutableStateFlow(chatCrypto.hasPairing())
     val paired: StateFlow<Boolean> = _paired.asStateFlow()
 
+    private val _verified = MutableStateFlow(chatCrypto.isVerified())
+    val verified: StateFlow<Boolean> = _verified.asStateFlow()
+
     private val _pairingCode = MutableStateFlow("")
     val pairingCode: StateFlow<String> = _pairingCode.asStateFlow()
+
+    private val _securityCode = MutableStateFlow(
+        runCatching { chatCrypto.securityCode() }.getOrDefault("")
+    )
+    val securityCode: StateFlow<String> = _securityCode.asStateFlow()
+
+    private val _error = MutableStateFlow<String?>(null)
+    val error: StateFlow<String?> = _error.asStateFlow()
 
     val ownSenderId: String = UUID.randomUUID().toString()
     private var currentTopic: String? = null
 
     init {
-        if (savedRoomCode.isNotBlank() && chatCrypto.hasPairing()) connect(savedRoomCode)
+        if (savedRoomCode.isNotBlank() && chatCrypto.isVerified()) {
+            connect(savedRoomCode)
+        }
     }
 
     fun generatePairingCode() {
         val room = savedRoomCode.trim().ifBlank {
             "bridge-${UUID.randomUUID().toString().replace("-", "").take(18)}"
-                .also { preferences.edit().putString(KEY_ROOM_CODE, it).apply() }
         }
 
-        runCatching { chatCrypto.generatePairingCode(room) }
-            .onSuccess {
-                _pairingCode.value = it
-                _paired.value = true
-                _error.value = null
-                connect(room)
-            }
-            .onFailure { _error.value = it.message ?: "Unable to create pairing code." }
+        runCatching {
+            preferences.edit().putString(KEY_ROOM_CODE, room).apply()
+            val code = chatCrypto.generatePairingCode(room)
+            _messages.value = emptyList()
+            currentTopic = null
+            _connected.value = false
+            _paired.value = true
+            _verified.value = false
+            _pairingCode.value = code
+            _securityCode.value = chatCrypto.securityCode()
+            _error.value = null
+        }.onFailure {
+            _error.value = it.message ?: "Unable to create pairing code."
+        }
     }
 
     fun pairWithCode(code: String) {
-        runCatching { chatCrypto.installPairingCode(code) }
-            .onSuccess { room ->
-                preferences.edit().putString(KEY_ROOM_CODE, room).apply()
-                _paired.value = true
-                _pairingCode.value = ""
-                _error.value = null
-                connect(room)
-            }
-            .onFailure { _error.value = it.message ?: "Invalid pairing code." }
+        runCatching {
+            val room = chatCrypto.installPairingCode(code)
+            preferences.edit().putString(KEY_ROOM_CODE, room).apply()
+            _messages.value = emptyList()
+            currentTopic = null
+            _connected.value = false
+            _paired.value = true
+            _verified.value = false
+            _pairingCode.value = ""
+            _securityCode.value = chatCrypto.securityCode()
+            _error.value = null
+        }.onFailure {
+            _error.value = it.message ?: "Invalid pairing code."
+        }
+    }
+
+    fun verifyPairing() {
+        runCatching {
+            chatCrypto.markVerified()
+            _verified.value = true
+            _securityCode.value = chatCrypto.securityCode()
+            _error.value = null
+            connect(savedRoomCode)
+        }.onFailure {
+            _verified.value = false
+            _error.value = it.message ?: "Unable to verify pairing."
+        }
     }
 
     fun connect(topic: String) {
         val normalized = topic.trim()
         if (normalized.isBlank()) {
-            _error.value = "Enter a room code first."
+            _error.value = "Pair the two phones first."
             return
         }
-        if (!chatCrypto.hasPairing()) {
-            _paired.value = false
-            _error.value = "Pair this device before connecting."
+        if (!chatCrypto.isVerified()) {
+            _verified.value = false
+            _connected.value = false
+            _error.value = "Compare the security code and verify this pairing first."
             return
         }
         if (currentTopic == normalized && _connected.value) return
 
         preferences.edit().putString(KEY_ROOM_CODE, normalized).apply()
         currentTopic = normalized
-        _messages.value = historyStore.load(normalized)
+        val pairingKey = chatCrypto.pairingFingerprint()
+        _messages.value = historyStore.load(pairingKey)
         _error.value = null
         _connected.value = true
 
@@ -119,7 +154,7 @@ class ChatViewModel @Inject constructor(
                     )
                     val updated = _messages.value + visibleMessage
                     _messages.value = updated
-                    historyStore.save(normalized, updated)
+                    historyStore.save(pairingKey, updated)
                 }
             }.onFailure { error ->
                 if (currentTopic == normalized) {
@@ -137,12 +172,18 @@ class ChatViewModel @Inject constructor(
 
     fun send(text: String) {
         val topic = currentTopic ?: return
+        if (!chatCrypto.isVerified()) {
+            _error.value = "Verify the pairing before sending messages."
+            return
+        }
+
         val clean = text.trim()
         if (clean.isBlank()) return
 
         val localMessage = ntfyRepository.createMessage(ownSenderId, clean)
         _messages.value = _messages.value + localMessage
         _error.value = null
+        val pairingKey = chatCrypto.pairingFingerprint()
 
         viewModelScope.launch {
             val translated = chatTranslationService.translateOutgoing(clean)
@@ -154,7 +195,7 @@ class ChatViewModel @Inject constructor(
 
             val outboundMessage = localMessage.copy(text = translated.getOrThrow())
             chatRepository.send(topic, outboundMessage)
-                .onSuccess { historyStore.save(topic, _messages.value) }
+                .onSuccess { historyStore.save(pairingKey, _messages.value) }
                 .onFailure { error ->
                     _messages.value = _messages.value.filterNot { it.id == localMessage.id }
                     _error.value = error.message ?: "Unable to send message."
