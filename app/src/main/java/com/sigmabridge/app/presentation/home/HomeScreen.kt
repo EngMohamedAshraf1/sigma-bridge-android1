@@ -35,6 +35,7 @@ fun HomeScreen(
     onSettingsClick: () -> Unit = {},
     onGeminiTestClick: () -> Unit = {},
     onBridgeControlClick: () -> Unit = {},
+    onChatClick: () -> Unit = {},
     viewModel: HomeViewModel = hiltViewModel()
 ) {
     val health by viewModel.health.collectAsState()
@@ -78,15 +79,14 @@ fun HomeScreen(
                 }
             }
 
-            // Internal-only, not a feature tile: validates Gemini in isolation (Phase 5),
-            // ahead of the full Telegram pipeline (Phase 6).
+            TextButton(onClick = onChatClick) {
+                Text("Private Chat (Phase 1)")
+            }
+
             TextButton(onClick = onGeminiTestClick) {
                 Text("Gemini Test (internal)")
             }
 
-            // No longer a placeholder: this is the real control surface for
-            // BridgeForegroundService as of Phase 7. Still not a feature tile —
-            // that's Phase 9 UI polish territory.
             TextButton(onClick = onBridgeControlClick) {
                 Text("Bridge Control")
             }
@@ -94,11 +94,6 @@ fun HomeScreen(
     }
 }
 
-/**
- * Four rows, each reflecting a real live signal (Phase 8.3) instead of a
- * placeholder — Home recomposes automatically whenever any of the four
- * combined Flows in ObserveHealthUseCase emits, no restart, no UI polling.
- */
 @Composable
 private fun HealthSection(health: HomeHealthState) {
     Column {
