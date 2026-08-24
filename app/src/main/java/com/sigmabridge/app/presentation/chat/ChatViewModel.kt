@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.sigmabridge.app.data.chat.NtfyChatRepository
 import com.sigmabridge.app.domain.chat.ChatMessage
 import com.sigmabridge.app.domain.chat.ChatRepository
+import com.sigmabridge.app.domain.chat.ChatTranslationService
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -19,6 +20,7 @@ import javax.inject.Inject
 class ChatViewModel @Inject constructor(
     private val chatRepository: ChatRepository,
     private val ntfyRepository: NtfyChatRepository,
+    private val chatTranslationService: ChatTranslationService,
     @ApplicationContext context: Context
 ) : ViewModel() {
 
@@ -65,8 +67,17 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch {
             chatRepository.observe(normalized, ownSenderId)
                 .collect { message ->
-                    if (_messages.value.none { it.id == message.id }) {
-                        _messages.value = _messages.value + message
+                    if (_messages.value.any { it.id == message.id }) return@collect
+
+                    viewModelScope.launch {
+                        val translated = chatTranslationService.translateIncoming(message.text)
+                        val visibleMessage = message.copy(
+                            text = translated.getOrElse { error ->
+                                _error.value = error.message ?: "Unable to translate incoming message."
+                                message.text
+                            }
+                        )
+                        _messages.value = _messages.value + visibleMessage
                     }
                 }
         }
@@ -82,14 +93,24 @@ class ChatViewModel @Inject constructor(
         val clean = text.trim()
         if (clean.isBlank()) return
 
-        val message = ntfyRepository.createMessage(ownSenderId, clean)
-        _messages.value = _messages.value + message
+        val localMessage = ntfyRepository.createMessage(ownSenderId, clean)
+        _messages.value = _messages.value + localMessage
         _error.value = null
 
         viewModelScope.launch {
-            chatRepository.send(topic, message)
+            val translated = chatTranslationService.translateOutgoing(clean)
+            if (translated.isFailure) {
+                _error.value = translated.exceptionOrNull()?.message ?: "Unable to translate message."
+                return@launch
+            }
+
+            val outboundMessage = localMessage.copy(
+                text = translated.getOrThrow()
+            )
+
+            chatRepository.send(topic, outboundMessage)
                 .onFailure { error ->
-                    _messages.value = _messages.value.filterNot { it.id == message.id }
+                    _messages.value = _messages.value.filterNot { it.id == localMessage.id }
                     _error.value = error.message ?: "Unable to send message."
                 }
         }
