@@ -53,7 +53,7 @@ class ChatIdentity @Inject constructor(
         username = normalized
     }
 
-    fun setPartner(profile: ChatProfile) {
+    fun updatePartner(profile: ChatProfile) {
         require(profile.userId != userId) { "You cannot chat with yourself." }
         partner = profile
     }
