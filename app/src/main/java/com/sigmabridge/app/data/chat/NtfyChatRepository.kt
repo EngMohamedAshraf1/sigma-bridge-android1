@@ -2,10 +2,12 @@ package com.sigmabridge.app.data.chat
 
 import com.sigmabridge.app.domain.chat.ChatMessage
 import com.sigmabridge.app.domain.chat.ChatRepository
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import okhttp3.MediaType.Companion.toMediaType
@@ -63,7 +65,7 @@ class NtfyChatRepository @Inject constructor(
             .build()
 
         val call = streamClient.newCall(request)
-        val worker = kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+        val worker = CoroutineScope(Dispatchers.IO).launch {
             runCatching {
                 call.execute().use { response ->
                     check(response.isSuccessful) { "Chat relay returned HTTP ${response.code}" }
@@ -86,17 +88,13 @@ class NtfyChatRepository @Inject constructor(
                         }
                     }
                 }
-            }.onFailure { trySendFailure(it) }
+            }.onFailure { close(it) }
         }
 
         awaitClose {
             worker.cancel()
             call.cancel()
         }
-    }
-
-    private fun kotlinx.coroutines.channels.ProducerScope<ChatMessage>.trySendFailure(error: Throwable) {
-        close(error)
     }
 
     fun createMessage(senderId: String, text: String): ChatMessage = ChatMessage(
