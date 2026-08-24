@@ -71,7 +71,7 @@ class ChatViewModel @Inject constructor(
     }
 
     fun startChat(profile: ChatProfile) {
-        runCatching { identity.setPartner(profile) }
+        runCatching { identity.updatePartner(profile) }
             .onSuccess {
                 _searchResult.value = null
                 disconnect()
