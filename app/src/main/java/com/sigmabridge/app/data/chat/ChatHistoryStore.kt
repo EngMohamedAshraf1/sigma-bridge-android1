@@ -9,7 +9,7 @@ import java.security.MessageDigest
 import javax.inject.Inject
 import javax.inject.Singleton
 
-/** Small local history store for the private chat. Keeps the last 200 visible messages per room. */
+/** Small local history store for the private chat. Keeps the last 200 visible messages per pairing. */
 @Singleton
 class ChatHistoryStore @Inject constructor(
     @ApplicationContext context: Context,
@@ -18,18 +18,19 @@ class ChatHistoryStore @Inject constructor(
     private val preferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     private val serializer = ListSerializer(ChatMessage.serializer())
 
-    fun load(roomCode: String): List<ChatMessage> {
-        val raw = preferences.getString(keyFor(roomCode), null) ?: return emptyList()
+    fun load(pairingFingerprint: String): List<ChatMessage> {
+        val raw = preferences.getString(keyFor(pairingFingerprint), null) ?: return emptyList()
         return runCatching { json.decodeFromString(serializer, raw) }.getOrDefault(emptyList())
     }
 
-    fun save(roomCode: String, messages: List<ChatMessage>) {
+    fun save(pairingFingerprint: String, messages: List<ChatMessage>) {
         val kept = messages.takeLast(MAX_MESSAGES)
         val raw = json.encodeToString(serializer, kept)
-        preferences.edit().putString(keyFor(roomCode), raw).apply()
+        preferences.edit().putString(keyFor(pairingFingerprint), raw).apply()
     }
 
-    private fun keyFor(roomCode: String): String = "history_${sha256(roomCode.trim())}"
+    private fun keyFor(pairingFingerprint: String): String =
+        "history_${sha256(pairingFingerprint.trim())}"
 
     private fun sha256(value: String): String {
         val digest = MessageDigest.getInstance("SHA-256").digest(value.toByteArray())
