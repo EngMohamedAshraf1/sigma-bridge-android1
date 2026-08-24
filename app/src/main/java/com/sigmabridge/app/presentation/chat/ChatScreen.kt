@@ -8,6 +8,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -18,8 +21,6 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -43,9 +44,11 @@ fun ChatScreen(
 ) {
     val messages by viewModel.messages.collectAsState()
     val connected by viewModel.connected.collectAsState()
+    val paired by viewModel.paired.collectAsState()
+    val generatedPairingCode by viewModel.pairingCode.collectAsState()
     val error by viewModel.error.collectAsState()
 
-    var roomCode by remember { mutableStateOf(viewModel.savedRoomCode) }
+    var pairingInput by remember { mutableStateOf("") }
     var input by remember { mutableStateOf("") }
 
     Scaffold(
@@ -71,34 +74,66 @@ fun ChatScreen(
                 style = MaterialTheme.typography.bodySmall
             )
 
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 12.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                OutlinedTextField(
-                    value = roomCode,
-                    onValueChange = { roomCode = it },
-                    modifier = Modifier.weight(1f),
-                    label = { Text("Room code") },
-                    singleLine = true,
-                    enabled = !connected
-                )
-                Button(
-                    onClick = { viewModel.connect(roomCode) },
-                    enabled = !connected && roomCode.isNotBlank()
-                ) {
-                    Text("Connect")
-                }
-            }
-
             Text(
-                text = if (connected) "Connected • history saved locally" else "Not connected",
-                color = if (connected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                text = when {
+                    paired && connected -> "Paired • Connected • encrypted • history saved locally"
+                    paired -> "Paired • encrypted"
+                    else -> "Not paired"
+                },
+                color = if (paired && connected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 8.dp)
             )
+
+            if (!paired) {
+                Text(
+                    text = "Pair the two phones once. The public relay will only receive encrypted message content.",
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(top = 12.dp)
+                )
+
+                Button(
+                    onClick = viewModel::generatePairingCode,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 12.dp)
+                ) {
+                    Text("Create pairing code")
+                }
+
+                OutlinedTextField(
+                    value = pairingInput,
+                    onValueChange = { pairingInput = it },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp),
+                    label = { Text("Pairing code from the other phone") },
+                    placeholder = { Text("SB1.room.secret") },
+                    minLines = 2
+                )
+
+                Button(
+                    onClick = { viewModel.pairWithCode(pairingInput) },
+                    enabled = pairingInput.isNotBlank(),
+                    modifier = Modifier.padding(top = 8.dp)
+                ) {
+                    Text("Pair & connect")
+                }
+            } else if (generatedPairingCode.isNotBlank()) {
+                Text(
+                    text = "Share this pairing code with the other phone:",
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(top = 12.dp)
+                )
+                SelectionContainer {
+                    Text(
+                        text = generatedPairingCode,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 8.dp),
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
+            }
 
             error?.let {
                 Text(
