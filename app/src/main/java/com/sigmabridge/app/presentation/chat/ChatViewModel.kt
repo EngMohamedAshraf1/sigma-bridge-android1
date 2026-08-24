@@ -108,13 +108,15 @@ class ChatViewModel @Inject constructor(
 
     fun verifyPairing() {
         runCatching {
+            val room = preferences.getString(KEY_ROOM_CODE, "").orEmpty()
+            require(room.isNotBlank()) { "Pairing has no conversation room." }
             chatCrypto.markVerified()
             _verified.value = true
             _securityCode.value = chatCrypto.securityCode()
             _error.value = null
-            connect(savedRoomCode)
+            connect(room)
         }.onFailure {
-            _verified.value = false
+            _verified.value = chatCrypto.isVerified()
             _error.value = it.message ?: "Unable to verify pairing."
         }
     }
