@@ -25,6 +25,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -76,11 +77,14 @@ fun ChatScreen(
     }
 
     LaunchedEffect(partnerId) {
+        partnerInput = partnerId
         if (partnerId.isNotBlank()) {
             ContextCompat.startForegroundService(
                 context,
                 ChatNotificationService.startIntent(context)
             )
+        } else {
+            context.startService(ChatNotificationService.stopIntent(context))
         }
     }
 
@@ -132,11 +136,22 @@ fun ChatScreen(
                     singleLine = true,
                     enabled = !connected
                 )
-                Button(
-                    onClick = { viewModel.setPartnerId(partnerInput) },
-                    enabled = !connected && partnerInput.isNotBlank()
-                ) {
-                    Text("Connect")
+                if (connected) {
+                    OutlinedButton(
+                        onClick = {
+                            input = ""
+                            viewModel.startNewChat()
+                        }
+                    ) {
+                        Text("New Chat")
+                    }
+                } else {
+                    Button(
+                        onClick = { viewModel.setPartnerId(partnerInput) },
+                        enabled = partnerInput.isNotBlank()
+                    ) {
+                        Text("Connect")
+                    }
                 }
             }
 
