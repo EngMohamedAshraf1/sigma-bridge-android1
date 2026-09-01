@@ -44,6 +44,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.sigmabridge.app.domain.chat.MessageDeliveryStatus
 import com.sigmabridge.app.service.ChatNotificationService
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -79,10 +80,7 @@ fun ChatScreen(
     LaunchedEffect(partnerId) {
         partnerInput = partnerId
         if (partnerId.isNotBlank()) {
-            ContextCompat.startForegroundService(
-                context,
-                ChatNotificationService.startIntent(context)
-            )
+            ContextCompat.startForegroundService(context, ChatNotificationService.startIntent(context))
         } else {
             context.startService(ChatNotificationService.stopIntent(context))
         }
@@ -101,30 +99,20 @@ fun ChatScreen(
         }
     ) { padding ->
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .padding(16.dp)
+            modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp)
         ) {
-            Text(
-                text = "Your ID",
-                style = MaterialTheme.typography.labelMedium
-            )
+            Text("Your ID", style = MaterialTheme.typography.labelMedium)
             Text(
                 text = viewModel.myId,
                 style = MaterialTheme.typography.bodyLarge,
-                modifier = Modifier
-                    .padding(top = 4.dp)
-                    .clickable {
-                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                        clipboard.setPrimaryClip(ClipData.newPlainText("Sigma Bridge ID", viewModel.myId))
-                    }
+                modifier = Modifier.padding(top = 4.dp).clickable {
+                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    clipboard.setPrimaryClip(ClipData.newPlainText("Sigma Bridge ID", viewModel.myId))
+                }
             )
 
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 12.dp),
+                modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -137,21 +125,9 @@ fun ChatScreen(
                     enabled = !connected
                 )
                 if (connected) {
-                    OutlinedButton(
-                        onClick = {
-                            input = ""
-                            viewModel.startNewChat()
-                        }
-                    ) {
-                        Text("New Chat")
-                    }
+                    OutlinedButton(onClick = { input = ""; viewModel.startNewChat() }) { Text("New Chat") }
                 } else {
-                    Button(
-                        onClick = { viewModel.setPartnerId(partnerInput) },
-                        enabled = partnerInput.isNotBlank()
-                    ) {
-                        Text("Connect")
-                    }
+                    Button(onClick = { viewModel.setPartnerId(partnerInput) }, enabled = partnerInput.isNotBlank()) { Text("Connect") }
                 }
             }
 
@@ -162,35 +138,19 @@ fun ChatScreen(
             )
 
             error?.let {
-                Text(
-                    text = it,
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.padding(top = 8.dp)
-                )
+                Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 8.dp))
             }
 
             LazyColumn(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f)
-                    .padding(top = 12.dp),
+                modifier = Modifier.fillMaxWidth().weight(1f).padding(top = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 items(messages, key = { it.id }) { message ->
                     val mine = message.senderId == viewModel.ownSenderId
-                    val background = if (mine) {
-                        MaterialTheme.colorScheme.primaryContainer
-                    } else {
-                        MaterialTheme.colorScheme.surfaceVariant
-                    }
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(containerColor = background)
-                    ) {
+                    val background = if (mine) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
+                    Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = background)) {
                         Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(10.dp),
+                            modifier = Modifier.fillMaxWidth().padding(10.dp),
                             horizontalAlignment = if (mine) Alignment.End else Alignment.Start
                         ) {
                             Text(
@@ -199,11 +159,20 @@ fun ChatScreen(
                                 style = MaterialTheme.typography.bodyLarge,
                                 textAlign = if (mine) TextAlign.End else TextAlign.Start
                             )
-                            Text(
-                                text = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(message.createdAt)),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(message.createdAt)),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                if (mine && message.deliveryStatus == MessageDeliveryStatus.PENDING) {
+                                    Text(
+                                        text = "• Sending…",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -222,10 +191,7 @@ fun ChatScreen(
                     singleLine = true,
                     enabled = connected
                 )
-                Button(
-                    onClick = { viewModel.send(input); input = "" },
-                    enabled = connected && input.isNotBlank()
-                ) {
+                Button(onClick = { viewModel.send(input); input = "" }, enabled = connected && input.isNotBlank()) {
                     Text("Send")
                 }
             }
