@@ -2,13 +2,14 @@ package com.sigmabridge.app.data.chat
 
 import android.content.Context
 import com.sigmabridge.app.domain.chat.ChatMessage
+import com.sigmabridge.app.domain.chat.MessageDeliveryStatus
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 import javax.inject.Inject
 import javax.inject.Singleton
 
-/** Small persistent outbox. Pending messages survive app restarts and network loss. */
+/** Small persistent outbox. Any message stored here is pending until it is removed after successful delivery. */
 @Singleton
 class ChatOutboxStore @Inject constructor(
     @ApplicationContext context: Context,
@@ -19,7 +20,10 @@ class ChatOutboxStore @Inject constructor(
 
     fun load(conversationKey: String): List<ChatMessage> {
         val raw = preferences.getString(keyFor(conversationKey), null) ?: return emptyList()
-        return runCatching { json.decodeFromString(serializer, raw) }.getOrDefault(emptyList())
+        return runCatching {
+            json.decodeFromString(serializer, raw)
+                .map { it.copy(deliveryStatus = MessageDeliveryStatus.PENDING) }
+        }.getOrDefault(emptyList())
     }
 
     fun save(conversationKey: String, messages: List<ChatMessage>) {
