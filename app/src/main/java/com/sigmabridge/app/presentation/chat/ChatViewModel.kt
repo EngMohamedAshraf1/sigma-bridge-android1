@@ -41,7 +41,7 @@ class ChatViewModel @Inject constructor(
     val ownSenderId: String = myId
     private var currentTopic: String? = null
     private var currentHistoryKey: String? = null
-    private var outboxStatusJob: Job? = null
+    private var statusSyncJob: Job? = null
 
     init { if (_partnerId.value.isNotBlank()) connect() }
 
@@ -69,16 +69,16 @@ class ChatViewModel @Inject constructor(
             _error.value = it.message ?: "Unable to create conversation."; return
         }
         if (currentTopic == topic && _connected.value) return
-        outboxStatusJob?.cancel()
+        statusSyncJob?.cancel()
         currentTopic = topic
         currentHistoryKey = identity.conversationKey().joinToString("") { "%02x".format(it) }
         val historyKey = currentHistoryKey!!
         val pendingIds = outboxStore.load(historyKey).map { it.id }.toSet()
         _messages.value = historyStore.load(historyKey).map { message ->
-            if (message.senderId == ownSenderId && message.id in pendingIds) {
-                message.copy(deliveryStatus = MessageDeliveryStatus.PENDING)
-            } else {
-                message
+            when {
+                message.senderId == ownSenderId && message.id in pendingIds ->
+                    message.copy(deliveryStatus = MessageDeliveryStatus.PENDING)
+                else -> message
             }
         }
         _error.value = null
@@ -103,34 +103,34 @@ class ChatViewModel @Inject constructor(
             }
         }
 
-        outboxStatusJob = viewModelScope.launch {
+        statusSyncJob = viewModelScope.launch {
             while (isActive) {
                 val pendingIds = outboxStore.load(historyKey).map { it.id }.toSet()
+                val storedById = historyStore.load(historyKey).associateBy { it.id }
                 val current = _messages.value
                 var changed = false
                 val updated = current.map { message ->
-                    if (message.senderId == ownSenderId &&
-                        message.deliveryStatus == MessageDeliveryStatus.PENDING &&
-                        message.id !in pendingIds
-                    ) {
-                        changed = true
-                        message.copy(deliveryStatus = MessageDeliveryStatus.SENT)
-                    } else {
-                        message
+                    if (message.senderId != ownSenderId) return@map message
+                    val stored = storedById[message.id]
+                    val targetStatus = when {
+                        message.id in pendingIds -> MessageDeliveryStatus.PENDING
+                        stored?.deliveryStatus == MessageDeliveryStatus.DELIVERED -> MessageDeliveryStatus.DELIVERED
+                        else -> MessageDeliveryStatus.SENT
                     }
+                    if (message.deliveryStatus != targetStatus) {
+                        changed = true
+                        message.copy(deliveryStatus = targetStatus)
+                    } else message
                 }
-                if (changed) {
-                    _messages.value = updated
-                    historyStore.save(historyKey, updated)
-                }
+                if (changed) _messages.value = updated
                 delay(1_000L)
             }
         }
     }
 
     fun disconnect() {
-        outboxStatusJob?.cancel()
-        outboxStatusJob = null
+        statusSyncJob?.cancel()
+        statusSyncJob = null
         currentTopic = null
         currentHistoryKey = null
         _connected.value = false
@@ -164,8 +164,7 @@ class ChatViewModel @Inject constructor(
         pendingMessage: ChatMessage
     ) {
         val translationResult = chatTranslationService.translateOutgoing(pendingMessage.text)
-        val textToSend = translationResult.getOrElse { error ->
-            _error.value = "Translation unavailable; sent the original message."
+        val textToSend = translationResult.getOrElse {
             pendingMessage.text
         }
 
