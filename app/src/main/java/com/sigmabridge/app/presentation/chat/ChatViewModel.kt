@@ -163,13 +163,13 @@ class ChatViewModel @Inject constructor(
         topic: String,
         pendingMessage: ChatMessage
     ) {
-        val translated = chatTranslationService.translateOutgoing(pendingMessage.text)
-        if (translated.isFailure) {
-            _error.value = translated.exceptionOrNull()?.message ?: "Message queued. Translation will retry later."
-            return
+        val translationResult = chatTranslationService.translateOutgoing(pendingMessage.text)
+        val textToSend = translationResult.getOrElse { error ->
+            _error.value = "Translation unavailable; sent the original message."
+            pendingMessage.text
         }
 
-        chatRepository.send(topic, pendingMessage.copy(text = translated.getOrThrow()))
+        chatRepository.send(topic, pendingMessage.copy(text = textToSend))
             .onSuccess {
                 outboxStore.remove(historyKey, pendingMessage.id)
                 val updated = _messages.value.map {
