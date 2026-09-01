@@ -1,13 +1,18 @@
 package com.sigmabridge.app.data.chat
 
+import com.sigmabridge.app.domain.chat.ChatEvent
 import com.sigmabridge.app.domain.chat.ChatMessage
 import com.sigmabridge.app.domain.chat.ChatReceipt
 import com.sigmabridge.app.domain.chat.ChatRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -19,11 +24,16 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
 
-/** Tiny relay. Conversation topic and encryption key are derived from the two user IDs. */
+/**
+ * Tiny relay. Conversation topic and encryption key are derived from the two user IDs.
+ * A single shared ntfy listener is maintained per conversation topic so foreground UI and
+ * background service never race each other with separate relay streams.
+ */
 @Singleton
 class NtfyChatRepository @Inject constructor(
     private val baseClient: OkHttpClient,
@@ -31,6 +41,8 @@ class NtfyChatRepository @Inject constructor(
     private val crypto: ChatCrypto
 ) : ChatRepository {
     private val streamClient by lazy { baseClient.newBuilder().readTimeout(0, TimeUnit.MILLISECONDS).build() }
+    private val relayScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val streams = ConcurrentHashMap<String, RelayStream>()
 
     override suspend fun send(topic: String, message: ChatMessage): Result<Unit> = runCatching {
         sendWire(topic, message.copy(text = crypto.encrypt(message.text)))
@@ -39,7 +51,7 @@ class NtfyChatRepository @Inject constructor(
     override suspend fun sendDeliveredReceipt(topic: String, receipt: ChatReceipt): Result<Unit> = runCatching {
         val payload = RECEIPT_PREFIX + json.encodeToString(ChatReceipt.serializer(), receipt)
         val message = ChatMessage(
-            id = "receipt-${UUID.randomUUID()}",
+            id = "receipt-${receipt.messageId}-${UUID.randomUUID()}",
             senderId = receipt.senderId,
             text = crypto.encrypt(payload),
             createdAt = System.currentTimeMillis()
@@ -47,53 +59,18 @@ class NtfyChatRepository @Inject constructor(
         sendWire(topic, message)
     }
 
-    override fun observe(topic: String, ownSenderId: String): Flow<ChatMessage> =
-        observeWire(topic).let { flow ->
-            kotlinx.coroutines.flow.flow {
-                flow.collect { message ->
-                    if (message.senderId == ownSenderId) return@collect
-                    val decrypted = runCatching { message.copy(text = crypto.decrypt(message.text)) }.getOrNull()
-                        ?: return@collect
-                    if (decrypted.text.startsWith(RECEIPT_PREFIX)) return@collect
-                    emit(decrypted)
-                }
-            }
-        }
-
-    override fun observeDeliveredReceipts(topic: String, ownSenderId: String): Flow<ChatReceipt> =
-        observeWire(topic).let { flow ->
-            kotlinx.coroutines.flow.flow {
-                flow.collect { message ->
-                    if (message.senderId == ownSenderId) return@collect
-                    val decrypted = runCatching { crypto.decrypt(message.text) }.getOrNull()
-                        ?: return@collect
-                    if (!decrypted.startsWith(RECEIPT_PREFIX)) return@collect
-                    val receipt = runCatching {
-                        json.decodeFromString(
-                            ChatReceipt.serializer(),
-                            decrypted.removePrefix(RECEIPT_PREFIX)
-                        )
-                    }.getOrNull() ?: return@collect
-                    emit(receipt)
-                }
-            }
-        }
-
-    private suspend fun sendWire(topic: String, message: ChatMessage) {
-        val body = json.encodeToString(ChatMessage.serializer(), message).toRequestBody(JSON_MEDIA_TYPE)
-        withContext(Dispatchers.IO) {
-            baseClient.newCall(Request.Builder().url("$BASE_URL/${topic.trim()}").post(body).build()).execute().use { response ->
-                check(response.isSuccessful) { "Chat relay returned HTTP ${response.code}" }
-            }
-        }
+    override fun observeEvents(topic: String, ownSenderId: String): Flow<ChatEvent> {
+        val normalizedTopic = topic.trim()
+        val stream = streams.computeIfAbsent(normalizedTopic) { createRelayStream(normalizedTopic) }
+        return stream.events.asSharedFlow()
     }
 
-    private fun observeWire(topic: String): Flow<ChatMessage> = callbackFlow {
-        val normalizedTopic = topic.trim()
-        val worker = CoroutineScope(Dispatchers.IO).launch {
+    private fun createRelayStream(topic: String): RelayStream {
+        val events = MutableSharedFlow<ChatEvent>(extraBufferCapacity = 64)
+        val job = relayScope.launch {
             var retryDelayMs = INITIAL_RETRY_MS
             while (isActive) {
-                val request = Request.Builder().url("$BASE_URL/$normalizedTopic/json?since=10m").get().build()
+                val request = Request.Builder().url("$BASE_URL/$topic/json?since=10m").get().build()
                 val call = streamClient.newCall(request)
                 try {
                     call.execute().use { response ->
@@ -103,10 +80,31 @@ class NtfyChatRepository @Inject constructor(
                         body.byteStream().bufferedReader().useLines { lines ->
                             lines.forEach { line ->
                                 if (!isActive || line.isBlank()) return@forEach
-                                val envelope = runCatching { json.decodeFromString(NtfyEnvelope.serializer(), line) }.getOrNull() ?: return@forEach
+                                val envelope = runCatching {
+                                    json.decodeFromString(NtfyEnvelope.serializer(), line)
+                                }.getOrNull() ?: return@forEach
                                 if (envelope.event != "message" || envelope.message.isNullOrBlank()) return@forEach
-                                val message = runCatching { json.decodeFromString(ChatMessage.serializer(), envelope.message) }.getOrNull() ?: return@forEach
-                                trySend(message)
+
+                                val wireMessage = runCatching {
+                                    json.decodeFromString(ChatMessage.serializer(), envelope.message)
+                                }.getOrNull() ?: return@forEach
+
+                                val decryptedText = runCatching { crypto.decrypt(wireMessage.text) }.getOrNull()
+                                    ?: return@forEach
+
+                                if (decryptedText.startsWith(RECEIPT_PREFIX)) {
+                                    val receipt = runCatching {
+                                        json.decodeFromString(
+                                            ChatReceipt.serializer(),
+                                            decryptedText.removePrefix(RECEIPT_PREFIX)
+                                        )
+                                    }.getOrNull() ?: return@forEach
+
+                                    if (receipt.senderId != wireMessage.senderId) return@forEach
+                                    events.tryEmit(ChatEvent.Delivered(receipt))
+                                } else {
+                                    events.tryEmit(ChatEvent.Message(wireMessage.copy(text = decryptedText)))
+                                }
                             }
                         }
                     }
@@ -117,11 +115,25 @@ class NtfyChatRepository @Inject constructor(
                 }
             }
         }
-        awaitClose { worker.cancel() }
+        return RelayStream(events, job)
+    }
+
+    private suspend fun sendWire(topic: String, message: ChatMessage) {
+        val body = json.encodeToString(ChatMessage.serializer(), message).toRequestBody(JSON_MEDIA_TYPE)
+        withContext(Dispatchers.IO) {
+            baseClient.newCall(Request.Builder().url("$BASE_URL/${topic.trim()}").post(body).build()).execute().use { response ->
+                check(response.isSuccessful) { "Chat relay returned HTTP ${response.code}" }
+            }
+        }
     }
 
     fun createMessage(senderId: String, text: String): ChatMessage = ChatMessage(
         id = UUID.randomUUID().toString(), senderId = senderId, text = text, createdAt = System.currentTimeMillis()
+    )
+
+    private data class RelayStream(
+        val events: MutableSharedFlow<ChatEvent>,
+        val job: Job
     )
 
     @Serializable
