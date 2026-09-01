@@ -87,9 +87,9 @@ class ChatNotificationService : Service() {
             chatRepository.observeEvents(topic, identity.myId).collect { event ->
                 when (event) {
                     is ChatEvent.Message -> {
-                        // The relay stream is shared and also contains our own published
-                        // messages. They are local sends, not incoming notifications.
-                        if (event.message.senderId == identity.myId) return@collect
+                        // A private conversation has exactly one valid remote sender.
+                        // Never notify for messages authored by this device or any other ID.
+                        if (event.message.senderId != partnerId) return@collect
 
                         // A message is considered delivered only after this device has
                         // successfully received and decrypted it from the unified relay stream.
@@ -148,10 +148,7 @@ class ChatNotificationService : Service() {
 
                     if (result.isSuccess) {
                         outboxStore.remove(historyKey, message.id)
-                        val updated = historyStore.load(historyKey).map {
-                            if (it.id == message.id) it.copy(deliveryStatus = MessageDeliveryStatus.SENT) else it
-                        }
-                        historyStore.save(historyKey, updated)
+                        historyStore.markSent(historyKey, message.id)
                         deliveredAny = true
                     }
                 }

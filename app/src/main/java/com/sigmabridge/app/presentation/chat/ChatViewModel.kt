@@ -85,12 +85,12 @@ class ChatViewModel @Inject constructor(
         _error.value = null
         _connected.value = true
 
-        // One unified event stream for both messages and delivery receipts.
         viewModelScope.launch {
             runCatching {
                 chatRepository.observeEvents(topic, ownSenderId).collect { event ->
                     when (event) {
                         is ChatEvent.Message -> {
+                            if (event.message.senderId != identity.partnerId) return@collect
                             if (_messages.value.any { it.id == event.message.id }) return@collect
 
                             val translated = chatTranslationService.translateIncoming(event.message.text)
@@ -194,11 +194,12 @@ class ChatViewModel @Inject constructor(
         chatRepository.send(topic, pendingMessage.copy(text = textToSend))
             .onSuccess {
                 outboxStore.remove(historyKey, pendingMessage.id)
-                val updated = _messages.value.map {
-                    if (it.id == pendingMessage.id) it.copy(deliveryStatus = MessageDeliveryStatus.SENT) else it
+                val persisted = historyStore.markSent(historyKey, pendingMessage.id)
+                val persistedStatus = persisted.firstOrNull { it.id == pendingMessage.id }?.deliveryStatus
+                    ?: MessageDeliveryStatus.SENT
+                _messages.value = _messages.value.map {
+                    if (it.id == pendingMessage.id) it.copy(deliveryStatus = persistedStatus) else it
                 }
-                _messages.value = updated
-                historyStore.save(historyKey, updated)
             }
             .onFailure { error ->
                 _error.value = error.message ?: "Message queued. It will retry when the connection returns."
