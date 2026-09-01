@@ -10,6 +10,7 @@ import com.sigmabridge.app.domain.chat.ChatEvent
 import com.sigmabridge.app.domain.chat.ChatMessage
 import com.sigmabridge.app.domain.chat.ChatRepository
 import com.sigmabridge.app.domain.chat.ChatTranslationService
+import com.sigmabridge.app.domain.chat.ChatReceipt
 import com.sigmabridge.app.domain.chat.MessageDeliveryStatus
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
@@ -93,6 +94,15 @@ class ChatViewModel @Inject constructor(
                             if (event.message.senderId != identity.partnerId) return@collect
                             if (_messages.value.any { it.id == event.message.id }) return@collect
 
+                            // The user is currently inside this conversation, so acknowledge
+                            // reading immediately and independently of Gemini translation.
+                            viewModelScope.launch {
+                                chatRepository.sendReadReceipt(
+                                    topic,
+                                    ChatReceipt(messageId = event.message.id, senderId = ownSenderId)
+                                )
+                            }
+
                             val translated = chatTranslationService.translateIncoming(event.message.text)
                             val visible = event.message.copy(text = translated.getOrElse { error ->
                                 _error.value = error.message ?: "Unable to translate incoming message."
@@ -102,24 +112,18 @@ class ChatViewModel @Inject constructor(
                             _messages.value = updated
                             currentHistoryKey?.let { historyStore.save(it, updated) }
                         }
-                        is ChatEvent.Delivered -> {
-                            if (event.receipt.senderId != ownSenderId) return@collect
-                            val updated = _messages.value.map { message ->
-                                if (message.id == event.receipt.messageId && message.senderId == ownSenderId) {
-                                    message.copy(deliveryStatus = MessageDeliveryStatus.DELIVERED)
-                                } else {
-                                    message
-                                }
-                            }
-                            if (updated != _messages.value) {
-                                _messages.value = updated
-                                historyStore.updateDeliveryStatus(
-                                    historyKey,
-                                    event.receipt.messageId,
-                                    MessageDeliveryStatus.DELIVERED
-                                )
-                            }
-                        }
+                        is ChatEvent.Delivered -> updateReceiptStatus(
+                            historyKey,
+                            event.receipt.messageId,
+                            event.receipt.senderId,
+                            MessageDeliveryStatus.DELIVERED
+                        )
+                        is ChatEvent.Read -> updateReceiptStatus(
+                            historyKey,
+                            event.receipt.messageId,
+                            event.receipt.senderId,
+                            MessageDeliveryStatus.READ
+                        )
                     }
                 }
             }.onFailure { error ->
@@ -139,6 +143,7 @@ class ChatViewModel @Inject constructor(
                     val stored = storedById[message.id]
                     val targetStatus = when {
                         message.id in pendingIds -> MessageDeliveryStatus.PENDING
+                        stored?.deliveryStatus == MessageDeliveryStatus.READ -> MessageDeliveryStatus.READ
                         stored?.deliveryStatus == MessageDeliveryStatus.DELIVERED -> MessageDeliveryStatus.DELIVERED
                         else -> MessageDeliveryStatus.SENT
                     }
@@ -151,6 +156,24 @@ class ChatViewModel @Inject constructor(
                 delay(1_000L)
             }
         }
+    }
+
+    private fun updateReceiptStatus(
+        historyKey: String,
+        messageId: String,
+        receiptSenderId: String,
+        status: MessageDeliveryStatus
+    ) {
+        if (receiptSenderId != ownSenderId) return
+        val updated = _messages.value.map { message ->
+            if (message.id == messageId && message.senderId == ownSenderId && message.deliveryStatus.ordinal < status.ordinal) {
+                message.copy(deliveryStatus = status)
+            } else {
+                message
+            }
+        }
+        if (updated != _messages.value) _messages.value = updated
+        historyStore.updateDeliveryStatus(historyKey, messageId, status)
     }
 
     fun disconnect() {
@@ -167,10 +190,8 @@ class ChatViewModel @Inject constructor(
         val clean = text.trim()
         if (clean.isBlank()) return
 
-        val localMessage = ntfyRepository.createMessage(
-            ownSenderId,
-            clean
-        ).copy(deliveryStatus = MessageDeliveryStatus.PENDING)
+        val localMessage = ntfyRepository.createMessage(ownSenderId, clean)
+            .copy(deliveryStatus = MessageDeliveryStatus.PENDING)
 
         val updatedWithPending = _messages.value + localMessage
         _messages.value = updatedWithPending
