@@ -3,6 +3,7 @@ package com.sigmabridge.app.data.chat
 import com.sigmabridge.app.domain.chat.ChatEvent
 import com.sigmabridge.app.domain.chat.ChatMessage
 import com.sigmabridge.app.domain.chat.ChatReceipt
+import com.sigmabridge.app.domain.chat.ChatReceiptType
 import com.sigmabridge.app.domain.chat.ChatRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -29,8 +30,8 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Tiny relay. Conversation messages and delivery receipts use separate ntfy topics so a
- * delivery receipt can never be confused with a normal chat message/notification.
+ * Tiny relay. Conversation messages and receipts use separate ntfy topics so receipt
+ * events can never be confused with normal chat messages or notifications.
  */
 @Singleton
 class NtfyChatRepository @Inject constructor(
@@ -46,10 +47,16 @@ class NtfyChatRepository @Inject constructor(
         sendWire(topic, message.copy(text = crypto.encrypt(message.text)))
     }
 
-    override suspend fun sendDeliveredReceipt(topic: String, receipt: ChatReceipt): Result<Unit> = runCatching {
+    override suspend fun sendDeliveredReceipt(topic: String, receipt: ChatReceipt): Result<Unit> =
+        sendReceipt(topic, receipt.copy(type = ChatReceiptType.DELIVERED))
+
+    override suspend fun sendReadReceipt(topic: String, receipt: ChatReceipt): Result<Unit> =
+        sendReceipt(topic, receipt.copy(type = ChatReceiptType.READ))
+
+    private suspend fun sendReceipt(topic: String, receipt: ChatReceipt): Result<Unit> = runCatching {
         val payload = RECEIPT_PREFIX + json.encodeToString(ChatReceipt.serializer(), receipt)
         val message = ChatMessage(
-            id = "receipt-${receipt.messageId}-${UUID.randomUUID()}",
+            id = "receipt-${receipt.messageId}-${receipt.type}-${UUID.randomUUID()}",
             senderId = receipt.senderId,
             text = crypto.encrypt(payload),
             createdAt = System.currentTimeMillis()
@@ -57,11 +64,6 @@ class NtfyChatRepository @Inject constructor(
         sendWire(receiptTopic(topic), message)
     }
 
-    /**
-     * Subscribe to both the normal message topic and the dedicated receipt topic.
-     * They are merged only inside the repository; receipts never travel through the
-     * normal message/notification path.
-     */
     override fun observeEvents(topic: String, ownSenderId: String): Flow<ChatEvent> {
         val normalizedTopic = topic.trim()
         val messageStream = streams.computeIfAbsent(normalizedTopic) { createRelayStream(normalizedTopic) }
@@ -106,7 +108,10 @@ class NtfyChatRepository @Inject constructor(
                                     }.getOrNull() ?: return@forEach
 
                                     if (receipt.senderId != wireMessage.senderId) return@forEach
-                                    events.tryEmit(ChatEvent.Delivered(receipt))
+                                    when (receipt.type) {
+                                        ChatReceiptType.DELIVERED -> events.tryEmit(ChatEvent.Delivered(receipt))
+                                        ChatReceiptType.READ -> events.tryEmit(ChatEvent.Read(receipt))
+                                    }
                                 } else {
                                     events.tryEmit(ChatEvent.Message(wireMessage.copy(text = decryptedText)))
                                 }
@@ -148,7 +153,7 @@ class NtfyChatRepository @Inject constructor(
 
     private companion object {
         const val BASE_URL = "https://ntfy.sh"
-        const val RECEIPT_PREFIX = "__SIGMA_DELIVERED__"
+        const val RECEIPT_PREFIX = "__SIGMA_RECEIPT__"
         const val INITIAL_RETRY_MS = 1_000L
         const val MAX_RETRY_MS = 15_000L
         val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
