@@ -86,7 +86,6 @@ fun ChatScreen(
         }
     }
 
-    // Chats open at the newest message instead of the top of the history.
     LaunchedEffect(messages.size) {
         if (messages.isNotEmpty()) {
             listState.scrollToItem(messages.lastIndex)
@@ -168,14 +167,20 @@ fun ChatScreen(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                                 if (mine) {
+                                    val receiptText = when (message.deliveryStatus) {
+                                        MessageDeliveryStatus.PENDING -> "• Sending…"
+                                        MessageDeliveryStatus.SENT -> "✓"
+                                        MessageDeliveryStatus.DELIVERED -> "✓✓"
+                                        MessageDeliveryStatus.READ -> "✓✓"
+                                    }
+                                    val receiptColor = when (message.deliveryStatus) {
+                                        MessageDeliveryStatus.READ -> MaterialTheme.colorScheme.primary
+                                        else -> MaterialTheme.colorScheme.onSurfaceVariant
+                                    }
                                     Text(
-                                        text = when (message.deliveryStatus) {
-                                            MessageDeliveryStatus.PENDING -> "• Sending…"
-                                            MessageDeliveryStatus.SENT -> "✓"
-                                            MessageDeliveryStatus.DELIVERED -> "✓✓"
-                                        },
+                                        text = receiptText,
                                         style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        color = receiptColor
                                     )
                                 }
                             }
