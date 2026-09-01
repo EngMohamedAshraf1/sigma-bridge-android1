@@ -7,6 +7,7 @@ import com.sigmabridge.app.data.chat.ChatIdentity
 import com.sigmabridge.app.data.chat.ChatOutboxStore
 import com.sigmabridge.app.data.chat.NtfyChatRepository
 import com.sigmabridge.app.domain.chat.ChatMessage
+import com.sigmabridge.app.domain.chat.ChatReceipt
 import com.sigmabridge.app.domain.chat.ChatRepository
 import com.sigmabridge.app.domain.chat.ChatTranslationService
 import com.sigmabridge.app.domain.chat.MessageDeliveryStatus
@@ -42,6 +43,7 @@ class ChatViewModel @Inject constructor(
     private var currentTopic: String? = null
     private var currentHistoryKey: String? = null
     private var statusSyncJob: Job? = null
+    private var receiptJob: Job? = null
 
     init { if (_partnerId.value.isNotBlank()) connect() }
 
@@ -70,15 +72,16 @@ class ChatViewModel @Inject constructor(
         }
         if (currentTopic == topic && _connected.value) return
         statusSyncJob?.cancel()
+        receiptJob?.cancel()
         currentTopic = topic
         currentHistoryKey = identity.conversationKey().joinToString("") { "%02x".format(it) }
         val historyKey = currentHistoryKey!!
         val pendingIds = outboxStore.load(historyKey).map { it.id }.toSet()
         _messages.value = historyStore.load(historyKey).map { message ->
-            when {
-                message.senderId == ownSenderId && message.id in pendingIds ->
-                    message.copy(deliveryStatus = MessageDeliveryStatus.PENDING)
-                else -> message
+            if (message.senderId == ownSenderId && message.id in pendingIds) {
+                message.copy(deliveryStatus = MessageDeliveryStatus.PENDING)
+            } else {
+                message
             }
         }
         _error.value = null
@@ -100,6 +103,26 @@ class ChatViewModel @Inject constructor(
             }.onFailure { error ->
                 _connected.value = false
                 _error.value = error.message ?: "Chat connection lost."
+            }
+        }
+
+        receiptJob = viewModelScope.launch {
+            runCatching {
+                chatRepository.observeDeliveredReceipts(topic, ownSenderId).collect { receipt: ChatReceipt ->
+                    val updated = _messages.value.map { message ->
+                        if (message.id == receipt.messageId && message.senderId == ownSenderId) {
+                            message.copy(deliveryStatus = MessageDeliveryStatus.DELIVERED)
+                        } else {
+                            message
+                        }
+                    }
+                    if (updated != _messages.value) {
+                        _messages.value = updated
+                        historyStore.save(historyKey, updated)
+                    }
+                }
+            }.onFailure { error ->
+                _error.value = error.message ?: "Delivery status connection lost."
             }
         }
 
@@ -130,7 +153,9 @@ class ChatViewModel @Inject constructor(
 
     fun disconnect() {
         statusSyncJob?.cancel()
+        receiptJob?.cancel()
         statusSyncJob = null
+        receiptJob = null
         currentTopic = null
         currentHistoryKey = null
         _connected.value = false
@@ -164,9 +189,7 @@ class ChatViewModel @Inject constructor(
         pendingMessage: ChatMessage
     ) {
         val translationResult = chatTranslationService.translateOutgoing(pendingMessage.text)
-        val textToSend = translationResult.getOrElse {
-            pendingMessage.text
-        }
+        val textToSend = translationResult.getOrElse { pendingMessage.text }
 
         chatRepository.send(topic, pendingMessage.copy(text = textToSend))
             .onSuccess {
