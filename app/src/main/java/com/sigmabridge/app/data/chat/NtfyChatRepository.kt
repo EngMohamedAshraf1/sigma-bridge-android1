@@ -1,6 +1,7 @@
 package com.sigmabridge.app.data.chat
 
 import com.sigmabridge.app.domain.chat.ChatMessage
+import com.sigmabridge.app.domain.chat.ChatReceipt
 import com.sigmabridge.app.domain.chat.ChatRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -11,6 +12,7 @@ import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -31,8 +33,54 @@ class NtfyChatRepository @Inject constructor(
     private val streamClient by lazy { baseClient.newBuilder().readTimeout(0, TimeUnit.MILLISECONDS).build() }
 
     override suspend fun send(topic: String, message: ChatMessage): Result<Unit> = runCatching {
-        val encryptedMessage = message.copy(text = crypto.encrypt(message.text))
-        val body = json.encodeToString(ChatMessage.serializer(), encryptedMessage).toRequestBody(JSON_MEDIA_TYPE)
+        sendWire(topic, message.copy(text = crypto.encrypt(message.text)))
+    }
+
+    override suspend fun sendDeliveredReceipt(topic: String, receipt: ChatReceipt): Result<Unit> = runCatching {
+        val payload = RECEIPT_PREFIX + json.encodeToString(ChatReceipt.serializer(), receipt)
+        val message = ChatMessage(
+            id = "receipt-${UUID.randomUUID()}",
+            senderId = receipt.senderId,
+            text = crypto.encrypt(payload),
+            createdAt = System.currentTimeMillis()
+        )
+        sendWire(topic, message)
+    }
+
+    override fun observe(topic: String, ownSenderId: String): Flow<ChatMessage> =
+        observeWire(topic).let { flow ->
+            kotlinx.coroutines.flow.flow {
+                flow.collect { message ->
+                    if (message.senderId == ownSenderId) return@collect
+                    val decrypted = runCatching { message.copy(text = crypto.decrypt(message.text)) }.getOrNull()
+                        ?: return@collect
+                    if (decrypted.text.startsWith(RECEIPT_PREFIX)) return@collect
+                    emit(decrypted)
+                }
+            }
+        }
+
+    override fun observeDeliveredReceipts(topic: String, ownSenderId: String): Flow<ChatReceipt> =
+        observeWire(topic).let { flow ->
+            kotlinx.coroutines.flow.flow {
+                flow.collect { message ->
+                    if (message.senderId == ownSenderId) return@collect
+                    val decrypted = runCatching { crypto.decrypt(message.text) }.getOrNull()
+                        ?: return@collect
+                    if (!decrypted.startsWith(RECEIPT_PREFIX)) return@collect
+                    val receipt = runCatching {
+                        json.decodeFromString(
+                            ChatReceipt.serializer(),
+                            decrypted.removePrefix(RECEIPT_PREFIX)
+                        )
+                    }.getOrNull() ?: return@collect
+                    emit(receipt)
+                }
+            }
+        }
+
+    private suspend fun sendWire(topic: String, message: ChatMessage) {
+        val body = json.encodeToString(ChatMessage.serializer(), message).toRequestBody(JSON_MEDIA_TYPE)
         withContext(Dispatchers.IO) {
             baseClient.newCall(Request.Builder().url("$BASE_URL/${topic.trim()}").post(body).build()).execute().use { response ->
                 check(response.isSuccessful) { "Chat relay returned HTTP ${response.code}" }
@@ -40,7 +88,7 @@ class NtfyChatRepository @Inject constructor(
         }
     }
 
-    override fun observe(topic: String, ownSenderId: String): Flow<ChatMessage> = callbackFlow {
+    private fun observeWire(topic: String): Flow<ChatMessage> = callbackFlow {
         val normalizedTopic = topic.trim()
         val worker = CoroutineScope(Dispatchers.IO).launch {
             var retryDelayMs = INITIAL_RETRY_MS
@@ -58,9 +106,7 @@ class NtfyChatRepository @Inject constructor(
                                 val envelope = runCatching { json.decodeFromString(NtfyEnvelope.serializer(), line) }.getOrNull() ?: return@forEach
                                 if (envelope.event != "message" || envelope.message.isNullOrBlank()) return@forEach
                                 val message = runCatching { json.decodeFromString(ChatMessage.serializer(), envelope.message) }.getOrNull() ?: return@forEach
-                                if (message.senderId == ownSenderId) return@forEach
-                                val decrypted = runCatching { message.copy(text = crypto.decrypt(message.text)) }.getOrNull() ?: return@forEach
-                                trySend(decrypted)
+                                trySend(message)
                             }
                         }
                     }
@@ -78,11 +124,12 @@ class NtfyChatRepository @Inject constructor(
         id = UUID.randomUUID().toString(), senderId = senderId, text = text, createdAt = System.currentTimeMillis()
     )
 
-    @kotlinx.serialization.Serializable
+    @Serializable
     private data class NtfyEnvelope(val event: String, val message: String? = null)
 
     private companion object {
         const val BASE_URL = "https://ntfy.sh"
+        const val RECEIPT_PREFIX = "__SIGMA_DELIVERED__"
         const val INITIAL_RETRY_MS = 1_000L
         const val MAX_RETRY_MS = 15_000L
         val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
