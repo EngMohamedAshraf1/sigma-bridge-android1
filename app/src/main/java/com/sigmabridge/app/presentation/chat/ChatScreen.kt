@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.Button
@@ -61,6 +62,7 @@ fun ChatScreen(
     val partnerId by viewModel.partnerId.collectAsState()
     val error by viewModel.error.collectAsState()
     val context = LocalContext.current
+    val listState = rememberLazyListState()
 
     var partnerInput by remember { mutableStateOf(partnerId) }
     var input by remember { mutableStateOf("") }
@@ -81,6 +83,13 @@ fun ChatScreen(
             ContextCompat.startForegroundService(context, ChatNotificationService.startIntent(context))
         } else {
             context.startService(ChatNotificationService.stopIntent(context))
+        }
+    }
+
+    // Chats open at the newest message instead of the top of the history.
+    LaunchedEffect(messages.size) {
+        if (messages.isNotEmpty()) {
+            listState.scrollToItem(messages.lastIndex)
         }
     }
 
@@ -134,6 +143,7 @@ fun ChatScreen(
             error?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 8.dp)) }
 
             LazyColumn(
+                state = listState,
                 modifier = Modifier.fillMaxWidth().weight(1f).padding(top = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
