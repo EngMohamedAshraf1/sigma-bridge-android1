@@ -8,13 +8,10 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
-import kotlinx.coroutines.flow.filter
-import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -60,17 +57,14 @@ class NtfyChatRepository @Inject constructor(
         sendWire(topic, message)
     }
 
+    /**
+     * Return the raw shared event stream. Per-device filtering belongs to the consumer,
+     * because each subscriber has a different ownSenderId and receipts must never be filtered out.
+     */
     override fun observeEvents(topic: String, ownSenderId: String): Flow<ChatEvent> {
         val normalizedTopic = topic.trim()
         val stream = streams.computeIfAbsent(normalizedTopic) { createRelayStream(normalizedTopic) }
-
-        // The shared relay stream is intentionally raw. Filtering self-authored messages
-        // must happen per subscriber, because each device has a different ownSenderId.
-        return stream.events
-            .asSharedFlow()
-            .filter { event ->
-                event !is ChatEvent.Message || event.message.senderId != ownSenderId
-            }
+        return stream.events.asSharedFlow()
     }
 
     private fun createRelayStream(topic: String): RelayStream {
