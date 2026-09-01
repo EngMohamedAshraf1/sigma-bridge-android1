@@ -115,9 +115,13 @@ class ChatNotificationService : Service() {
                 var deliveredAny = false
                 for (message in pending) {
                     if (!isActive) break
-                    val translated = chatTranslationService.translateOutgoing(message.text)
-                    if (translated.isFailure) continue
-                    val result = chatRepository.send(topic, message.copy(text = translated.getOrThrow()))
+
+                    // Translation is optional for transport. A Gemini failure must not
+                    // permanently block an otherwise deliverable private-chat message.
+                    val translationResult = chatTranslationService.translateOutgoing(message.text)
+                    val textToSend = translationResult.getOrElse { message.text }
+                    val result = chatRepository.send(topic, message.copy(text = textToSend))
+
                     if (result.isSuccess) {
                         outboxStore.remove(historyKey, message.id)
                         val updated = historyStore.load(historyKey).map {
