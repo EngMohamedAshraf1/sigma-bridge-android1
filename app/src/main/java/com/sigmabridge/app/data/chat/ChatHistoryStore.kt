@@ -2,6 +2,7 @@ package com.sigmabridge.app.data.chat
 
 import android.content.Context
 import com.sigmabridge.app.domain.chat.ChatMessage
+import com.sigmabridge.app.domain.chat.MessageDeliveryStatus
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
@@ -26,6 +27,19 @@ class ChatHistoryStore @Inject constructor(
     fun save(conversationKey: String, messages: List<ChatMessage>) {
         val raw = json.encodeToString(serializer, messages.takeLast(MAX_MESSAGES))
         preferences.edit().putString(keyFor(conversationKey), raw).apply()
+    }
+
+    @Synchronized
+    fun updateDeliveryStatus(
+        conversationKey: String,
+        messageId: String,
+        status: MessageDeliveryStatus
+    ): List<ChatMessage> {
+        val updated = load(conversationKey).map { message ->
+            if (message.id == messageId) message.copy(deliveryStatus = status) else message
+        }
+        save(conversationKey, updated)
+        return updated
     }
 
     private fun keyFor(value: String): String = "history_${sha256(value.trim())}"
