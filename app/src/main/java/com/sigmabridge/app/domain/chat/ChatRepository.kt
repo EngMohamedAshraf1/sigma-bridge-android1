@@ -4,7 +4,6 @@ import kotlinx.coroutines.flow.Flow
 
 interface ChatRepository {
     suspend fun send(topic: String, message: ChatMessage): Result<Unit>
-    fun observe(topic: String, ownSenderId: String): Flow<ChatMessage>
     suspend fun sendDeliveredReceipt(topic: String, receipt: ChatReceipt): Result<Unit>
-    fun observeDeliveredReceipts(topic: String, ownSenderId: String): Flow<ChatReceipt>
+    fun observeEvents(topic: String, ownSenderId: String): Flow<ChatEvent>
 }
