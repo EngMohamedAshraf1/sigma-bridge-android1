@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.sigmabridge.app.data.chat.ChatHistoryStore
 import com.sigmabridge.app.data.chat.ChatIdentity
+import com.sigmabridge.app.data.chat.ChatOutboxStore
 import com.sigmabridge.app.data.chat.NtfyChatRepository
 import com.sigmabridge.app.domain.chat.ChatMessage
 import com.sigmabridge.app.domain.chat.ChatRepository
@@ -21,6 +22,7 @@ class ChatViewModel @Inject constructor(
     private val ntfyRepository: NtfyChatRepository,
     private val chatTranslationService: ChatTranslationService,
     private val historyStore: ChatHistoryStore,
+    private val outboxStore: ChatOutboxStore,
     private val identity: ChatIdentity
 ) : ViewModel() {
     val myId: String = identity.myId
@@ -96,25 +98,48 @@ class ChatViewModel @Inject constructor(
 
     fun send(text: String) {
         val topic = currentTopic ?: return
+        val historyKey = currentHistoryKey ?: return
         val clean = text.trim()
         if (clean.isBlank()) return
-        val localMessage = ntfyRepository.createMessage(ownSenderId, clean)
-        _messages.value = _messages.value + localMessage
+
+        val localMessage = ntfyRepository.createMessage(
+            ownSenderId,
+            clean
+        ).copy(deliveryStatus = com.sigmabridge.app.domain.chat.MessageDeliveryStatus.PENDING)
+
+        val updatedWithPending = _messages.value + localMessage
+        _messages.value = updatedWithPending
+        historyStore.save(historyKey, updatedWithPending)
+        outboxStore.add(historyKey, localMessage)
         _error.value = null
 
         viewModelScope.launch {
-            val translated = chatTranslationService.translateOutgoing(clean)
-            if (translated.isFailure) {
-                _messages.value = _messages.value.filterNot { it.id == localMessage.id }
-                _error.value = translated.exceptionOrNull()?.message ?: "Unable to translate message."
-                return@launch
-            }
-            chatRepository.send(topic, localMessage.copy(text = translated.getOrThrow()))
-                .onSuccess { currentHistoryKey?.let { historyStore.save(it, _messages.value) } }
-                .onFailure { error ->
-                    _messages.value = _messages.value.filterNot { it.id == localMessage.id }
-                    _error.value = error.message ?: "Unable to send message."
-                }
+            deliverPendingMessage(historyKey, topic, localMessage)
         }
+    }
+
+    private suspend fun deliverPendingMessage(
+        historyKey: String,
+        topic: String,
+        pendingMessage: ChatMessage
+    ) {
+        val translated = chatTranslationService.translateOutgoing(pendingMessage.text)
+        if (translated.isFailure) {
+            _error.value = translated.exceptionOrNull()?.message ?: "Message queued. Translation will retry later."
+            return
+        }
+
+        chatRepository.send(topic, pendingMessage.copy(text = translated.getOrThrow()))
+            .onSuccess {
+                outboxStore.remove(historyKey, pendingMessage.id)
+                val updated = _messages.value.map {
+                    if (it.id == pendingMessage.id) it.copy(deliveryStatus = com.sigmabridge.app.domain.chat.MessageDeliveryStatus.SENT) else it
+                }
+                _messages.value = updated
+                historyStore.save(historyKey, updated)
+            }
+            .onFailure { error ->
+                _error.value = error.message ?: "Message queued. It will retry when the connection returns."
+            }
     }
 }
