@@ -8,17 +8,18 @@ enum class MessageDeliveryStatus {
     DELIVERED
 }
 
+enum class ChatMessageKind {
+    MESSAGE,
+    DELIVERY_RECEIPT
+}
+
 @Serializable
 data class ChatMessage(
     val id: String,
     val senderId: String,
     val text: String,
     val createdAt: Long,
-    val deliveryStatus: MessageDeliveryStatus = MessageDeliveryStatus.SENT
-)
-
-@Serializable
-data class ChatReceipt(
-    val messageId: String,
-    val senderId: String
+    val deliveryStatus: MessageDeliveryStatus = MessageDeliveryStatus.SENT,
+    val kind: ChatMessageKind = ChatMessageKind.MESSAGE,
+    val receiptFor: String? = null
 )
