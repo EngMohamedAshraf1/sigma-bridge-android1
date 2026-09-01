@@ -87,12 +87,8 @@ class ChatNotificationService : Service() {
             chatRepository.observeEvents(topic, identity.myId).collect { event ->
                 when (event) {
                     is ChatEvent.Message -> {
-                        // A private conversation has exactly one valid remote sender.
-                        // Never notify for messages authored by this device or any other ID.
                         if (event.message.senderId != partnerId) return@collect
 
-                        // A message is considered delivered only after this device has
-                        // successfully received and decrypted it from the unified relay stream.
                         chatRepository.sendDeliveredReceipt(
                             topic,
                             ChatReceipt(messageId = event.message.id, senderId = identity.myId)
@@ -110,6 +106,14 @@ class ChatNotificationService : Service() {
                             historyKey(),
                             event.receipt.messageId,
                             MessageDeliveryStatus.DELIVERED
+                        )
+                    }
+                    is ChatEvent.Read -> {
+                        if (event.receipt.senderId != identity.myId) return@collect
+                        historyStore.updateDeliveryStatus(
+                            historyKey(),
+                            event.receipt.messageId,
+                            MessageDeliveryStatus.READ
                         )
                     }
                 }
@@ -140,8 +144,6 @@ class ChatNotificationService : Service() {
                 for (message in pending) {
                     if (!isActive) break
 
-                    // Translation is optional for transport. A Gemini failure must not
-                    // permanently block an otherwise deliverable private-chat message.
                     val translationResult = chatTranslationService.translateOutgoing(message.text)
                     val textToSend = translationResult.getOrElse { message.text }
                     val result = chatRepository.send(topic, message.copy(text = textToSend))
