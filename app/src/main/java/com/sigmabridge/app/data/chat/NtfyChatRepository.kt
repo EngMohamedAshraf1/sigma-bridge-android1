@@ -13,6 +13,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -62,7 +63,14 @@ class NtfyChatRepository @Inject constructor(
     override fun observeEvents(topic: String, ownSenderId: String): Flow<ChatEvent> {
         val normalizedTopic = topic.trim()
         val stream = streams.computeIfAbsent(normalizedTopic) { createRelayStream(normalizedTopic) }
-        return stream.events.asSharedFlow()
+
+        // The shared relay stream is intentionally raw. Filtering self-authored messages
+        // must happen per subscriber, because each device has a different ownSenderId.
+        return stream.events
+            .asSharedFlow()
+            .filter { event ->
+                event !is ChatEvent.Message || event.message.senderId != ownSenderId
+            }
     }
 
     private fun createRelayStream(topic: String): RelayStream {
