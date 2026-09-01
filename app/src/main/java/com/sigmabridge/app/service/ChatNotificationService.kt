@@ -13,7 +13,11 @@ import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.sigmabridge.app.data.chat.ChatIdentity
+import com.sigmabridge.app.data.chat.ChatHistoryStore
+import com.sigmabridge.app.data.chat.ChatOutboxStore
 import com.sigmabridge.app.domain.chat.ChatRepository
+import com.sigmabridge.app.domain.chat.ChatTranslationService
+import com.sigmabridge.app.domain.chat.MessageDeliveryStatus
 import com.sigmabridge.app.presentation.MainActivity
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
@@ -21,21 +25,20 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelChildren
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
-/**
- * Keeps the private-chat relay listener alive while Sigma Bridge is in the background.
- * The service only handles chat notifications; Telegram Bridge remains in its own service.
- */
+/** Keeps the private-chat listener alive in the background and retries queued sends. */
 @AndroidEntryPoint
 class ChatNotificationService : Service() {
 
-    @Inject
-    lateinit var chatRepository: ChatRepository
-
-    @Inject
-    lateinit var identity: ChatIdentity
+    @Inject lateinit var chatRepository: ChatRepository
+    @Inject lateinit var identity: ChatIdentity
+    @Inject lateinit var outboxStore: ChatOutboxStore
+    @Inject lateinit var historyStore: ChatHistoryStore
+    @Inject lateinit var chatTranslationService: ChatTranslationService
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -60,9 +63,9 @@ class ChatNotificationService : Service() {
                     stopSelf()
                     return START_NOT_STICKY
                 }
-
                 serviceScope.coroutineContext.cancelChildren()
                 observeMessages()
+                retryPendingMessages()
                 return START_STICKY
             }
             else -> return START_NOT_STICKY
@@ -78,16 +81,11 @@ class ChatNotificationService : Service() {
             val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
             val storedLastNotifiedAt = prefs.getLong(KEY_LAST_NOTIFIED_AT, 0L)
             var lastNotifiedAt = if (storedLastNotifiedAt == 0L) {
-                System.currentTimeMillis().also {
-                    prefs.edit().putLong(KEY_LAST_NOTIFIED_AT, it).apply()
-                }
-            } else {
-                storedLastNotifiedAt
-            }
+                System.currentTimeMillis().also { prefs.edit().putLong(KEY_LAST_NOTIFIED_AT, it).apply() }
+            } else storedLastNotifiedAt
 
             chatRepository.observe(topic, identity.myId).collect { message ->
                 if (message.createdAt <= lastNotifiedAt) return@collect
-
                 if (postMessageNotification(partnerId, message.id)) {
                     lastNotifiedAt = message.createdAt
                     prefs.edit().putLong(KEY_LAST_NOTIFIED_AT, lastNotifiedAt).apply()
@@ -96,19 +94,58 @@ class ChatNotificationService : Service() {
         }
     }
 
-    private fun postMessageNotification(partnerId: String, messageId: String): Boolean {
-        if (checkSelfPermissionCompat(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-            return false
+    private fun retryPendingMessages() {
+        val historyKey = runCatching {
+            identity.conversationKey().joinToString("") { "%02x".format(it) }
+        }.getOrNull() ?: return
+        val topic = runCatching { identity.conversationTopic() }.getOrNull() ?: return
+
+        serviceScope.launch {
+            var retryDelayMs = INITIAL_RETRY_MS
+            while (isActive) {
+                val pending = outboxStore.load(historyKey)
+                    .filter { it.deliveryStatus == MessageDeliveryStatus.PENDING }
+                    .sortedBy { it.createdAt }
+
+                if (pending.isEmpty()) {
+                    delay(IDLE_RETRY_MS)
+                    continue
+                }
+
+                var deliveredAny = false
+                for (message in pending) {
+                    if (!isActive) break
+                    val translated = chatTranslationService.translateOutgoing(message.text)
+                    if (translated.isFailure) continue
+                    val result = chatRepository.send(topic, message.copy(text = translated.getOrThrow()))
+                    if (result.isSuccess) {
+                        outboxStore.remove(historyKey, message.id)
+                        val updated = historyStore.load(historyKey).map {
+                            if (it.id == message.id) it.copy(deliveryStatus = MessageDeliveryStatus.SENT) else it
+                        }
+                        historyStore.save(historyKey, updated)
+                        deliveredAny = true
+                    }
+                }
+
+                if (deliveredAny) retryDelayMs = INITIAL_RETRY_MS
+                else {
+                    delay(retryDelayMs)
+                    retryDelayMs = minOf(retryDelayMs * 2, MAX_RETRY_MS)
+                }
+            }
         }
+    }
+
+    private fun postMessageNotification(partnerId: String, messageId: String): Boolean {
+        if (checkSelfPermissionCompat(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return false
 
         val openChatIntent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
             putExtra(MainActivity.EXTRA_OPEN_PRIVATE_CHAT, true)
         }
         val pendingIntent = PendingIntent.getActivity(
-            this,
-            messageId.hashCode(),
-            openChatIntent,
+            this, messageId.hashCode(), openChatIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
@@ -139,20 +176,8 @@ class ChatNotificationService : Service() {
 
     private fun createNotificationChannels() {
         val manager = getSystemService(NotificationManager::class.java)
-        manager.createNotificationChannel(
-            NotificationChannel(
-                SERVICE_CHANNEL_ID,
-                "Chat background service",
-                NotificationManager.IMPORTANCE_LOW
-            )
-        )
-        manager.createNotificationChannel(
-            NotificationChannel(
-                CHAT_CHANNEL_ID,
-                "Chat messages",
-                NotificationManager.IMPORTANCE_DEFAULT
-            )
-        )
+        manager.createNotificationChannel(NotificationChannel(SERVICE_CHANNEL_ID, "Chat background service", NotificationManager.IMPORTANCE_LOW))
+        manager.createNotificationChannel(NotificationChannel(CHAT_CHANNEL_ID, "Chat messages", NotificationManager.IMPORTANCE_DEFAULT))
     }
 
     private fun checkSelfPermissionCompat(permission: String): Int =
@@ -176,13 +201,11 @@ class ChatNotificationService : Service() {
         private const val SERVICE_NOTIFICATION_ID = 2001
         private const val PREFS_NAME = "sigma_bridge_chat_notifications"
         private const val KEY_LAST_NOTIFIED_AT = "last_notified_at"
+        private const val INITIAL_RETRY_MS = 2_000L
+        private const val MAX_RETRY_MS = 60_000L
+        private const val IDLE_RETRY_MS = 15_000L
 
-        fun startIntent(context: Context): Intent =
-            Intent(context, ChatNotificationService::class.java)
-                .setAction(ACTION_START)
-
-        fun stopIntent(context: Context): Intent =
-            Intent(context, ChatNotificationService::class.java)
-                .setAction(ACTION_STOP)
+        fun startIntent(context: Context): Intent = Intent(context, ChatNotificationService::class.java).setAction(ACTION_START)
+        fun stopIntent(context: Context): Intent = Intent(context, ChatNotificationService::class.java).setAction(ACTION_STOP)
     }
 }
