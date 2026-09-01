@@ -9,10 +9,14 @@ import com.sigmabridge.app.data.chat.NtfyChatRepository
 import com.sigmabridge.app.domain.chat.ChatMessage
 import com.sigmabridge.app.domain.chat.ChatRepository
 import com.sigmabridge.app.domain.chat.ChatTranslationService
+import com.sigmabridge.app.domain.chat.MessageDeliveryStatus
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -37,6 +41,7 @@ class ChatViewModel @Inject constructor(
     val ownSenderId: String = myId
     private var currentTopic: String? = null
     private var currentHistoryKey: String? = null
+    private var outboxStatusJob: Job? = null
 
     init { if (_partnerId.value.isNotBlank()) connect() }
 
@@ -64,9 +69,18 @@ class ChatViewModel @Inject constructor(
             _error.value = it.message ?: "Unable to create conversation."; return
         }
         if (currentTopic == topic && _connected.value) return
+        outboxStatusJob?.cancel()
         currentTopic = topic
         currentHistoryKey = identity.conversationKey().joinToString("") { "%02x".format(it) }
-        _messages.value = historyStore.load(currentHistoryKey!!)
+        val historyKey = currentHistoryKey!!
+        val pendingIds = outboxStore.load(historyKey).map { it.id }.toSet()
+        _messages.value = historyStore.load(historyKey).map { message ->
+            if (message.senderId == ownSenderId && message.id in pendingIds) {
+                message.copy(deliveryStatus = MessageDeliveryStatus.PENDING)
+            } else {
+                message
+            }
+        }
         _error.value = null
         _connected.value = true
 
@@ -88,9 +102,35 @@ class ChatViewModel @Inject constructor(
                 _error.value = error.message ?: "Chat connection lost."
             }
         }
+
+        outboxStatusJob = viewModelScope.launch {
+            while (isActive) {
+                val pendingIds = outboxStore.load(historyKey).map { it.id }.toSet()
+                val current = _messages.value
+                var changed = false
+                val updated = current.map { message ->
+                    if (message.senderId == ownSenderId &&
+                        message.deliveryStatus == MessageDeliveryStatus.PENDING &&
+                        message.id !in pendingIds
+                    ) {
+                        changed = true
+                        message.copy(deliveryStatus = MessageDeliveryStatus.SENT)
+                    } else {
+                        message
+                    }
+                }
+                if (changed) {
+                    _messages.value = updated
+                    historyStore.save(historyKey, updated)
+                }
+                delay(1_000L)
+            }
+        }
     }
 
     fun disconnect() {
+        outboxStatusJob?.cancel()
+        outboxStatusJob = null
         currentTopic = null
         currentHistoryKey = null
         _connected.value = false
@@ -105,7 +145,7 @@ class ChatViewModel @Inject constructor(
         val localMessage = ntfyRepository.createMessage(
             ownSenderId,
             clean
-        ).copy(deliveryStatus = com.sigmabridge.app.domain.chat.MessageDeliveryStatus.PENDING)
+        ).copy(deliveryStatus = MessageDeliveryStatus.PENDING)
 
         val updatedWithPending = _messages.value + localMessage
         _messages.value = updatedWithPending
@@ -133,7 +173,7 @@ class ChatViewModel @Inject constructor(
             .onSuccess {
                 outboxStore.remove(historyKey, pendingMessage.id)
                 val updated = _messages.value.map {
-                    if (it.id == pendingMessage.id) it.copy(deliveryStatus = com.sigmabridge.app.domain.chat.MessageDeliveryStatus.SENT) else it
+                    if (it.id == pendingMessage.id) it.copy(deliveryStatus = MessageDeliveryStatus.SENT) else it
                 }
                 _messages.value = updated
                 historyStore.save(historyKey, updated)
