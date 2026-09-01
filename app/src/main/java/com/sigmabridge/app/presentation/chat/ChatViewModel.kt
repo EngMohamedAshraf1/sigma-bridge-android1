@@ -103,6 +103,7 @@ class ChatViewModel @Inject constructor(
                             currentHistoryKey?.let { historyStore.save(it, updated) }
                         }
                         is ChatEvent.Delivered -> {
+                            if (event.receipt.senderId != ownSenderId) return@collect
                             val updated = _messages.value.map { message ->
                                 if (message.id == event.receipt.messageId && message.senderId == ownSenderId) {
                                     message.copy(deliveryStatus = MessageDeliveryStatus.DELIVERED)
@@ -112,7 +113,11 @@ class ChatViewModel @Inject constructor(
                             }
                             if (updated != _messages.value) {
                                 _messages.value = updated
-                                historyStore.save(historyKey, updated)
+                                historyStore.updateDeliveryStatus(
+                                    historyKey,
+                                    event.receipt.messageId,
+                                    MessageDeliveryStatus.DELIVERED
+                                )
                             }
                         }
                     }
