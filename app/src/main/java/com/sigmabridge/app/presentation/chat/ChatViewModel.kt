@@ -6,8 +6,8 @@ import com.sigmabridge.app.data.chat.ChatHistoryStore
 import com.sigmabridge.app.data.chat.ChatIdentity
 import com.sigmabridge.app.data.chat.ChatOutboxStore
 import com.sigmabridge.app.data.chat.NtfyChatRepository
+import com.sigmabridge.app.domain.chat.ChatEvent
 import com.sigmabridge.app.domain.chat.ChatMessage
-import com.sigmabridge.app.domain.chat.ChatReceipt
 import com.sigmabridge.app.domain.chat.ChatRepository
 import com.sigmabridge.app.domain.chat.ChatTranslationService
 import com.sigmabridge.app.domain.chat.MessageDeliveryStatus
@@ -43,7 +43,6 @@ class ChatViewModel @Inject constructor(
     private var currentTopic: String? = null
     private var currentHistoryKey: String? = null
     private var statusSyncJob: Job? = null
-    private var receiptJob: Job? = null
 
     init { if (_partnerId.value.isNotBlank()) connect() }
 
@@ -72,7 +71,6 @@ class ChatViewModel @Inject constructor(
         }
         if (currentTopic == topic && _connected.value) return
         statusSyncJob?.cancel()
-        receiptJob?.cancel()
         currentTopic = topic
         currentHistoryKey = identity.conversationKey().joinToString("") { "%02x".format(it) }
         val historyKey = currentHistoryKey!!
@@ -87,42 +85,41 @@ class ChatViewModel @Inject constructor(
         _error.value = null
         _connected.value = true
 
+        // One unified event stream for both messages and delivery receipts.
         viewModelScope.launch {
             runCatching {
-                chatRepository.observe(topic, ownSenderId).collect { message ->
-                    if (_messages.value.any { it.id == message.id }) return@collect
-                    val translated = chatTranslationService.translateIncoming(message.text)
-                    val visible = message.copy(text = translated.getOrElse { error ->
-                        _error.value = error.message ?: "Unable to translate incoming message."
-                        message.text
-                    })
-                    val updated = _messages.value + visible
-                    _messages.value = updated
-                    currentHistoryKey?.let { historyStore.save(it, updated) }
+                chatRepository.observeEvents(topic, ownSenderId).collect { event ->
+                    when (event) {
+                        is ChatEvent.Message -> {
+                            if (_messages.value.any { it.id == event.message.id }) return@collect
+
+                            val translated = chatTranslationService.translateIncoming(event.message.text)
+                            val visible = event.message.copy(text = translated.getOrElse { error ->
+                                _error.value = error.message ?: "Unable to translate incoming message."
+                                event.message.text
+                            })
+                            val updated = _messages.value + visible
+                            _messages.value = updated
+                            currentHistoryKey?.let { historyStore.save(it, updated) }
+                        }
+                        is ChatEvent.Delivered -> {
+                            val updated = _messages.value.map { message ->
+                                if (message.id == event.receipt.messageId && message.senderId == ownSenderId) {
+                                    message.copy(deliveryStatus = MessageDeliveryStatus.DELIVERED)
+                                } else {
+                                    message
+                                }
+                            }
+                            if (updated != _messages.value) {
+                                _messages.value = updated
+                                historyStore.save(historyKey, updated)
+                            }
+                        }
+                    }
                 }
             }.onFailure { error ->
                 _connected.value = false
                 _error.value = error.message ?: "Chat connection lost."
-            }
-        }
-
-        receiptJob = viewModelScope.launch {
-            runCatching {
-                chatRepository.observeDeliveredReceipts(topic, ownSenderId).collect { receipt: ChatReceipt ->
-                    val updated = _messages.value.map { message ->
-                        if (message.id == receipt.messageId && message.senderId == ownSenderId) {
-                            message.copy(deliveryStatus = MessageDeliveryStatus.DELIVERED)
-                        } else {
-                            message
-                        }
-                    }
-                    if (updated != _messages.value) {
-                        _messages.value = updated
-                        historyStore.save(historyKey, updated)
-                    }
-                }
-            }.onFailure { error ->
-                _error.value = error.message ?: "Delivery status connection lost."
             }
         }
 
@@ -153,9 +150,7 @@ class ChatViewModel @Inject constructor(
 
     fun disconnect() {
         statusSyncJob?.cancel()
-        receiptJob?.cancel()
         statusSyncJob = null
-        receiptJob = null
         currentTopic = null
         currentHistoryKey = null
         _connected.value = false
