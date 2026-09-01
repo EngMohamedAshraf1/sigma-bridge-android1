@@ -15,10 +15,11 @@ import androidx.core.app.NotificationManagerCompat
 import com.sigmabridge.app.data.chat.ChatIdentity
 import com.sigmabridge.app.data.chat.ChatHistoryStore
 import com.sigmabridge.app.data.chat.ChatOutboxStore
+import com.sigmabridge.app.domain.chat.ChatEvent
 import com.sigmabridge.app.domain.chat.ChatRepository
 import com.sigmabridge.app.domain.chat.ChatTranslationService
-import com.sigmabridge.app.domain.chat.MessageDeliveryStatus
 import com.sigmabridge.app.domain.chat.ChatReceipt
+import com.sigmabridge.app.domain.chat.MessageDeliveryStatus
 import com.sigmabridge.app.presentation.MainActivity
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
@@ -65,8 +66,7 @@ class ChatNotificationService : Service() {
                     return START_NOT_STICKY
                 }
                 serviceScope.coroutineContext.cancelChildren()
-                observeMessages()
-                observeDeliveredReceipts()
+                observeChatEvents()
                 retryPendingMessages()
                 return START_STICKY
             }
@@ -74,7 +74,7 @@ class ChatNotificationService : Service() {
         }
     }
 
-    private fun observeMessages() {
+    private fun observeChatEvents() {
         val topic = runCatching { identity.conversationTopic() }.getOrNull() ?: return
         val partnerId = identity.partnerId
         if (partnerId.isBlank()) return
@@ -82,54 +82,44 @@ class ChatNotificationService : Service() {
         serviceScope.launch {
             val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
             val storedLastNotifiedAt = prefs.getLong(KEY_LAST_NOTIFIED_AT, 0L)
-            var lastNotifiedAt = if (storedLastNotifiedAt == 0L) {
-                System.currentTimeMillis().also { prefs.edit().putLong(KEY_LAST_NOTIFIED_AT, it).apply() }
-            } else storedLastNotifiedAt
+            var lastNotifiedAt = storedLastNotifiedAt
 
-            chatRepository.observe(topic, identity.myId).collect { message ->
-                // Delivery acknowledgement is sent as soon as the encrypted message
-                // has been received and successfully decrypted by this device.
-                chatRepository.sendDeliveredReceipt(
-                    topic,
-                    ChatReceipt(messageId = message.id, senderId = identity.myId)
-                )
+            chatRepository.observeEvents(topic, identity.myId).collect { event ->
+                when (event) {
+                    is ChatEvent.Message -> {
+                        // A message is considered delivered only after this device has
+                        // successfully received and decrypted it from the unified relay stream.
+                        chatRepository.sendDeliveredReceipt(
+                            topic,
+                            ChatReceipt(messageId = event.message.id, senderId = identity.myId)
+                        )
 
-                if (message.createdAt <= lastNotifiedAt) return@collect
-                if (postMessageNotification(partnerId, message.id)) {
-                    lastNotifiedAt = message.createdAt
-                    prefs.edit().putLong(KEY_LAST_NOTIFIED_AT, lastNotifiedAt).apply()
-                }
-            }
-        }
-    }
-
-    private fun observeDeliveredReceipts() {
-        val topic = runCatching { identity.conversationTopic() }.getOrNull() ?: return
-        val historyKey = runCatching {
-            identity.conversationKey().joinToString("") { "%02x".format(it) }
-        }.getOrNull() ?: return
-
-        serviceScope.launch {
-            chatRepository.observeDeliveredReceipts(topic, identity.myId).collect { receipt ->
-                val updated = historyStore.load(historyKey).map { message ->
-                    if (message.id == receipt.messageId &&
-                        message.senderId == identity.myId &&
-                        message.deliveryStatus != MessageDeliveryStatus.DELIVERED
-                    ) {
-                        message.copy(deliveryStatus = MessageDeliveryStatus.DELIVERED)
-                    } else {
-                        message
+                        if (event.message.createdAt <= lastNotifiedAt) return@collect
+                        if (postMessageNotification(partnerId, event.message.id)) {
+                            lastNotifiedAt = event.message.createdAt
+                            prefs.edit().putLong(KEY_LAST_NOTIFIED_AT, lastNotifiedAt).apply()
+                        }
+                    }
+                    is ChatEvent.Delivered -> {
+                        val updated = historyStore.load(historyKey()).map { message ->
+                            if (message.id == event.receipt.messageId && message.senderId == identity.myId) {
+                                message.copy(deliveryStatus = MessageDeliveryStatus.DELIVERED)
+                            } else {
+                                message
+                            }
+                        }
+                        historyStore.save(historyKey(), updated)
                     }
                 }
-                historyStore.save(historyKey, updated)
             }
         }
     }
 
+    private fun historyKey(): String =
+        identity.conversationKey().joinToString("") { "%02x".format(it) }
+
     private fun retryPendingMessages() {
-        val historyKey = runCatching {
-            identity.conversationKey().joinToString("") { "%02x".format(it) }
-        }.getOrNull() ?: return
+        val historyKey = runCatching { historyKey() }.getOrNull() ?: return
         val topic = runCatching { identity.conversationTopic() }.getOrNull() ?: return
 
         serviceScope.launch {
