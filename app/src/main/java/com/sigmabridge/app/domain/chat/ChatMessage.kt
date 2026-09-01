@@ -1,11 +1,11 @@
 package com.sigmabridge.app.domain.chat
 
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.Transient
 
 enum class MessageDeliveryStatus {
     PENDING,
-    SENT
+    SENT,
+    DELIVERED
 }
 
 @Serializable
@@ -14,5 +14,11 @@ data class ChatMessage(
     val senderId: String,
     val text: String,
     val createdAt: Long,
-    @Transient val deliveryStatus: MessageDeliveryStatus = MessageDeliveryStatus.SENT
+    val deliveryStatus: MessageDeliveryStatus = MessageDeliveryStatus.SENT
+)
+
+@Serializable
+data class ChatReceipt(
+    val messageId: String,
+    val senderId: String
 )
