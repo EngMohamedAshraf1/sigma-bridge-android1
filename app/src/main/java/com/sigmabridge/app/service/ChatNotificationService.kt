@@ -105,14 +105,12 @@ class ChatNotificationService : Service() {
                         }
                     }
                     is ChatEvent.Delivered -> {
-                        val updated = historyStore.load(historyKey()).map { message ->
-                            if (message.id == event.receipt.messageId && message.senderId == identity.myId) {
-                                message.copy(deliveryStatus = MessageDeliveryStatus.DELIVERED)
-                            } else {
-                                message
-                            }
-                        }
-                        historyStore.save(historyKey(), updated)
+                        if (event.receipt.senderId != identity.myId) return@collect
+                        historyStore.updateDeliveryStatus(
+                            historyKey(),
+                            event.receipt.messageId,
+                            MessageDeliveryStatus.DELIVERED
+                        )
                     }
                 }
             }
