@@ -24,6 +24,7 @@ class ChatHistoryStore @Inject constructor(
         return runCatching { json.decodeFromString(serializer, raw) }.getOrDefault(emptyList())
     }
 
+    @Synchronized
     fun save(conversationKey: String, messages: List<ChatMessage>) {
         val raw = json.encodeToString(serializer, messages.takeLast(MAX_MESSAGES))
         preferences.edit().putString(keyFor(conversationKey), raw).apply()
@@ -36,11 +37,31 @@ class ChatHistoryStore @Inject constructor(
         status: MessageDeliveryStatus
     ): List<ChatMessage> {
         val updated = load(conversationKey).map { message ->
-            if (message.id == messageId) message.copy(deliveryStatus = status) else message
+            if (message.id == messageId && isStatusUpgrade(message.deliveryStatus, status)) {
+                message.copy(deliveryStatus = status)
+            } else {
+                message
+            }
         }
         save(conversationKey, updated)
         return updated
     }
+
+    @Synchronized
+    fun markSent(conversationKey: String, messageId: String): List<ChatMessage> {
+        val updated = load(conversationKey).map { message ->
+            if (message.id == messageId && message.deliveryStatus == MessageDeliveryStatus.PENDING) {
+                message.copy(deliveryStatus = MessageDeliveryStatus.SENT)
+            } else {
+                message
+            }
+        }
+        save(conversationKey, updated)
+        return updated
+    }
+
+    private fun isStatusUpgrade(current: MessageDeliveryStatus, requested: MessageDeliveryStatus): Boolean =
+        requested.ordinal > current.ordinal
 
     private fun keyFor(value: String): String = "history_${sha256(value.trim())}"
 
