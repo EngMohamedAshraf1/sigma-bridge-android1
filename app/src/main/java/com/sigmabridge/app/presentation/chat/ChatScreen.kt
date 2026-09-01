@@ -65,9 +65,7 @@ fun ChatScreen(
     var partnerInput by remember { mutableStateOf(partnerId) }
     var input by remember { mutableStateOf("") }
 
-    val notificationPermissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { }
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
     LaunchedEffect(Unit) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
@@ -91,16 +89,12 @@ fun ChatScreen(
             TopAppBar(
                 title = { Text("Private Chat") },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.Filled.ArrowBack, contentDescription = "Back")
-                    }
+                    IconButton(onClick = onBack) { Icon(Icons.Filled.ArrowBack, contentDescription = "Back") }
                 }
             )
         }
     ) { padding ->
-        Column(
-            modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp)
-        ) {
+        Column(modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp)) {
             Text("Your ID", style = MaterialTheme.typography.labelMedium)
             Text(
                 text = viewModel.myId,
@@ -137,9 +131,7 @@ fun ChatScreen(
                 modifier = Modifier.padding(top = 8.dp)
             )
 
-            error?.let {
-                Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 8.dp))
-            }
+            error?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 8.dp)) }
 
             LazyColumn(
                 modifier = Modifier.fillMaxWidth().weight(1f).padding(top = 12.dp),
@@ -165,9 +157,13 @@ fun ChatScreen(
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
-                                if (mine && message.deliveryStatus == MessageDeliveryStatus.PENDING) {
+                                if (mine) {
                                     Text(
-                                        text = "• Sending…",
+                                        text = when (message.deliveryStatus) {
+                                            MessageDeliveryStatus.PENDING -> "• Sending…"
+                                            MessageDeliveryStatus.SENT -> "✓"
+                                            MessageDeliveryStatus.DELIVERED -> "✓✓"
+                                        },
                                         style = MaterialTheme.typography.labelSmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
