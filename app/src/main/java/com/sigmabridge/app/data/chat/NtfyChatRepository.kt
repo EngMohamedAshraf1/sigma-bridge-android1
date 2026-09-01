@@ -10,6 +10,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.isActive
@@ -28,9 +29,8 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Tiny relay. Conversation topic and encryption key are derived from the two user IDs.
- * A single shared ntfy listener is maintained per conversation topic so foreground UI and
- * background service never race each other with separate relay streams.
+ * Tiny relay. Conversation messages and delivery receipts use separate ntfy topics so a
+ * delivery receipt can never be confused with a normal chat message/notification.
  */
 @Singleton
 class NtfyChatRepository @Inject constructor(
@@ -54,17 +54,20 @@ class NtfyChatRepository @Inject constructor(
             text = crypto.encrypt(payload),
             createdAt = System.currentTimeMillis()
         )
-        sendWire(topic, message)
+        sendWire(receiptTopic(topic), message)
     }
 
     /**
-     * Return the raw shared event stream. Per-device filtering belongs to the consumer,
-     * because each subscriber has a different ownSenderId and receipts must never be filtered out.
+     * Subscribe to both the normal message topic and the dedicated receipt topic.
+     * They are merged only inside the repository; receipts never travel through the
+     * normal message/notification path.
      */
     override fun observeEvents(topic: String, ownSenderId: String): Flow<ChatEvent> {
         val normalizedTopic = topic.trim()
-        val stream = streams.computeIfAbsent(normalizedTopic) { createRelayStream(normalizedTopic) }
-        return stream.events.asSharedFlow()
+        val messageStream = streams.computeIfAbsent(normalizedTopic) { createRelayStream(normalizedTopic) }
+        val receiptTopic = receiptTopic(normalizedTopic)
+        val receiptStream = streams.computeIfAbsent(receiptTopic) { createRelayStream(receiptTopic) }
+        return merge(messageStream.events.asSharedFlow(), receiptStream.events.asSharedFlow())
     }
 
     private fun createRelayStream(topic: String): RelayStream {
@@ -119,6 +122,8 @@ class NtfyChatRepository @Inject constructor(
         }
         return RelayStream(events, job)
     }
+
+    private fun receiptTopic(topic: String): String = "${topic.trim()}-receipts"
 
     private suspend fun sendWire(topic: String, message: ChatMessage) {
         val body = json.encodeToString(ChatMessage.serializer(), message).toRequestBody(JSON_MEDIA_TYPE)
