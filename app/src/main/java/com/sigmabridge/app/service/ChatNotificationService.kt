@@ -18,6 +18,7 @@ import com.sigmabridge.app.data.chat.ChatOutboxStore
 import com.sigmabridge.app.domain.chat.ChatRepository
 import com.sigmabridge.app.domain.chat.ChatTranslationService
 import com.sigmabridge.app.domain.chat.MessageDeliveryStatus
+import com.sigmabridge.app.domain.chat.ChatReceipt
 import com.sigmabridge.app.presentation.MainActivity
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
@@ -65,6 +66,7 @@ class ChatNotificationService : Service() {
                 }
                 serviceScope.coroutineContext.cancelChildren()
                 observeMessages()
+                observeDeliveredReceipts()
                 retryPendingMessages()
                 return START_STICKY
             }
@@ -85,11 +87,41 @@ class ChatNotificationService : Service() {
             } else storedLastNotifiedAt
 
             chatRepository.observe(topic, identity.myId).collect { message ->
+                // Delivery acknowledgement is sent as soon as the encrypted message
+                // has been received and successfully decrypted by this device.
+                chatRepository.sendDeliveredReceipt(
+                    topic,
+                    ChatReceipt(messageId = message.id, senderId = identity.myId)
+                )
+
                 if (message.createdAt <= lastNotifiedAt) return@collect
                 if (postMessageNotification(partnerId, message.id)) {
                     lastNotifiedAt = message.createdAt
                     prefs.edit().putLong(KEY_LAST_NOTIFIED_AT, lastNotifiedAt).apply()
                 }
+            }
+        }
+    }
+
+    private fun observeDeliveredReceipts() {
+        val topic = runCatching { identity.conversationTopic() }.getOrNull() ?: return
+        val historyKey = runCatching {
+            identity.conversationKey().joinToString("") { "%02x".format(it) }
+        }.getOrNull() ?: return
+
+        serviceScope.launch {
+            chatRepository.observeDeliveredReceipts(topic, identity.myId).collect { receipt ->
+                val updated = historyStore.load(historyKey).map { message ->
+                    if (message.id == receipt.messageId &&
+                        message.senderId == identity.myId &&
+                        message.deliveryStatus != MessageDeliveryStatus.DELIVERED
+                    ) {
+                        message.copy(deliveryStatus = MessageDeliveryStatus.DELIVERED)
+                    } else {
+                        message
+                    }
+                }
+                historyStore.save(historyKey, updated)
             }
         }
     }
