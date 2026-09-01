@@ -87,6 +87,10 @@ class ChatNotificationService : Service() {
             chatRepository.observeEvents(topic, identity.myId).collect { event ->
                 when (event) {
                     is ChatEvent.Message -> {
+                        // The relay stream is shared and also contains our own published
+                        // messages. They are local sends, not incoming notifications.
+                        if (event.message.senderId == identity.myId) return@collect
+
                         // A message is considered delivered only after this device has
                         // successfully received and decrypted it from the unified relay stream.
                         chatRepository.sendDeliveredReceipt(
