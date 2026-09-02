@@ -40,6 +40,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -86,9 +87,12 @@ fun ChatScreen(
         }
     }
 
-    LaunchedEffect(messages.size) {
+    LaunchedEffect(messages.size, connected) {
         if (messages.isNotEmpty()) {
             listState.scrollToItem(messages.lastIndex)
+        }
+        if (connected) {
+            viewModel.markVisibleMessagesRead()
         }
     }
 
@@ -174,7 +178,7 @@ fun ChatScreen(
                                         MessageDeliveryStatus.READ -> "✓✓"
                                     }
                                     val receiptColor = when (message.deliveryStatus) {
-                                        MessageDeliveryStatus.READ -> MaterialTheme.colorScheme.primary
+                                        MessageDeliveryStatus.READ -> Color(0xFF0084FF)
                                         else -> MaterialTheme.colorScheme.onSurfaceVariant
                                     }
                                     Text(
