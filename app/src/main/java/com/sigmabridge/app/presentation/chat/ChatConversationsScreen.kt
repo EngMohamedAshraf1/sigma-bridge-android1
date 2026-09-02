@@ -1,5 +1,8 @@
 package com.sigmabridge.app.presentation.chat
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -14,7 +17,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -29,6 +34,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -39,6 +45,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -54,7 +61,9 @@ fun ChatConversationsScreen(
     viewModel: ChatConversationsViewModel = hiltViewModel()
 ) {
     val conversations by viewModel.conversations.collectAsState()
+    val context = LocalContext.current
     var showAdd by remember { mutableStateOf(false) }
+    var showMyId by remember { mutableStateOf(false) }
     var search by remember { mutableStateOf("") }
 
     LaunchedEffect(Unit) { viewModel.refresh() }
@@ -78,6 +87,9 @@ fun ChatConversationsScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = { showMyId = true }) {
+                        Icon(Icons.Filled.Person, contentDescription = "My Sigma Bridge ID")
+                    }
                     IconButton(onClick = { showAdd = true }) {
                         Icon(Icons.Filled.Add, contentDescription = "New chat")
                     }
@@ -149,6 +161,52 @@ fun ChatConversationsScreen(
             }
         )
     }
+
+    if (showMyId) {
+        MyIdDialog(
+            myId = viewModel.myId,
+            context = context,
+            onDismiss = { showMyId = false }
+        )
+    }
+}
+
+@Composable
+private fun MyIdDialog(
+    myId: String,
+    context: Context,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Your Sigma Bridge ID") },
+        text = {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    text = myId,
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.padding(vertical = 8.dp)
+                )
+                Text(
+                    text = "Give this ID to someone who wants to start a private chat with you.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                clipboard.setPrimaryClip(ClipData.newPlainText("Sigma Bridge ID", myId))
+                onDismiss()
+            }) {
+                Icon(Icons.Filled.ContentCopy, contentDescription = null)
+                Text("Copy", modifier = Modifier.padding(start = 6.dp))
+            }
+        },
+        dismissButton = {
+            OutlinedButton(onClick = onDismiss) { Text("Close") }
+        }
+    )
 }
 
 @Composable
