@@ -80,7 +80,7 @@ fun HomeScreen(
             }
 
             TextButton(onClick = onChatClick) {
-                Text("Private Chat (Phase 1)")
+                Text("Private Chat")
             }
 
             TextButton(onClick = onGeminiTestClick) {
