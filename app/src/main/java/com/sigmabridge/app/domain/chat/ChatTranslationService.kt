@@ -1,46 +1,33 @@
 package com.sigmabridge.app.domain.chat
 
-import com.sigmabridge.app.data.gemini.GeminiTranslationRepository
-import com.sigmabridge.app.domain.gemini.GeminiApiKeyManager
-import com.sigmabridge.app.domain.model.Language
 import com.sigmabridge.app.domain.model.LanguagePair
 import com.sigmabridge.app.domain.repository.LanguagePreferencesRepository
 import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Private Chat translation facade.
- *
- * Chat can be used from either side of the same configured language pair.
- * We therefore detect which side the actual text belongs to when possible and
- * translate to the opposite language. This keeps both devices working even
- * when they share the same global language pair (for example Arabic -> Russian).
+ * Private Chat translation facade. Chat uses its own Gemini runtime so its
+ * health, key rotation and timeout behavior cannot mutate Telegram's Gemini
+ * runtime. Both devices can share the same global language pair; the actual
+ * message script selects the direction for common Arabic/Russian/English use.
  */
 @Singleton
 class ChatTranslationService @Inject constructor(
-    private val geminiRepository: GeminiTranslationRepository,
-    private val keyManager: GeminiApiKeyManager,
+    private val geminiRepository: ChatGeminiTranslationRepository,
     private val languagePreferencesRepository: LanguagePreferencesRepository
 ) {
     suspend fun translateIncoming(text: String): Result<String> {
-        if (keyManager.totalKeyCount() == 0) return Result.success(text)
         val configured = languagePreferencesRepository.getGlobal().toLanguagePair()
         val pair = choosePairForText(text, configured, fallbackToConfigured = true)
         return geminiRepository.translateText(text, pair)
     }
 
     suspend fun translateOutgoing(text: String): Result<String> {
-        if (keyManager.totalKeyCount() == 0) return Result.success(text)
         val configured = languagePreferencesRepository.getGlobal().toLanguagePair()
         val pair = choosePairForText(text, configured, fallbackToConfigured = false)
         return geminiRepository.translateText(text, pair)
     }
 
-    /**
-     * Prefer the direction that matches the actual message language. For the
-     * common Arabic/Russian pair this is deterministic from Unicode script and
-     * avoids requiring a language-selection role on each device.
-     */
     private fun choosePairForText(
         text: String,
         configured: LanguagePair,
