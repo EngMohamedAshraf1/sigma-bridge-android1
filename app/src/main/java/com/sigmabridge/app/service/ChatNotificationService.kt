@@ -89,6 +89,8 @@ class ChatNotificationService : Service() {
                     is ChatEvent.Message -> {
                         if (event.message.senderId != partnerId) return@collect
 
+                        // This device received the partner's message. Send the delivery receipt
+                        // back using this device's own ID, so the sender recognizes the partner.
                         chatRepository.sendDeliveredReceipt(
                             topic,
                             ChatReceipt(messageId = event.message.id, senderId = identity.myId)
@@ -101,7 +103,8 @@ class ChatNotificationService : Service() {
                         }
                     }
                     is ChatEvent.Delivered -> {
-                        if (event.receipt.senderId != identity.myId) return@collect
+                        // A delivery receipt for one of my messages must come from the partner.
+                        if (event.receipt.senderId != partnerId) return@collect
                         historyStore.updateDeliveryStatus(
                             historyKey(),
                             event.receipt.messageId,
@@ -109,7 +112,8 @@ class ChatNotificationService : Service() {
                         )
                     }
                     is ChatEvent.Read -> {
-                        if (event.receipt.senderId != identity.myId) return@collect
+                        // A read receipt for one of my messages must come from the partner.
+                        if (event.receipt.senderId != partnerId) return@collect
                         historyStore.updateDeliveryStatus(
                             historyKey(),
                             event.receipt.messageId,
