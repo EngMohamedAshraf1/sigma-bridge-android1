@@ -80,31 +80,43 @@ class ChatNotificationService : Service() {
     }
 
     /**
-     * Listen to every saved private conversation independently. Chat delivery
-     * must not depend on whichever conversation happens to be open in the UI.
+     * Keep exactly two long-lived relay connections for all saved conversations:
+     * one for message topics and one for their receipt topics. ntfy supports a
+     * comma-separated topic list in one subscription URL, so adding conversations
+     * does not multiply background HTTP connections.
      */
     private fun observeAllChatEvents() {
         val conversations = conversationStore.load()
-        for (conversation in conversations) {
-            if (conversation.partnerId.isBlank() || conversation.partnerId == identity.myId) continue
-            observeConversation(conversation)
+        val validConversations = conversations.filter {
+            it.partnerId.isNotBlank() && it.partnerId != identity.myId
         }
-    }
+        if (validConversations.isEmpty()) return
 
-    private fun observeConversation(conversation: ChatConversation) {
-        val partnerId = conversation.partnerId.trim()
-        val topic = runCatching { identity.conversationTopicFor(partnerId) }.getOrNull() ?: return
-        val historyKey = runCatching { historyKeyFor(partnerId) }.getOrNull() ?: return
-        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
-        val lastNotifiedKey = "$KEY_LAST_NOTIFIED_AT_PREFIX$partnerId"
+        val topics = validConversations.mapNotNull { conversation ->
+            runCatching { identity.conversationTopicFor(conversation.partnerId) }.getOrNull()
+        }.distinct()
+        if (topics.isEmpty()) return
 
+        val conversationsByPartnerId = validConversations.associateBy { it.partnerId.trim() }
+        val topicByPartnerId = validConversations.associate { conversation ->
+            conversation.partnerId.trim() to identity.conversationTopicFor(conversation.partnerId)
+        }
+
+        val messageTopicSet = topics.toSet()
+        val receiptTopicSet = topics.map { "$it-receipts" }.toSet()
         serviceScope.launch {
-            var lastNotifiedAt = prefs.getLong(lastNotifiedKey, 0L)
+            val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+            val storedLastNotifiedAt = prefs.getLong(KEY_LAST_NOTIFIED_AT_GLOBAL, 0L)
+            var lastNotifiedAt = storedLastNotifiedAt
 
-            chatRepository.observeEvents(topic, identity.myId).collect { event ->
+            chatRepository.observeEvents(topics, identity.myId).collect { event ->
                 when (event) {
                     is ChatEvent.Message -> {
-                        if (event.message.senderId != partnerId) return@collect
+                        val partnerId = event.message.senderId.trim()
+                        if (partnerId.isBlank() || !conversationsByPartnerId.containsKey(partnerId)) return@collect
+
+                        val historyKey = historyKeyFor(partnerId)
+                        val topic = topicByPartnerId[partnerId] ?: return@collect
 
                         // The message reached this device. Keep it unread until the user
                         // actually opens this conversation.
@@ -119,23 +131,25 @@ class ChatNotificationService : Service() {
                         if (event.message.createdAt <= lastNotifiedAt) return@collect
                         if (postMessageNotification(partnerId, event.message.id)) {
                             lastNotifiedAt = event.message.createdAt
-                            prefs.edit().putLong(lastNotifiedKey, lastNotifiedAt).apply()
+                            prefs.edit().putLong(KEY_LAST_NOTIFIED_AT_GLOBAL, lastNotifiedAt).apply()
                         }
                     }
                     is ChatEvent.Delivered -> {
-                        // A delivery receipt for one of my messages must come from this
-                        // conversation's partner, not from another device/conversation.
-                        if (event.receipt.senderId != partnerId) return@collect
+                        // A delivery receipt for one of my messages must come from a saved
+                        // conversation partner.
+                        val partnerId = event.receipt.senderId.trim()
+                        if (!conversationsByPartnerId.containsKey(partnerId)) return@collect
                         historyStore.updateDeliveryStatus(
-                            historyKey,
+                            historyKeyFor(partnerId),
                             event.receipt.messageId,
                             MessageDeliveryStatus.DELIVERED
                         )
                     }
                     is ChatEvent.Read -> {
-                        if (event.receipt.senderId != partnerId) return@collect
+                        val partnerId = event.receipt.senderId.trim()
+                        if (!conversationsByPartnerId.containsKey(partnerId)) return@collect
                         historyStore.updateDeliveryStatus(
-                            historyKey,
+                            historyKeyFor(partnerId),
                             event.receipt.messageId,
                             MessageDeliveryStatus.READ
                         )
@@ -259,7 +273,7 @@ class ChatNotificationService : Service() {
         private const val CHAT_CHANNEL_ID = "sigma_chat_messages"
         private const val SERVICE_NOTIFICATION_ID = 2001
         private const val PREFS_NAME = "sigma_bridge_chat_notifications"
-        private const val KEY_LAST_NOTIFIED_AT_PREFIX = "last_notified_at_"
+        private const val KEY_LAST_NOTIFIED_AT_GLOBAL = "last_notified_at_global"
         private const val INITIAL_RETRY_MS = 2_000L
         private const val MAX_RETRY_MS = 60_000L
         private const val IDLE_RETRY_MS = 15_000L
