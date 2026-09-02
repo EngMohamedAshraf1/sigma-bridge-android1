@@ -94,8 +94,8 @@ class ChatViewModel @Inject constructor(
                             if (event.message.senderId != identity.partnerId) return@collect
                             if (_messages.value.any { it.id == event.message.id }) return@collect
 
-                            // The user is currently inside this conversation, so acknowledge
-                            // reading immediately and independently of Gemini translation.
+                            // The conversation is open on this device, so acknowledge the message
+                            // as read. The receipt is sent independently from Gemini translation.
                             viewModelScope.launch {
                                 chatRepository.sendReadReceipt(
                                     topic,
@@ -164,7 +164,8 @@ class ChatViewModel @Inject constructor(
         receiptSenderId: String,
         status: MessageDeliveryStatus
     ) {
-        if (receiptSenderId != ownSenderId) return
+        // A receipt for one of my messages must come from the partner device.
+        if (receiptSenderId != identity.partnerId) return
         val updated = _messages.value.map { message ->
             if (message.id == messageId && message.senderId == ownSenderId && message.deliveryStatus.ordinal < status.ordinal) {
                 message.copy(deliveryStatus = status)
