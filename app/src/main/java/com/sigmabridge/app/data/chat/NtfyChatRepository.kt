@@ -12,12 +12,14 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.emptyFlow
-import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -32,13 +34,11 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Tiny relay. Conversation messages and receipts use separate ntfy topic groups so receipt
- * events can never be confused with normal chat messages or notifications.
+ * Tiny relay for Private Chat. Telegram does not use this repository.
  *
- * Sending is idempotent within the process: the foreground ViewModel and background service
- * may both notice the same outbox item, but only one network POST is allowed for the same
- * logical message/receipt at a time. This prevents duplicate concurrent sends and reduces
- * unnecessary ntfy rate-limit pressure.
+ * Sending is deliberately serialized and coalesced by message ID so the foreground
+ * ViewModel and the background service can never publish the same pending message twice
+ * at the same time.
  */
 @Singleton
 class NtfyChatRepository @Inject constructor(
@@ -49,14 +49,38 @@ class NtfyChatRepository @Inject constructor(
     private val streamClient by lazy { baseClient.newBuilder().readTimeout(0, TimeUnit.MILLISECONDS).build() }
     private val relayScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val streams = ConcurrentHashMap<String, RelayStream>()
-    private val sendInFlight = ConcurrentHashMap<String, CompletableDeferred<Result<Unit>>>()
-    private val completedSendKeys = ConcurrentHashMap.newKeySet<String>()
+    private val publishMutex = Mutex()
+    private val inFlightSends = mutableMapOf<String, CompletableDeferred<Result<Unit>>>()
 
     override suspend fun send(topic: String, message: ChatMessage): Result<Unit> {
-        val sendKey = "message:${topic.trim()}:${message.id}"
-        return sendDeduplicated(sendKey) {
-            sendWire(topic, message.copy(text = crypto.encrypt(message.text)))
+        val deferred: CompletableDeferred<Result<Unit>>
+        val owner: Boolean
+
+        synchronized(inFlightSends) {
+            val existing = inFlightSends[message.id]
+            if (existing != null) {
+                deferred = existing
+                owner = false
+            } else {
+                deferred = CompletableDeferred()
+                inFlightSends[message.id] = deferred
+                owner = true
+            }
         }
+
+        if (!owner) return deferred.await()
+
+        val result = runCatching {
+            publishMutex.withLock {
+                sendWire(topic, message.copy(text = crypto.encrypt(message.text)))
+            }
+        }
+
+        synchronized(inFlightSends) {
+            inFlightSends.remove(message.id)
+        }
+        deferred.complete(result)
+        return result
     }
 
     override suspend fun sendDeliveredReceipt(topic: String, receipt: ChatReceipt): Result<Unit> =
@@ -65,46 +89,16 @@ class NtfyChatRepository @Inject constructor(
     override suspend fun sendReadReceipt(topic: String, receipt: ChatReceipt): Result<Unit> =
         sendReceipt(topic, receipt.copy(type = ChatReceiptType.READ))
 
-    private suspend fun sendReceipt(topic: String, receipt: ChatReceipt): Result<Unit> {
-        val sendKey = "receipt:${topic.trim()}:${receipt.messageId}:${receipt.type}"
-        return sendDeduplicated(sendKey) {
-            val payload = RECEIPT_PREFIX + json.encodeToString(ChatReceipt.serializer(), receipt)
-            val message = ChatMessage(
-                id = "receipt-${receipt.messageId}-${receipt.type}-${UUID.randomUUID()}",
-                senderId = receipt.senderId,
-                text = crypto.encrypt(payload),
-                createdAt = System.currentTimeMillis()
-            )
+    private suspend fun sendReceipt(topic: String, receipt: ChatReceipt): Result<Unit> = runCatching {
+        val payload = RECEIPT_PREFIX + json.encodeToString(ChatReceipt.serializer(), receipt)
+        val message = ChatMessage(
+            id = "receipt-${receipt.messageId}-${receipt.type}-${UUID.randomUUID()}",
+            senderId = receipt.senderId,
+            text = crypto.encrypt(payload),
+            createdAt = System.currentTimeMillis()
+        )
+        publishMutex.withLock {
             sendWire(receiptTopic(topic), message)
-        }
-    }
-
-    /**
-     * Coalesce concurrent attempts for the same logical operation. Callers share the same
-     * Result instead of issuing duplicate HTTP requests. Successful keys stay completed for
-     * this process lifetime so a stale background scan cannot immediately re-send the message.
-     */
-    private suspend fun sendDeduplicated(
-        key: String,
-        operation: suspend () -> Unit
-    ): Result<Unit> {
-        if (key in completedSendKeys) return Result.success(Unit)
-
-        val mine = CompletableDeferred<Result<Unit>>()
-        val existing = sendInFlight.putIfAbsent(key, mine)
-        if (existing != null) return existing.await()
-
-        return try {
-            val result = runCatching { operation() }
-            if (result.isSuccess) completedSendKeys += key
-            mine.complete(result)
-            result
-        } catch (error: Throwable) {
-            val result = Result.failure<Unit>(error)
-            mine.complete(result)
-            result
-        } finally {
-            sendInFlight.remove(key, mine)
         }
     }
 
@@ -112,9 +106,7 @@ class NtfyChatRepository @Inject constructor(
         val normalizedTopics = topics.map { it.trim() }.filter { it.isNotBlank() }.distinct().sorted()
         if (normalizedTopics.isEmpty()) return emptyFlow()
 
-        // ntfy supports subscribing to multiple topics in one HTTP stream. Keep one shared
-        // stream for messages and one shared stream for receipts instead of two connections
-        // per conversation.
+        // One HTTP stream for all message topics and one for all receipt topics.
         val messageSubscription = normalizedTopics.joinToString(",")
         val receiptSubscription = normalizedTopics.map(::receiptTopic).joinToString(",")
         val messageStream = streams.computeIfAbsent(messageSubscription) { createRelayStream(messageSubscription) }
