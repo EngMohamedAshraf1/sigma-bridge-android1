@@ -13,6 +13,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.withTimeout
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -82,38 +83,40 @@ class GeminiTranslationRepository @Inject constructor(
     suspend fun translateText(text: String, languagePair: LanguagePair): Result<String> = runCatching {
         _health.value = GeminiHealth.BUSY
 
-        val maxAttempts = keyManager.totalKeyCount()
-        if (maxAttempts == 0) {
-            throw NoAvailableGeminiKeyException("No Gemini API key configured")
-        }
+        withTimeout(CHAT_TEXT_TOTAL_TIMEOUT_MS) {
+            val maxAttempts = keyManager.totalKeyCount()
+            if (maxAttempts == 0) {
+                throw NoAvailableGeminiKeyException("No Gemini API key configured")
+            }
 
-        var lastError: Throwable = NoAvailableGeminiKeyException("All configured Gemini API keys are unavailable")
-        var attempt = 0
+            var lastError: Throwable = NoAvailableGeminiKeyException("All configured Gemini API keys are unavailable")
+            var attempt = 0
 
-        while (attempt < maxAttempts) {
-            val apiKey = keyManager.nextKey() ?: break
-            attempt++
-            try {
-                return@runCatching translateTextWithKey(apiKey, text, languagePair).also {
-                    keyManager.markSucceeded(apiKey)
-                }
-            } catch (error: GeminiApiException) {
-                lastError = error
-                when (error.httpCode) {
-                    HTTP_TOO_MANY_REQUESTS -> {
-                        logger.debug(TAG, "Chat key ending in \"${apiKey.takeLast(4)}\" hit quota (429); trying next key")
-                        keyManager.markQuotaExceeded(apiKey)
+            while (attempt < maxAttempts) {
+                val apiKey = keyManager.nextKey() ?: break
+                attempt++
+                try {
+                    return@withTimeout translateTextWithKey(apiKey, text, languagePair).also {
+                        keyManager.markSucceeded(apiKey)
                     }
-                    HTTP_UNAUTHORIZED, HTTP_FORBIDDEN -> {
-                        logger.error(TAG, "Chat key ending in \"${apiKey.takeLast(4)}\" failed auth (${error.httpCode}); marking invalid for this session", error)
-                        keyManager.markInvalid(apiKey)
+                } catch (error: GeminiApiException) {
+                    lastError = error
+                    when (error.httpCode) {
+                        HTTP_TOO_MANY_REQUESTS -> {
+                            logger.debug(TAG, "Chat key ending in \"${apiKey.takeLast(4)}\" hit quota (429); trying next key")
+                            keyManager.markQuotaExceeded(apiKey)
+                        }
+                        HTTP_UNAUTHORIZED, HTTP_FORBIDDEN -> {
+                            logger.error(TAG, "Chat key ending in \"${apiKey.takeLast(4)}\" failed auth (${error.httpCode}); marking invalid for this session", error)
+                            keyManager.markInvalid(apiKey)
+                        }
+                        else -> throw error
                     }
-                    else -> throw error
                 }
             }
-        }
 
-        throw lastError
+            throw lastError
+        }
     }.onSuccess {
         _health.value = GeminiHealth.READY
     }.onFailure { error ->
@@ -319,6 +322,7 @@ class GeminiTranslationRepository @Inject constructor(
         const val CHAT_TEXT_MAX_RETRY_ATTEMPTS = 2
         const val CHAT_TEXT_INITIAL_BACKOFF_MS = 500L
         const val CHAT_TEXT_MAX_BACKOFF_MS = 2_000L
+        const val CHAT_TEXT_TOTAL_TIMEOUT_MS = 30_000L
 
         val LEADING_LABEL_REGEX = Regex("^(arabic|ar)\\s*[:\\-]\\s*", RegexOption.IGNORE_CASE)
     }
