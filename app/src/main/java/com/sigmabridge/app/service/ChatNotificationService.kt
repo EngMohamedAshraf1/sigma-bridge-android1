@@ -12,13 +12,14 @@ import android.content.pm.PackageManager
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
-import com.sigmabridge.app.data.chat.ChatIdentity
 import com.sigmabridge.app.data.chat.ChatHistoryStore
+import com.sigmabridge.app.data.chat.ChatIdentity
 import com.sigmabridge.app.data.chat.ChatOutboxStore
+import com.sigmabridge.app.data.chat.ChatUnreadStore
 import com.sigmabridge.app.domain.chat.ChatEvent
+import com.sigmabridge.app.domain.chat.ChatReceipt
 import com.sigmabridge.app.domain.chat.ChatRepository
 import com.sigmabridge.app.domain.chat.ChatTranslationService
-import com.sigmabridge.app.domain.chat.ChatReceipt
 import com.sigmabridge.app.domain.chat.MessageDeliveryStatus
 import com.sigmabridge.app.presentation.MainActivity
 import dagger.hilt.android.AndroidEntryPoint
@@ -40,6 +41,7 @@ class ChatNotificationService : Service() {
     @Inject lateinit var identity: ChatIdentity
     @Inject lateinit var outboxStore: ChatOutboxStore
     @Inject lateinit var historyStore: ChatHistoryStore
+    @Inject lateinit var unreadStore: ChatUnreadStore
     @Inject lateinit var chatTranslationService: ChatTranslationService
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -78,6 +80,7 @@ class ChatNotificationService : Service() {
         val topic = runCatching { identity.conversationTopic() }.getOrNull() ?: return
         val partnerId = identity.partnerId
         if (partnerId.isBlank()) return
+        val historyKey = runCatching { historyKey() }.getOrNull() ?: return
 
         serviceScope.launch {
             val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
@@ -88,6 +91,11 @@ class ChatNotificationService : Service() {
                 when (event) {
                     is ChatEvent.Message -> {
                         if (event.message.senderId != partnerId) return@collect
+
+                        // The message has reached this device, but it may be opened later.
+                        // Persist its unread ID so opening Private Chat can emit the READ receipt
+                        // even if this background service consumed the live event first.
+                        unreadStore.addUnread(historyKey, event.message.id)
 
                         // This device received the partner's message. Send the delivery receipt
                         // back using this device's own ID, so the sender recognizes the partner.
@@ -106,7 +114,7 @@ class ChatNotificationService : Service() {
                         // A delivery receipt for one of my messages must come from the partner.
                         if (event.receipt.senderId != partnerId) return@collect
                         historyStore.updateDeliveryStatus(
-                            historyKey(),
+                            historyKey,
                             event.receipt.messageId,
                             MessageDeliveryStatus.DELIVERED
                         )
@@ -115,7 +123,7 @@ class ChatNotificationService : Service() {
                         // A read receipt for one of my messages must come from the partner.
                         if (event.receipt.senderId != partnerId) return@collect
                         historyStore.updateDeliveryStatus(
-                            historyKey(),
+                            historyKey,
                             event.receipt.messageId,
                             MessageDeliveryStatus.READ
                         )
