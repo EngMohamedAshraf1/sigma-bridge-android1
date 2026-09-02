@@ -46,6 +46,7 @@ class ChatViewModel @Inject constructor(
     private var currentTopic: String? = null
     private var currentHistoryKey: String? = null
     private var statusSyncJob: Job? = null
+    private val readReceiptSentIds = mutableSetOf<String>()
 
     init { if (_partnerId.value.isNotBlank()) connect() }
 
@@ -63,6 +64,7 @@ class ChatViewModel @Inject constructor(
         disconnect()
         _messages.value = emptyList()
         _error.value = null
+        readReceiptSentIds.clear()
     }
 
     fun connect() {
@@ -74,6 +76,7 @@ class ChatViewModel @Inject constructor(
         }
         if (currentTopic == topic && _connected.value) return
         statusSyncJob?.cancel()
+        readReceiptSentIds.clear()
         currentTopic = topic
         currentHistoryKey = identity.conversationKey().joinToString("") { "%02x".format(it) }
         val historyKey = currentHistoryKey!!
@@ -98,17 +101,6 @@ class ChatViewModel @Inject constructor(
                             if (event.message.senderId != identity.partnerId) return@collect
                             if (_messages.value.any { it.id == event.message.id }) return@collect
 
-                            // The conversation is open on this device, so acknowledge the message
-                            // as read. The receipt is sent independently from Gemini translation.
-                            viewModelScope.launch {
-                                chatRepository.sendReadReceipt(
-                                    topic,
-                                    ChatReceipt(messageId = event.message.id, senderId = ownSenderId)
-                                ).onSuccess {
-                                    unreadStore.remove(historyKey, event.message.id)
-                                }
-                            }
-
                             val translated = chatTranslationService.translateIncoming(event.message.text)
                             val visible = event.message.copy(text = translated.getOrElse { error ->
                                 _error.value = error.message ?: "Unable to translate incoming message."
@@ -117,6 +109,9 @@ class ChatViewModel @Inject constructor(
                             val updated = _messages.value + visible
                             _messages.value = updated
                             currentHistoryKey?.let { historyStore.save(it, updated) }
+
+                            // Mark it read only after it has been accepted into the visible chat state.
+                            sendReadReceiptForMessage(topic, historyKey, event.message.id)
                         }
                         is ChatEvent.Delivered -> updateReceiptStatus(
                             historyKey,
@@ -164,19 +159,39 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    /** Called by the open Chat screen to explicitly acknowledge messages currently in the conversation. */
+    fun markVisibleMessagesRead() {
+        val topic = currentTopic ?: return
+        val historyKey = currentHistoryKey ?: return
+        val incomingIds = _messages.value
+            .asSequence()
+            .filter { it.senderId == identity.partnerId }
+            .map { it.id }
+            .toList()
+
+        incomingIds.forEach { messageId ->
+            sendReadReceiptForMessage(topic, historyKey, messageId)
+        }
+    }
+
     private fun sendPendingReadReceipts(topic: String, historyKey: String) {
         val unreadIds = unreadStore.load(historyKey)
         if (unreadIds.isEmpty()) return
+        unreadIds.forEach { messageId ->
+            sendReadReceiptForMessage(topic, historyKey, messageId)
+        }
+    }
 
+    private fun sendReadReceiptForMessage(topic: String, historyKey: String, messageId: String) {
+        if (!readReceiptSentIds.add(messageId)) return
         viewModelScope.launch {
-            unreadIds.forEach { messageId ->
-                if (!isActive) return@forEach
-                chatRepository.sendReadReceipt(
-                    topic,
-                    ChatReceipt(messageId = messageId, senderId = ownSenderId)
-                ).onSuccess {
-                    unreadStore.remove(historyKey, messageId)
-                }
+            chatRepository.sendReadReceipt(
+                topic,
+                ChatReceipt(messageId = messageId, senderId = ownSenderId)
+            ).onSuccess {
+                unreadStore.remove(historyKey, messageId)
+            }.onFailure {
+                readReceiptSentIds.remove(messageId)
             }
         }
     }
@@ -206,6 +221,7 @@ class ChatViewModel @Inject constructor(
         currentTopic = null
         currentHistoryKey = null
         _connected.value = false
+        readReceiptSentIds.clear()
     }
 
     fun send(text: String) {
