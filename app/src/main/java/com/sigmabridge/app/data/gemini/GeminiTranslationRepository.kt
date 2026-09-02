@@ -36,12 +36,6 @@ class GeminiTranslationRepository @Inject constructor(
     private val _health = MutableStateFlow(GeminiHealth.UNKNOWN)
     override val health: StateFlow<GeminiHealth> = _health.asStateFlow()
 
-    /**
-     * Tries each configured key at most once, in GeminiApiKeyManager's
-     * deterministic round-robin order. 429 moves to the next key; 401/403
-     * mark the current key invalid for this process. Other failures propagate
-     * after the bounded transient retry inside translateWithKey.
-     */
     override suspend fun translate(request: TranslationRequest): Result<TranslationResult> = runCatching {
         _health.value = GeminiHealth.BUSY
 
@@ -84,12 +78,7 @@ class GeminiTranslationRepository @Inject constructor(
         _health.value = classifyFailure(error)
     }
 
-    /**
-     * Text-only Gemini entry point used by Private Chat.
-     * It deliberately reuses the same key manager and retry policy as the
-     * existing audio pipeline but does not alter the TranslationRepository
-     * contract or the Telegram path.
-     */
+    /** Fast text-only Gemini path reserved for Private Chat. Telegram's audio/file path above is untouched. */
     suspend fun translateText(text: String, languagePair: LanguagePair): Result<String> = runCatching {
         _health.value = GeminiHealth.BUSY
 
@@ -169,10 +158,14 @@ class GeminiTranslationRepository @Inject constructor(
         languagePair: LanguagePair
     ): String {
         val prompt = buildTextPrompt(text, languagePair)
-        val rawText = withRetryOnTransientFailure {
+        val rawText = withRetryOnTransientFailure(
+            maxAttempts = CHAT_TEXT_MAX_RETRY_ATTEMPTS,
+            initialBackoffMillis = CHAT_TEXT_INITIAL_BACKOFF_MS,
+            maxBackoffMillis = CHAT_TEXT_MAX_BACKOFF_MS
+        ) {
             apiClient.generateTextContent(
                 apiKey = apiKey,
-                model = MODEL,
+                model = CHAT_MODEL,
                 prompt = prompt
             )
         }
@@ -204,9 +197,14 @@ class GeminiTranslationRepository @Inject constructor(
     }
 
     /** Retry 408 and 5xx generation failures with exponential backoff. */
-    private suspend fun <T> withRetryOnTransientFailure(block: suspend () -> T): T {
+    private suspend fun <T> withRetryOnTransientFailure(
+        maxAttempts: Int = DEFAULT_MAX_RETRY_ATTEMPTS,
+        initialBackoffMillis: Long = DEFAULT_INITIAL_BACKOFF_MS,
+        maxBackoffMillis: Long = DEFAULT_MAX_BACKOFF_MS,
+        block: suspend () -> T
+    ): T {
         var attempt = 0
-        var backoffMillis = INITIAL_BACKOFF_MS
+        var backoffMillis = initialBackoffMillis
         while (true) {
             try {
                 return block()
@@ -217,21 +215,20 @@ class GeminiTranslationRepository @Inject constructor(
                     error.httpCode == HTTP_SERVICE_UNAVAILABLE ||
                     error.httpCode == HTTP_GATEWAY_TIMEOUT
 
-                if (!retryable || attempt >= MAX_RETRY_ATTEMPTS) {
+                if (!retryable || attempt >= maxAttempts) {
                     throw error
                 }
 
                 logger.debug(
                     TAG,
-                    "Transient Gemini HTTP ${error.httpCode}; retrying attempt $attempt/$MAX_RETRY_ATTEMPTS in ${backoffMillis}ms"
+                    "Transient Gemini HTTP ${error.httpCode}; retrying attempt $attempt/$maxAttempts in ${backoffMillis}ms"
                 )
                 delay(backoffMillis)
-                backoffMillis = minOf(backoffMillis * 2, MAX_BACKOFF_MS)
+                backoffMillis = minOf(backoffMillis * 2, maxBackoffMillis)
             }
         }
     }
 
-    /** One request, one direction: the model listens and outputs only the translation. */
     private fun buildPrompt(languagePair: LanguagePair): String {
         val source = languagePair.source.displayName
         val target = languagePair.target.displayName
@@ -301,6 +298,7 @@ class GeminiTranslationRepository @Inject constructor(
     private companion object {
         const val TAG = "SigmaBridge"
         const val MODEL = "gemini-3.6-flash"
+        const val CHAT_MODEL = "gemini-3.1-flash-lite"
         const val STATE_ACTIVE = "ACTIVE"
 
         const val ACTIVE_POLL_INTERVAL_MS = 1_000L
@@ -313,9 +311,14 @@ class GeminiTranslationRepository @Inject constructor(
         const val HTTP_GATEWAY_TIMEOUT = 504
         const val HTTP_UNAUTHORIZED = 401
         const val HTTP_FORBIDDEN = 403
-        const val MAX_RETRY_ATTEMPTS = 4
-        const val INITIAL_BACKOFF_MS = 2_000L
-        const val MAX_BACKOFF_MS = 30_000L
+
+        const val DEFAULT_MAX_RETRY_ATTEMPTS = 4
+        const val DEFAULT_INITIAL_BACKOFF_MS = 2_000L
+        const val DEFAULT_MAX_BACKOFF_MS = 30_000L
+
+        const val CHAT_TEXT_MAX_RETRY_ATTEMPTS = 2
+        const val CHAT_TEXT_INITIAL_BACKOFF_MS = 500L
+        const val CHAT_TEXT_MAX_BACKOFF_MS = 2_000L
 
         val LEADING_LABEL_REGEX = Regex("^(arabic|ar)\\s*[:\\-]\\s*", RegexOption.IGNORE_CASE)
     }
