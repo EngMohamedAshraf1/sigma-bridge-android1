@@ -12,10 +12,12 @@ import android.content.pm.PackageManager
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import com.sigmabridge.app.data.chat.ChatConversationStore
 import com.sigmabridge.app.data.chat.ChatHistoryStore
 import com.sigmabridge.app.data.chat.ChatIdentity
 import com.sigmabridge.app.data.chat.ChatOutboxStore
 import com.sigmabridge.app.data.chat.ChatUnreadStore
+import com.sigmabridge.app.domain.chat.ChatConversation
 import com.sigmabridge.app.domain.chat.ChatEvent
 import com.sigmabridge.app.domain.chat.ChatReceipt
 import com.sigmabridge.app.domain.chat.ChatRepository
@@ -39,6 +41,7 @@ class ChatNotificationService : Service() {
 
     @Inject lateinit var chatRepository: ChatRepository
     @Inject lateinit var identity: ChatIdentity
+    @Inject lateinit var conversationStore: ChatConversationStore
     @Inject lateinit var outboxStore: ChatOutboxStore
     @Inject lateinit var historyStore: ChatHistoryStore
     @Inject lateinit var unreadStore: ChatUnreadStore
@@ -63,12 +66,12 @@ class ChatNotificationService : Service() {
                 return START_NOT_STICKY
             }
             ACTION_START -> {
-                if (identity.partnerId.isBlank()) {
+                if (conversationStore.load().isEmpty()) {
                     stopSelf()
                     return START_NOT_STICKY
                 }
                 serviceScope.coroutineContext.cancelChildren()
-                observeChatEvents()
+                observeAllChatEvents()
                 retryPendingMessages()
                 return START_STICKY
             }
@@ -76,29 +79,38 @@ class ChatNotificationService : Service() {
         }
     }
 
-    private fun observeChatEvents() {
-        val topic = runCatching { identity.conversationTopic() }.getOrNull() ?: return
-        val partnerId = identity.partnerId
-        if (partnerId.isBlank()) return
-        val historyKey = runCatching { historyKey() }.getOrNull() ?: return
+    /**
+     * Listen to every saved private conversation independently. Chat delivery
+     * must not depend on whichever conversation happens to be open in the UI.
+     */
+    private fun observeAllChatEvents() {
+        val conversations = conversationStore.load()
+        for (conversation in conversations) {
+            if (conversation.partnerId.isBlank() || conversation.partnerId == identity.myId) continue
+            observeConversation(conversation)
+        }
+    }
+
+    private fun observeConversation(conversation: ChatConversation) {
+        val partnerId = conversation.partnerId.trim()
+        val topic = runCatching { identity.conversationTopicFor(partnerId) }.getOrNull() ?: return
+        val historyKey = runCatching { historyKeyFor(partnerId) }.getOrNull() ?: return
+        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        val lastNotifiedKey = "$KEY_LAST_NOTIFIED_AT_PREFIX$partnerId"
 
         serviceScope.launch {
-            val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
-            val storedLastNotifiedAt = prefs.getLong(KEY_LAST_NOTIFIED_AT, 0L)
-            var lastNotifiedAt = storedLastNotifiedAt
+            var lastNotifiedAt = prefs.getLong(lastNotifiedKey, 0L)
 
             chatRepository.observeEvents(topic, identity.myId).collect { event ->
                 when (event) {
                     is ChatEvent.Message -> {
                         if (event.message.senderId != partnerId) return@collect
 
-                        // The message has reached this device, but it may be opened later.
-                        // Persist its unread ID so opening Private Chat can emit the READ receipt
-                        // even if this background service consumed the live event first.
+                        // The message reached this device. Keep it unread until the user
+                        // actually opens this conversation.
                         unreadStore.addUnread(historyKey, event.message.id)
 
-                        // This device received the partner's message. Send the delivery receipt
-                        // back using this device's own ID, so the sender recognizes the partner.
+                        // Tell the sender that this device received the message.
                         chatRepository.sendDeliveredReceipt(
                             topic,
                             ChatReceipt(messageId = event.message.id, senderId = identity.myId)
@@ -107,11 +119,12 @@ class ChatNotificationService : Service() {
                         if (event.message.createdAt <= lastNotifiedAt) return@collect
                         if (postMessageNotification(partnerId, event.message.id)) {
                             lastNotifiedAt = event.message.createdAt
-                            prefs.edit().putLong(KEY_LAST_NOTIFIED_AT, lastNotifiedAt).apply()
+                            prefs.edit().putLong(lastNotifiedKey, lastNotifiedAt).apply()
                         }
                     }
                     is ChatEvent.Delivered -> {
-                        // A delivery receipt for one of my messages must come from the partner.
+                        // A delivery receipt for one of my messages must come from this
+                        // conversation's partner, not from another device/conversation.
                         if (event.receipt.senderId != partnerId) return@collect
                         historyStore.updateDeliveryStatus(
                             historyKey,
@@ -120,7 +133,6 @@ class ChatNotificationService : Service() {
                         )
                     }
                     is ChatEvent.Read -> {
-                        // A read receipt for one of my messages must come from the partner.
                         if (event.receipt.senderId != partnerId) return@collect
                         historyStore.updateDeliveryStatus(
                             historyKey,
@@ -133,43 +145,51 @@ class ChatNotificationService : Service() {
         }
     }
 
-    private fun historyKey(): String =
-        identity.conversationKey().joinToString("") { "%02x".format(it) }
+    private fun historyKeyFor(partnerId: String): String =
+        identity.conversationKeyFor(partnerId).joinToString("") { "%02x".format(it) }
 
+    /**
+     * Retry queued outgoing messages for all saved conversations. This keeps
+     * background delivery independent from the currently selected chat.
+     */
     private fun retryPendingMessages() {
-        val historyKey = runCatching { historyKey() }.getOrNull() ?: return
-        val topic = runCatching { identity.conversationTopic() }.getOrNull() ?: return
-
         serviceScope.launch {
             var retryDelayMs = INITIAL_RETRY_MS
             while (isActive) {
-                val pending = outboxStore.load(historyKey)
-                    .filter { it.deliveryStatus == MessageDeliveryStatus.PENDING }
-                    .sortedBy { it.createdAt }
-
-                if (pending.isEmpty()) {
-                    delay(IDLE_RETRY_MS)
-                    continue
-                }
-
+                val conversations = conversationStore.load()
                 var deliveredAny = false
-                for (message in pending) {
+
+                for (conversation in conversations) {
                     if (!isActive) break
+                    val partnerId = conversation.partnerId.trim()
+                    if (partnerId.isBlank() || partnerId == identity.myId) continue
 
-                    val translationResult = chatTranslationService.translateOutgoing(message.text)
-                    val textToSend = translationResult.getOrElse { message.text }
-                    val result = chatRepository.send(topic, message.copy(text = textToSend))
+                    val historyKey = runCatching { historyKeyFor(partnerId) }.getOrNull() ?: continue
+                    val topic = runCatching { identity.conversationTopicFor(partnerId) }.getOrNull() ?: continue
+                    val pending = outboxStore.load(historyKey)
+                        .filter { it.deliveryStatus == MessageDeliveryStatus.PENDING }
+                        .sortedBy { it.createdAt }
 
-                    if (result.isSuccess) {
-                        outboxStore.remove(historyKey, message.id)
-                        historyStore.markSent(historyKey, message.id)
-                        deliveredAny = true
+                    for (message in pending) {
+                        if (!isActive) break
+
+                        val translationResult = chatTranslationService.translateOutgoing(message.text)
+                        val textToSend = translationResult.getOrElse { message.text }
+                        val result = chatRepository.send(topic, message.copy(text = textToSend))
+
+                        if (result.isSuccess) {
+                            outboxStore.remove(historyKey, message.id)
+                            historyStore.markSent(historyKey, message.id)
+                            deliveredAny = true
+                        }
                     }
                 }
 
-                if (deliveredAny) retryDelayMs = INITIAL_RETRY_MS
-                else {
-                    delay(retryDelayMs)
+                if (deliveredAny) {
+                    retryDelayMs = INITIAL_RETRY_MS
+                    delay(IDLE_RETRY_MS)
+                } else {
+                    delay(if (conversations.isEmpty()) IDLE_RETRY_MS else retryDelayMs)
                     retryDelayMs = minOf(retryDelayMs * 2, MAX_RETRY_MS)
                 }
             }
@@ -239,7 +259,7 @@ class ChatNotificationService : Service() {
         private const val CHAT_CHANNEL_ID = "sigma_chat_messages"
         private const val SERVICE_NOTIFICATION_ID = 2001
         private const val PREFS_NAME = "sigma_bridge_chat_notifications"
-        private const val KEY_LAST_NOTIFIED_AT = "last_notified_at"
+        private const val KEY_LAST_NOTIFIED_AT_PREFIX = "last_notified_at_"
         private const val INITIAL_RETRY_MS = 2_000L
         private const val MAX_RETRY_MS = 60_000L
         private const val IDLE_RETRY_MS = 15_000L
