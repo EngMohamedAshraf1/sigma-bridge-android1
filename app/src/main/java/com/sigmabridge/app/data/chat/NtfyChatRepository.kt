@@ -5,12 +5,14 @@ import com.sigmabridge.app.domain.chat.ChatMessage
 import com.sigmabridge.app.domain.chat.ChatReceipt
 import com.sigmabridge.app.domain.chat.ChatReceiptType
 import com.sigmabridge.app.domain.chat.ChatRepository
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -32,6 +34,11 @@ import javax.inject.Singleton
 /**
  * Tiny relay. Conversation messages and receipts use separate ntfy topic groups so receipt
  * events can never be confused with normal chat messages or notifications.
+ *
+ * Sending is idempotent within the process: the foreground ViewModel and background service
+ * may both notice the same outbox item, but only one network POST is allowed for the same
+ * logical message/receipt at a time. This prevents duplicate concurrent sends and reduces
+ * unnecessary ntfy rate-limit pressure.
  */
 @Singleton
 class NtfyChatRepository @Inject constructor(
@@ -42,9 +49,14 @@ class NtfyChatRepository @Inject constructor(
     private val streamClient by lazy { baseClient.newBuilder().readTimeout(0, TimeUnit.MILLISECONDS).build() }
     private val relayScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val streams = ConcurrentHashMap<String, RelayStream>()
+    private val sendInFlight = ConcurrentHashMap<String, CompletableDeferred<Result<Unit>>>()
+    private val completedSendKeys = ConcurrentHashMap.newKeySet<String>()
 
-    override suspend fun send(topic: String, message: ChatMessage): Result<Unit> = runCatching {
-        sendWire(topic, message.copy(text = crypto.encrypt(message.text)))
+    override suspend fun send(topic: String, message: ChatMessage): Result<Unit> {
+        val sendKey = "message:${topic.trim()}:${message.id}"
+        return sendDeduplicated(sendKey) {
+            sendWire(topic, message.copy(text = crypto.encrypt(message.text)))
+        }
     }
 
     override suspend fun sendDeliveredReceipt(topic: String, receipt: ChatReceipt): Result<Unit> =
@@ -53,20 +65,52 @@ class NtfyChatRepository @Inject constructor(
     override suspend fun sendReadReceipt(topic: String, receipt: ChatReceipt): Result<Unit> =
         sendReceipt(topic, receipt.copy(type = ChatReceiptType.READ))
 
-    private suspend fun sendReceipt(topic: String, receipt: ChatReceipt): Result<Unit> = runCatching {
-        val payload = RECEIPT_PREFIX + json.encodeToString(ChatReceipt.serializer(), receipt)
-        val message = ChatMessage(
-            id = "receipt-${receipt.messageId}-${receipt.type}-${UUID.randomUUID()}",
-            senderId = receipt.senderId,
-            text = crypto.encrypt(payload),
-            createdAt = System.currentTimeMillis()
-        )
-        sendWire(receiptTopic(topic), message)
+    private suspend fun sendReceipt(topic: String, receipt: ChatReceipt): Result<Unit> {
+        val sendKey = "receipt:${topic.trim()}:${receipt.messageId}:${receipt.type}"
+        return sendDeduplicated(sendKey) {
+            val payload = RECEIPT_PREFIX + json.encodeToString(ChatReceipt.serializer(), receipt)
+            val message = ChatMessage(
+                id = "receipt-${receipt.messageId}-${receipt.type}-${UUID.randomUUID()}",
+                senderId = receipt.senderId,
+                text = crypto.encrypt(payload),
+                createdAt = System.currentTimeMillis()
+            )
+            sendWire(receiptTopic(topic), message)
+        }
+    }
+
+    /**
+     * Coalesce concurrent attempts for the same logical operation. Callers share the same
+     * Result instead of issuing duplicate HTTP requests. Successful keys stay completed for
+     * this process lifetime so a stale background scan cannot immediately re-send the message.
+     */
+    private suspend fun sendDeduplicated(
+        key: String,
+        operation: suspend () -> Unit
+    ): Result<Unit> {
+        if (key in completedSendKeys) return Result.success(Unit)
+
+        val mine = CompletableDeferred<Result<Unit>>()
+        val existing = sendInFlight.putIfAbsent(key, mine)
+        if (existing != null) return existing.await()
+
+        return try {
+            val result = runCatching { operation() }
+            if (result.isSuccess) completedSendKeys += key
+            mine.complete(result)
+            result
+        } catch (error: Throwable) {
+            val result = Result.failure<Unit>(error)
+            mine.complete(result)
+            result
+        } finally {
+            sendInFlight.remove(key, mine)
+        }
     }
 
     override fun observeEvents(topics: List<String>, ownSenderId: String): Flow<ChatEvent> {
         val normalizedTopics = topics.map { it.trim() }.filter { it.isNotBlank() }.distinct().sorted()
-        if (normalizedTopics.isEmpty()) return kotlinx.coroutines.flow.emptyFlow()
+        if (normalizedTopics.isEmpty()) return emptyFlow()
 
         // ntfy supports subscribing to multiple topics in one HTTP stream. Keep one shared
         // stream for messages and one shared stream for receipts instead of two connections
