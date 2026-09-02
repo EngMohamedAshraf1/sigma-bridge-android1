@@ -7,6 +7,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.sigmabridge.app.presentation.bridge_control.BridgeControlScreen
+import com.sigmabridge.app.presentation.chat.ChatConversationsScreen
 import com.sigmabridge.app.presentation.chat.ChatScreen
 import com.sigmabridge.app.presentation.gemini_test.GeminiTestScreen
 import com.sigmabridge.app.presentation.home.HomeScreen
@@ -17,20 +18,33 @@ fun SigmaBridgeNavGraph(
     navController: NavHostController = rememberNavController(),
     openPrivateChat: Boolean = false
 ) {
-    NavHost(navController = navController, startDestination = SigmaBridgeDestination.Home.route) {
+    NavHost(
+        navController = navController,
+        startDestination = SigmaBridgeDestination.PrivateChats.route
+    ) {
         composable(SigmaBridgeDestination.Home.route) {
             HomeScreen(
                 onSettingsClick = { navController.navigate(SigmaBridgeDestination.Settings.route) },
                 onGeminiTestClick = { navController.navigate(SigmaBridgeDestination.GeminiTest.route) },
                 onBridgeControlClick = { navController.navigate(SigmaBridgeDestination.BridgeControl.route) },
-                onChatClick = { navController.navigate(SigmaBridgeDestination.PrivateChat.route) }
+                onChatClick = { navController.navigate(SigmaBridgeDestination.PrivateChats.route) }
             )
         }
-        composable(SigmaBridgeDestination.Settings.route) {
-            SettingsScreen()
+        composable(SigmaBridgeDestination.PrivateChats.route) {
+            ChatConversationsScreen(
+                onBack = {
+                    navController.navigate(SigmaBridgeDestination.Home.route) {
+                        popUpTo(SigmaBridgeDestination.PrivateChats.route) { inclusive = true }
+                    }
+                },
+                onOpenChat = { navController.navigate(SigmaBridgeDestination.PrivateChat.route) }
+            )
         }
         composable(SigmaBridgeDestination.PrivateChat.route) {
             ChatScreen(onBack = { navController.popBackStack() })
+        }
+        composable(SigmaBridgeDestination.Settings.route) {
+            SettingsScreen()
         }
         composable(SigmaBridgeDestination.GeminiTest.route) {
             GeminiTestScreen()
