@@ -39,6 +39,8 @@ class ChatViewModel @Inject constructor(
     val myId: String = identity.myId
     private val _partnerId = MutableStateFlow(identity.partnerId)
     val partnerId: StateFlow<String> = _partnerId.asStateFlow()
+    private val _conversationName = MutableStateFlow(identity.partnerId.ifBlank { "Private Chat" })
+    val conversationName: StateFlow<String> = _conversationName.asStateFlow()
     private val _messages = MutableStateFlow<List<ChatMessage>>(emptyList())
     val messages: StateFlow<List<ChatMessage>> = _messages.asStateFlow()
     private val _connected = MutableStateFlow(false)
@@ -82,6 +84,7 @@ class ChatViewModel @Inject constructor(
             } else message
         }
         _messages.value = history
+        _conversationName.value = existingConversation?.displayName ?: partner
         conversationStore.upsert(
             ChatConversation(
                 partnerId = partner,
@@ -112,8 +115,6 @@ class ChatViewModel @Inject constructor(
                             _messages.value = updated
                             historyStore.save(historyKey, updated)
                             updateConversationPreview(partner, visible.text, visible.createdAt)
-
-                            // Mark it read only after it has been accepted into the visible chat state.
                             sendReadReceiptForMessage(topic, historyKey, event.message.id)
                         }
                         is ChatEvent.Delivered -> updateReceiptStatus(
@@ -162,7 +163,6 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    /** Called by the open Chat screen to explicitly acknowledge messages currently in the conversation. */
     fun markVisibleMessagesRead() {
         val topic = currentTopic ?: return
         val historyKey = currentHistoryKey ?: return
@@ -171,15 +171,11 @@ class ChatViewModel @Inject constructor(
             .filter { it.senderId == identity.partnerId }
             .map { it.id }
             .toList()
-        incomingIds.forEach { messageId ->
-            sendReadReceiptForMessage(topic, historyKey, messageId)
-        }
+        incomingIds.forEach { messageId -> sendReadReceiptForMessage(topic, historyKey, messageId) }
     }
 
     private fun sendPendingReadReceipts(topic: String, historyKey: String) {
-        val unreadIds = unreadStore.load(historyKey)
-        if (unreadIds.isEmpty()) return
-        unreadIds.forEach { messageId ->
+        unreadStore.load(historyKey).forEach { messageId ->
             sendReadReceiptForMessage(topic, historyKey, messageId)
         }
     }
@@ -216,7 +212,6 @@ class ChatViewModel @Inject constructor(
         receiptSenderId: String,
         status: MessageDeliveryStatus
     ) {
-        // A receipt for one of my messages must come from the partner device.
         if (receiptSenderId != identity.partnerId) return
         val updated = _messages.value.map { message ->
             if (message.id == messageId && message.senderId == ownSenderId && message.deliveryStatus.ordinal < status.ordinal) {
@@ -252,9 +247,7 @@ class ChatViewModel @Inject constructor(
         updateConversationPreview(identity.partnerId, clean, localMessage.createdAt)
         _error.value = null
 
-        viewModelScope.launch {
-            deliverPendingMessage(historyKey, topic, localMessage)
-        }
+        viewModelScope.launch { deliverPendingMessage(historyKey, topic, localMessage) }
     }
 
     private suspend fun deliverPendingMessage(
