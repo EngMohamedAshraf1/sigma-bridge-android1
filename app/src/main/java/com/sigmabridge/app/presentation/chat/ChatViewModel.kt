@@ -5,12 +5,13 @@ import androidx.lifecycle.viewModelScope
 import com.sigmabridge.app.data.chat.ChatHistoryStore
 import com.sigmabridge.app.data.chat.ChatIdentity
 import com.sigmabridge.app.data.chat.ChatOutboxStore
+import com.sigmabridge.app.data.chat.ChatUnreadStore
 import com.sigmabridge.app.data.chat.NtfyChatRepository
 import com.sigmabridge.app.domain.chat.ChatEvent
 import com.sigmabridge.app.domain.chat.ChatMessage
+import com.sigmabridge.app.domain.chat.ChatReceipt
 import com.sigmabridge.app.domain.chat.ChatRepository
 import com.sigmabridge.app.domain.chat.ChatTranslationService
-import com.sigmabridge.app.domain.chat.ChatReceipt
 import com.sigmabridge.app.domain.chat.MessageDeliveryStatus
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
@@ -29,6 +30,7 @@ class ChatViewModel @Inject constructor(
     private val chatTranslationService: ChatTranslationService,
     private val historyStore: ChatHistoryStore,
     private val outboxStore: ChatOutboxStore,
+    private val unreadStore: ChatUnreadStore,
     private val identity: ChatIdentity
 ) : ViewModel() {
     val myId: String = identity.myId
@@ -86,6 +88,8 @@ class ChatViewModel @Inject constructor(
         _error.value = null
         _connected.value = true
 
+        sendPendingReadReceipts(topic, historyKey)
+
         viewModelScope.launch {
             runCatching {
                 chatRepository.observeEvents(topic, ownSenderId).collect { event ->
@@ -100,7 +104,9 @@ class ChatViewModel @Inject constructor(
                                 chatRepository.sendReadReceipt(
                                     topic,
                                     ChatReceipt(messageId = event.message.id, senderId = ownSenderId)
-                                )
+                                ).onSuccess {
+                                    unreadStore.remove(historyKey, event.message.id)
+                                }
                             }
 
                             val translated = chatTranslationService.translateIncoming(event.message.text)
@@ -154,6 +160,23 @@ class ChatViewModel @Inject constructor(
                 }
                 if (changed) _messages.value = updated
                 delay(1_000L)
+            }
+        }
+    }
+
+    private fun sendPendingReadReceipts(topic: String, historyKey: String) {
+        val unreadIds = unreadStore.load(historyKey)
+        if (unreadIds.isEmpty()) return
+
+        viewModelScope.launch {
+            unreadIds.forEach { messageId ->
+                if (!isActive) return@forEach
+                chatRepository.sendReadReceipt(
+                    topic,
+                    ChatReceipt(messageId = messageId, senderId = ownSenderId)
+                ).onSuccess {
+                    unreadStore.remove(historyKey, messageId)
+                }
             }
         }
     }
