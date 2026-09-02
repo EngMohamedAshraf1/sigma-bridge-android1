@@ -17,7 +17,6 @@ import com.sigmabridge.app.data.chat.ChatHistoryStore
 import com.sigmabridge.app.data.chat.ChatIdentity
 import com.sigmabridge.app.data.chat.ChatOutboxStore
 import com.sigmabridge.app.data.chat.ChatUnreadStore
-import com.sigmabridge.app.domain.chat.ChatConversation
 import com.sigmabridge.app.domain.chat.ChatEvent
 import com.sigmabridge.app.domain.chat.ChatReceipt
 import com.sigmabridge.app.domain.chat.ChatRepository
@@ -49,7 +48,7 @@ class ChatNotificationService : Service() {
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    override fun onBind(intent: Intent?): IBinder? = null
+    override fun onBind(intent: Intent?): android.os.IBinder? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -102,8 +101,6 @@ class ChatNotificationService : Service() {
             conversation.partnerId.trim() to identity.conversationTopicFor(conversation.partnerId)
         }
 
-        val messageTopicSet = topics.toSet()
-        val receiptTopicSet = topics.map { "$it-receipts" }.toSet()
         serviceScope.launch {
             val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
             val storedLastNotifiedAt = prefs.getLong(KEY_LAST_NOTIFIED_AT_GLOBAL, 0L)
@@ -135,8 +132,6 @@ class ChatNotificationService : Service() {
                         }
                     }
                     is ChatEvent.Delivered -> {
-                        // A delivery receipt for one of my messages must come from a saved
-                        // conversation partner.
                         val partnerId = event.receipt.senderId.trim()
                         if (!conversationsByPartnerId.containsKey(partnerId)) return@collect
                         historyStore.updateDeliveryStatus(
@@ -162,10 +157,7 @@ class ChatNotificationService : Service() {
     private fun historyKeyFor(partnerId: String): String =
         identity.conversationKeyFor(partnerId).joinToString("") { "%02x".format(it) }
 
-    /**
-     * Retry queued outgoing messages for all saved conversations. This keeps
-     * background delivery independent from the currently selected chat.
-     */
+    /** Retry queued outgoing messages for all saved conversations. */
     private fun retryPendingMessages() {
         serviceScope.launch {
             var retryDelayMs = INITIAL_RETRY_MS
