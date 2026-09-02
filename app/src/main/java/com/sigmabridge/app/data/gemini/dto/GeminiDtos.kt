@@ -32,7 +32,18 @@ data class GeminiFileResponseWrapperDto(
 
 @Serializable
 data class GeminiGenerateContentRequestDto(
-    val contents: List<GeminiContentDto>
+    val contents: List<GeminiContentDto>,
+    val generationConfig: GeminiGenerationConfigDto? = null
+)
+
+@Serializable
+data class GeminiGenerationConfigDto(
+    val thinkingConfig: GeminiThinkingConfigDto? = null
+)
+
+@Serializable
+data class GeminiThinkingConfigDto(
+    val thinkingLevel: String? = null
 )
 
 @Serializable
