@@ -22,6 +22,10 @@ class ChatConversationsViewModel @Inject constructor(
     private val _conversations = MutableStateFlow<List<ChatConversationRow>>(emptyList())
     val conversations: StateFlow<List<ChatConversationRow>> = _conversations.asStateFlow()
 
+    /** Stable local Sigma Bridge ID shown from the conversations screen. */
+    val myId: String
+        get() = identity.myId
+
     init {
         migrateCurrentPartner()
         refresh()
