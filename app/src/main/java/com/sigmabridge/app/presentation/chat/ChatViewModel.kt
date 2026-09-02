@@ -2,11 +2,13 @@ package com.sigmabridge.app.presentation.chat
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.sigmabridge.app.data.chat.ChatConversationStore
 import com.sigmabridge.app.data.chat.ChatHistoryStore
 import com.sigmabridge.app.data.chat.ChatIdentity
 import com.sigmabridge.app.data.chat.ChatOutboxStore
 import com.sigmabridge.app.data.chat.ChatUnreadStore
 import com.sigmabridge.app.data.chat.NtfyChatRepository
+import com.sigmabridge.app.domain.chat.ChatConversation
 import com.sigmabridge.app.domain.chat.ChatEvent
 import com.sigmabridge.app.domain.chat.ChatMessage
 import com.sigmabridge.app.domain.chat.ChatReceipt
@@ -31,6 +33,7 @@ class ChatViewModel @Inject constructor(
     private val historyStore: ChatHistoryStore,
     private val outboxStore: ChatOutboxStore,
     private val unreadStore: ChatUnreadStore,
+    private val conversationStore: ChatConversationStore,
     private val identity: ChatIdentity
 ) : ViewModel() {
     val myId: String = identity.myId
@@ -58,15 +61,6 @@ class ChatViewModel @Inject constructor(
         if (normalized.isNotBlank()) connect()
     }
 
-    fun startNewChat() {
-        identity.partnerId = ""
-        _partnerId.value = ""
-        disconnect()
-        _messages.value = emptyList()
-        _error.value = null
-        readReceiptSentIds.clear()
-    }
-
     fun connect() {
         val partner = identity.partnerId
         if (partner.isBlank()) { _error.value = "Enter the partner ID first."; return }
@@ -81,13 +75,21 @@ class ChatViewModel @Inject constructor(
         currentHistoryKey = identity.conversationKey().joinToString("") { "%02x".format(it) }
         val historyKey = currentHistoryKey!!
         val pendingIds = outboxStore.load(historyKey).map { it.id }.toSet()
-        _messages.value = historyStore.load(historyKey).map { message ->
+        val existingConversation = conversationStore.load().firstOrNull { it.partnerId == partner }
+        val history = historyStore.load(historyKey).map { message ->
             if (message.senderId == ownSenderId && message.id in pendingIds) {
                 message.copy(deliveryStatus = MessageDeliveryStatus.PENDING)
-            } else {
-                message
-            }
+            } else message
         }
+        _messages.value = history
+        conversationStore.upsert(
+            ChatConversation(
+                partnerId = partner,
+                displayName = existingConversation?.displayName ?: partner,
+                lastMessage = history.lastOrNull()?.text.orEmpty(),
+                lastMessageAt = history.lastOrNull()?.createdAt ?: existingConversation?.lastMessageAt ?: 0L
+            )
+        )
         _error.value = null
         _connected.value = true
 
@@ -108,7 +110,8 @@ class ChatViewModel @Inject constructor(
                             })
                             val updated = _messages.value + visible
                             _messages.value = updated
-                            currentHistoryKey?.let { historyStore.save(it, updated) }
+                            historyStore.save(historyKey, updated)
+                            updateConversationPreview(partner, visible.text, visible.createdAt)
 
                             // Mark it read only after it has been accepted into the visible chat state.
                             sendReadReceiptForMessage(topic, historyKey, event.message.id)
@@ -168,7 +171,6 @@ class ChatViewModel @Inject constructor(
             .filter { it.senderId == identity.partnerId }
             .map { it.id }
             .toList()
-
         incomingIds.forEach { messageId ->
             sendReadReceiptForMessage(topic, historyKey, messageId)
         }
@@ -196,6 +198,18 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    private fun updateConversationPreview(partnerId: String, lastMessage: String, lastMessageAt: Long) {
+        val current = conversationStore.load().firstOrNull { it.partnerId == partnerId }
+        conversationStore.upsert(
+            ChatConversation(
+                partnerId = partnerId,
+                displayName = current?.displayName ?: partnerId,
+                lastMessage = lastMessage,
+                lastMessageAt = lastMessageAt
+            )
+        )
+    }
+
     private fun updateReceiptStatus(
         historyKey: String,
         messageId: String,
@@ -207,9 +221,7 @@ class ChatViewModel @Inject constructor(
         val updated = _messages.value.map { message ->
             if (message.id == messageId && message.senderId == ownSenderId && message.deliveryStatus.ordinal < status.ordinal) {
                 message.copy(deliveryStatus = status)
-            } else {
-                message
-            }
+            } else message
         }
         if (updated != _messages.value) _messages.value = updated
         historyStore.updateDeliveryStatus(historyKey, messageId, status)
@@ -237,6 +249,7 @@ class ChatViewModel @Inject constructor(
         _messages.value = updatedWithPending
         historyStore.save(historyKey, updatedWithPending)
         outboxStore.add(historyKey, localMessage)
+        updateConversationPreview(identity.partnerId, clean, localMessage.createdAt)
         _error.value = null
 
         viewModelScope.launch {
