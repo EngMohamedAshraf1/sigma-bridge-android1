@@ -17,7 +17,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
@@ -199,8 +198,7 @@ private fun MyIdDialog(
                 clipboard.setPrimaryClip(ClipData.newPlainText("Sigma Bridge ID", myId))
                 onDismiss()
             }) {
-                Icon(Icons.Filled.ContentCopy, contentDescription = null)
-                Text("Copy", modifier = Modifier.padding(start = 6.dp))
+                Text("Copy")
             }
         },
         dismissButton = {
