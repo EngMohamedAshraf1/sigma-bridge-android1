@@ -4,8 +4,6 @@ import android.content.Context
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.security.SecureRandom
 import java.security.MessageDigest
-import javax.crypto.Mac
-import javax.crypto.spec.SecretKeySpec
 import java.nio.ByteBuffer
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -32,6 +30,12 @@ class ChatIdentity @Inject constructor(
     fun conversationTopic(): String {
         val partner = partnerId
         require(partner.isNotBlank()) { "Enter the partner ID first." }
+        return conversationTopicFor(partner)
+    }
+
+    fun conversationTopicFor(partnerId: String): String {
+        val partner = partnerId.trim()
+        require(partner.isNotBlank()) { "Partner ID must not be blank." }
         val combined = listOf(myId, partner).sorted().joinToString("|")
         return "sigma-bridge-${sha256(combined).take(32)}"
     }
@@ -40,6 +44,12 @@ class ChatIdentity @Inject constructor(
     fun conversationKey(): ByteArray {
         val partner = partnerId
         require(partner.isNotBlank()) { "Enter the partner ID first." }
+        return conversationKeyFor(partner)
+    }
+
+    fun conversationKeyFor(partnerId: String): ByteArray {
+        val partner = partnerId.trim()
+        require(partner.isNotBlank()) { "Partner ID must not be blank." }
         val combined = listOf(myId, partner).sorted().joinToString("|")
         return MessageDigest.getInstance("SHA-256").digest(combined.toByteArray())
     }
