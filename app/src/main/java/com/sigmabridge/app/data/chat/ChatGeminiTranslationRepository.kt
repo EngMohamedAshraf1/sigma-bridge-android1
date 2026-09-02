@@ -7,7 +7,7 @@ import com.sigmabridge.app.domain.logging.BridgeLogger
 import com.sigmabridge.app.domain.model.LanguagePair
 import com.sigmabridge.app.domain.repository.SettingsRepository
 import kotlinx.coroutines.Mutex
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeout
 import javax.inject.Inject
@@ -80,10 +80,10 @@ class ChatGeminiTranslationRepository @Inject constructor(
     }
 
     private suspend fun totalKeyCount(): Int =
-        settingsRepository.geminiApiKeys.valueOrEmpty().size
+        settingsRepository.geminiApiKeys.first().size
 
     private suspend fun nextKey(): String? = keyMutex.withLock {
-        val keys = settingsRepository.geminiApiKeys.valueOrEmpty()
+        val keys = settingsRepository.geminiApiKeys.first()
         if (keys.isEmpty()) return@withLock null
 
         val start = keyCursor % keys.size
@@ -122,8 +122,6 @@ class ChatGeminiTranslationRepository @Inject constructor(
             $text
         """.trimIndent()
     }
-
-    private fun List<String>.valueOrEmpty(): List<String> = this
 
     private companion object {
         const val TAG = "SigmaBridgeChat"
