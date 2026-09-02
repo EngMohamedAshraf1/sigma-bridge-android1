@@ -56,6 +56,7 @@ fun ChatScreen(
     val messages by viewModel.messages.collectAsState()
     val connected by viewModel.connected.collectAsState()
     val conversationName by viewModel.conversationName.collectAsState()
+    val partnerId by viewModel.partnerId.collectAsState()
     val error by viewModel.error.collectAsState()
     val context = androidx.compose.ui.platform.LocalContext.current
     val listState = rememberLazyListState()
@@ -76,8 +77,8 @@ fun ChatScreen(
         }
     }
 
-    LaunchedEffect(viewModel.partnerId.collectAsState().value) {
-        if (viewModel.partnerId.value.isNotBlank()) {
+    LaunchedEffect(partnerId) {
+        if (partnerId.isNotBlank()) {
             ContextCompat.startForegroundService(
                 context,
                 ChatNotificationService.startIntent(context)
@@ -86,9 +87,7 @@ fun ChatScreen(
     }
 
     LaunchedEffect(messages.size, connected) {
-        if (messages.isNotEmpty()) {
-            listState.scrollToItem(messages.lastIndex)
-        }
+        if (messages.isNotEmpty()) listState.scrollToItem(messages.lastIndex)
         if (connected) viewModel.markVisibleMessagesRead()
     }
 
@@ -97,13 +96,10 @@ fun ChatScreen(
             TopAppBar(
                 title = {
                     Column {
-                        Text(
-                            text = conversationName,
-                            style = MaterialTheme.typography.titleMedium
-                        )
+                        Text(conversationName, style = MaterialTheme.typography.titleMedium)
                         if (connected) {
                             Text(
-                                text = "Connected • encrypted",
+                                "Connected • encrypted",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.primary
                             )
@@ -142,11 +138,7 @@ fun ChatScreen(
             ) {
                 items(messages, key = { it.id }) { message ->
                     val mine = message.senderId == viewModel.ownSenderId
-                    val background = if (mine) {
-                        MaterialTheme.colorScheme.primaryContainer
-                    } else {
-                        MaterialTheme.colorScheme.surfaceVariant
-                    }
+                    val background = if (mine) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -172,8 +164,7 @@ fun ChatScreen(
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Text(
-                                        text = SimpleDateFormat("HH:mm", Locale.getDefault())
-                                            .format(Date(message.createdAt)),
+                                        text = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(message.createdAt)),
                                         style = MaterialTheme.typography.labelSmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
@@ -184,10 +175,9 @@ fun ChatScreen(
                                             MessageDeliveryStatus.DELIVERED -> "✓✓"
                                             MessageDeliveryStatus.READ -> "✓✓"
                                         }
-                                        val receiptColor = when (message.deliveryStatus) {
-                                            MessageDeliveryStatus.READ -> Color(0xFF0084FF)
-                                            else -> MaterialTheme.colorScheme.onSurfaceVariant
-                                        }
+                                        val receiptColor = if (message.deliveryStatus == MessageDeliveryStatus.READ) {
+                                            Color(0xFF0084FF)
+                                        } else MaterialTheme.colorScheme.onSurfaceVariant
                                         Text(
                                             text = receiptText,
                                             style = MaterialTheme.typography.labelSmall,
