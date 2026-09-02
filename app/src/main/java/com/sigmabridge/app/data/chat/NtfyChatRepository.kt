@@ -30,7 +30,7 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Tiny relay. Conversation messages and receipts use separate ntfy topics so receipt
+ * Tiny relay. Conversation messages and receipts use separate ntfy topic groups so receipt
  * events can never be confused with normal chat messages or notifications.
  */
 @Singleton
@@ -64,20 +64,26 @@ class NtfyChatRepository @Inject constructor(
         sendWire(receiptTopic(topic), message)
     }
 
-    override fun observeEvents(topic: String, ownSenderId: String): Flow<ChatEvent> {
-        val normalizedTopic = topic.trim()
-        val messageStream = streams.computeIfAbsent(normalizedTopic) { createRelayStream(normalizedTopic) }
-        val receiptTopic = receiptTopic(normalizedTopic)
-        val receiptStream = streams.computeIfAbsent(receiptTopic) { createRelayStream(receiptTopic) }
+    override fun observeEvents(topics: List<String>, ownSenderId: String): Flow<ChatEvent> {
+        val normalizedTopics = topics.map { it.trim() }.filter { it.isNotBlank() }.distinct().sorted()
+        if (normalizedTopics.isEmpty()) return kotlinx.coroutines.flow.emptyFlow()
+
+        // ntfy supports subscribing to multiple topics in one HTTP stream. Keep one shared
+        // stream for messages and one shared stream for receipts instead of two connections
+        // per conversation.
+        val messageSubscription = normalizedTopics.joinToString(",")
+        val receiptSubscription = normalizedTopics.map(::receiptTopic).joinToString(",")
+        val messageStream = streams.computeIfAbsent(messageSubscription) { createRelayStream(messageSubscription) }
+        val receiptStream = streams.computeIfAbsent(receiptSubscription) { createRelayStream(receiptSubscription) }
         return merge(messageStream.events.asSharedFlow(), receiptStream.events.asSharedFlow())
     }
 
-    private fun createRelayStream(topic: String): RelayStream {
+    private fun createRelayStream(subscription: String): RelayStream {
         val events = MutableSharedFlow<ChatEvent>(extraBufferCapacity = 64)
         val job = relayScope.launch {
             var retryDelayMs = INITIAL_RETRY_MS
             while (isActive) {
-                val request = Request.Builder().url("$BASE_URL/$topic/json?since=10m").get().build()
+                val request = Request.Builder().url("$BASE_URL/${subscription}/json?since=10m").get().build()
                 val call = streamClient.newCall(request)
                 try {
                     call.execute().use { response ->
