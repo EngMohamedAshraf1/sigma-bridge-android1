@@ -1,5 +1,6 @@
 package com.sigmabridge.app.domain.chat
 
+import com.sigmabridge.app.data.chat.ChatGeminiTranslationRepository
 import com.sigmabridge.app.domain.model.LanguagePair
 import com.sigmabridge.app.domain.repository.LanguagePreferencesRepository
 import javax.inject.Inject
