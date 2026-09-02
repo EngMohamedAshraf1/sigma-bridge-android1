@@ -6,23 +6,17 @@ import com.sigmabridge.app.domain.gemini.NoAvailableGeminiKeyException
 import com.sigmabridge.app.domain.logging.BridgeLogger
 import com.sigmabridge.app.domain.model.LanguagePair
 import com.sigmabridge.app.domain.repository.SettingsRepository
-import kotlinx.coroutines.Mutex
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeout
 import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Private Chat's Gemini runtime. This is deliberately separate from
- * GeminiTranslationRepository so Chat has its own key cursor, failure state,
- * retry policy and latency budget. Telegram continues using its original
- * GeminiTranslationRepository unchanged.
- *
- * Chat owns its key cursor and invalid-key state locally; SettingsRepository
- * only supplies the configured key pool. No second Hilt key-manager type is
- * required, keeping dependency injection simple and avoiding cross-runtime
- * coupling.
+ * Private Chat's Gemini runtime. Deliberately isolated from the Telegram
+ * Gemini runtime: it owns its key cursor, invalid-key state, retry policy,
+ * and latency budget while Telegram keeps GeminiTranslationRepository.
  */
 @Singleton
 class ChatGeminiTranslationRepository @Inject constructor(
@@ -79,8 +73,7 @@ class ChatGeminiTranslationRepository @Inject constructor(
         logger.error(TAG, "Chat text translation failed", error)
     }
 
-    private suspend fun totalKeyCount(): Int =
-        settingsRepository.geminiApiKeys.first().size
+    private suspend fun totalKeyCount(): Int = settingsRepository.geminiApiKeys.first().size
 
     private suspend fun nextKey(): String? = keyMutex.withLock {
         val keys = settingsRepository.geminiApiKeys.first()
