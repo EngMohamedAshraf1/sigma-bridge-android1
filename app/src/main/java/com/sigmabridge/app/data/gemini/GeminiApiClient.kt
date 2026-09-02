@@ -8,7 +8,9 @@ import com.sigmabridge.app.data.gemini.dto.GeminiFileResponseWrapperDto
 import com.sigmabridge.app.data.gemini.dto.GeminiFileUploadMetadataDto
 import com.sigmabridge.app.data.gemini.dto.GeminiGenerateContentRequestDto
 import com.sigmabridge.app.data.gemini.dto.GeminiGenerateContentResponseDto
+import com.sigmabridge.app.data.gemini.dto.GeminiGenerationConfigDto
 import com.sigmabridge.app.data.gemini.dto.GeminiPartDto
+import com.sigmabridge.app.data.gemini.dto.GeminiThinkingConfigDto
 import com.sigmabridge.app.data.network.await
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -19,6 +21,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.File
+import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 
 /**
@@ -131,6 +134,7 @@ class GeminiApiClient @Inject constructor(
         }
     }
 
+    /** Fast text generation reserved for Private Chat. Telegram's existing model/path is untouched. */
     suspend fun generateTextContent(
         apiKey: String,
         model: String,
@@ -145,14 +149,20 @@ class GeminiApiClient @Inject constructor(
                 GeminiContentDto(
                     parts = listOf(GeminiPartDto(text = prompt))
                 )
+            ),
+            generationConfig = GeminiGenerationConfigDto(
+                thinkingConfig = GeminiThinkingConfigDto(thinkingLevel = "minimal")
             )
         )
         val requestBody = json.encodeToString(GeminiGenerateContentRequestDto.serializer(), requestDto)
             .toRequestBody("application/json".toMediaType())
 
         val request = Request.Builder().url(url).post(requestBody).build()
+        val call = httpClient.newCall(request).apply {
+            timeout().timeout(CHAT_TEXT_REQUEST_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+        }
 
-        httpClient.newCall(request).await().use { response ->
+        call.await().use { response ->
             val body = response.body?.string().orEmpty()
             if (!response.isSuccessful) {
                 throw GeminiApiException("Gemini generateTextContent failed: HTTP ${response.code} — $body", response.code)
@@ -173,5 +183,6 @@ class GeminiApiClient @Inject constructor(
 
     private companion object {
         const val BASE_URL = "https://generativelanguage.googleapis.com"
+        const val CHAT_TEXT_REQUEST_TIMEOUT_MS = 12_000L
     }
 }
