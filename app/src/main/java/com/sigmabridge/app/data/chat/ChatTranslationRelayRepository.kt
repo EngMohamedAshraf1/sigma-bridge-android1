@@ -2,7 +2,6 @@ package com.sigmabridge.app.data.chat
 
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.postgrest.postgrest
-import io.github.jan.supabase.postgrest.result.decodeList
 import io.github.jan.supabase.postgrest.rpc
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeout
@@ -77,7 +76,7 @@ class ChatTranslationRelayRepository @Inject constructor(
                 val result = supabase.postgrest.rpc(
                     "sigma_get_translation",
                     TranslationLookupRpcParams(clientMessageId, targetLanguage)
-                ).decodeList<TranslationResultRpcRow>().firstOrNull()
+                ).decodeAs<List<TranslationResultRpcRow>>().firstOrNull()
 
                 when (result?.status) {
                     "COMPLETED" -> {
@@ -95,7 +94,7 @@ class ChatTranslationRelayRepository @Inject constructor(
 
     suspend fun claimJobs(): List<TranslationJobRpcResult> =
         supabase.postgrest.rpc("sigma_claim_translation_jobs")
-            .decodeList<TranslationJobRpcResult>()
+            .decodeAs<List<TranslationJobRpcResult>>()
 
     suspend fun completeJob(jobId: String, translatedText: String): Result<Unit> = runCatching {
         val encrypted = crypto.encrypt(translatedText)
