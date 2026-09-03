@@ -1,0 +1,9 @@
+# Copy these entries into your local.properties file.
+# Never commit local.properties or paste the publishable key into chat.
+
+SUPABASE_URL=https://qcxorfsbwxprfhmsyzqu.supabase.co
+SUPABASE_PUBLISHABLE_KEY=YOUR_SB_PUBLISHABLE_KEY
+
+# Keep the existing relay until Supabase is tested end-to-end.
+# Change to 'supabase' only after the Supabase SQL/RPC setup is complete.
+SIGMA_CHAT_BACKEND=ntfy
