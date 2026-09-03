@@ -31,6 +31,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -44,6 +45,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.sigmabridge.app.data.chat.ChatForegroundState
 import com.sigmabridge.app.domain.chat.MessageDeliveryStatus
 import com.sigmabridge.app.domain.language.LanguageCatalog
 import com.sigmabridge.app.domain.model.Language
@@ -81,6 +83,20 @@ fun ChatScreen(
             ) != PackageManager.PERMISSION_GRANTED
         ) {
             notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+
+    // Mark this exact conversation as foreground-visible so the background
+    // notification worker does not re-add its messages to unread while the
+    // user is already reading them.
+    DisposableEffect(partnerId, connected) {
+        if (partnerId.isNotBlank() && connected) {
+            ChatForegroundState.openPartnerId = partnerId
+        }
+        onDispose {
+            if (ChatForegroundState.openPartnerId == partnerId) {
+                ChatForegroundState.openPartnerId = null
+            }
         }
     }
 
