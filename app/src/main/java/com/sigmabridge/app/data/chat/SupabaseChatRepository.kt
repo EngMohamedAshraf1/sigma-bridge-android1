@@ -10,6 +10,7 @@ import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.rpc
 import io.github.jan.supabase.realtime.PostgresAction
+import io.github.jan.supabase.realtime.channel
 import io.github.jan.supabase.realtime.decodeRecord
 import io.github.jan.supabase.realtime.postgresChangeFlow
 import kotlinx.coroutines.awaitCancellation
@@ -182,7 +183,7 @@ class SupabaseChatRepository @Inject constructor(
                                     type = ChatReceiptType.DELIVERED
                                 )
                             )
-                        )
+                        }
                     }
                 }
             }
