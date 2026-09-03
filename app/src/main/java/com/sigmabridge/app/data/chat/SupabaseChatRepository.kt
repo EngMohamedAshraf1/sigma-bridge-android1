@@ -6,11 +6,10 @@ import com.sigmabridge.app.domain.chat.ChatReceipt
 import com.sigmabridge.app.domain.chat.ChatRepository
 import com.sigmabridge.app.domain.chat.MessageDeliveryStatus
 import io.github.jan.supabase.SupabaseClient
-import io.github.jan.supabase.postgrest.decodeList
-import io.github.jan.supabase.postgrest.decodeSingle
+import io.github.jan.supabase.postgrest.result.decodeList
+import io.github.jan.supabase.postgrest.result.decodeSingle
 import io.github.jan.supabase.realtime.PostgresAction
 import kotlinx.coroutines.awaitCancellation
-import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.emptyFlow
@@ -24,8 +23,7 @@ import javax.inject.Singleton
 /**
  * Supabase transport for Private Chat.
  *
- * This is deliberately additive in v1: ChatModule still points to ntfy until
- * Supabase connectivity is configured and tested end-to-end.
+ * Telegram and Sigma Call do not use this repository.
  */
 @Singleton
 class SupabaseChatRepository @Inject constructor(
@@ -112,7 +110,7 @@ class SupabaseChatRepository @Inject constructor(
                         send(
                             ChatEvent.Message(
                                 ChatMessage(
-                                    id = row.id,
+                                    id = row.clientMessageId,
                                     senderId = identity.partnerId,
                                     text = text,
                                     createdAt = parseTimestamp(row.createdAt),
@@ -169,7 +167,7 @@ class SupabaseChatRepository @Inject constructor(
                     send(
                         ChatEvent.Message(
                             ChatMessage(
-                                id = row.id,
+                                id = row.clientMessageId,
                                 senderId = if (row.senderUserId == preparedUserId) identity.myId else identity.partnerId,
                                 text = text,
                                 createdAt = parseTimestamp(row.createdAt),
