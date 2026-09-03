@@ -12,9 +12,10 @@ import javax.inject.Singleton
 /**
  * Persistent Private Chat identity.
  *
- * The user-facing SB-... ID remains unchanged. Supabase gets a separate stable
- * device identifier. The current ChatCrypto protocol still derives its message
- * key from the two SB IDs; no new cryptographic protocol is introduced here.
+ * The user-facing SB-... ID remains unchanged during normal operation. Supabase
+ * gets a separate stable device identifier. If an old anonymous-auth session no
+ * longer owns the persisted SB ID, the repository may rotate the SB ID once to
+ * recover from an interrupted first-time registration.
  */
 @Singleton
 class ChatIdentity @Inject constructor(
@@ -22,9 +23,9 @@ class ChatIdentity @Inject constructor(
 ) {
     private val preferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
-    val myId: String by lazy {
-        preferences.getString(KEY_MY_ID, null) ?: generateAndStoreId()
-    }
+    var myId: String
+        get() = preferences.getString(KEY_MY_ID, null) ?: generateAndStoreId()
+        private set(value) { preferences.edit().putString(KEY_MY_ID, value).apply() }
 
     val devicePublicId: String by lazy {
         preferences.getString(KEY_DEVICE_ID, null)
@@ -37,12 +38,8 @@ class ChatIdentity @Inject constructor(
      * Compatibility value for the v1 database column. It is intentionally not
      * treated as a public cryptographic key by the current encryption protocol.
      */
-    val legacyIdentityKey: String by lazy {
-        preferences.getString(KEY_LEGACY_IDENTITY_KEY, null)
-            ?: "legacy-id-key-v1:${sha256(myId)}".also {
-                preferences.edit().putString(KEY_LEGACY_IDENTITY_KEY, it).apply()
-            }
-    }
+    val legacyIdentityKey: String
+        get() = "legacy-id-key-v1:${sha256(myId)}"
 
     var partnerId: String
         get() = preferences.getString(KEY_PARTNER_ID, "").orEmpty()
@@ -83,15 +80,33 @@ class ChatIdentity @Inject constructor(
         return value.padStart(10, '0')
     }
 
+    /**
+     * Generates a fresh public ID. Used only when Supabase reports that the
+     * locally persisted ID is already owned by another anonymous auth user.
+     */
+    @Synchronized
+    fun regenerateMyId(): String {
+        val id = generateId()
+        preferences.edit().putString(KEY_MY_ID, id).apply()
+        return id
+    }
+
     private fun generateAndStoreId(): String {
-        val bytes = ByteArray(18).also(SecureRandom()::nextBytes)
-        val alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
-        val result = buildString {
-            for (b in bytes) append(alphabet[(b.toInt() and 0xFF) % alphabet.length])
-        }
-        val formatted = "SB-" + result.chunked(6).joinToString("-")
+        val formatted = generateId()
         preferences.edit().putString(KEY_MY_ID, formatted).apply()
         return formatted
+    }
+
+    private fun generateId(): String {
+        val bytes = ByteArray(18).also(SecureRandom()::nextBytes)
+        val alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+        return buildString {
+            append("SB-")
+            for (chunk in bytes.toList().chunked(6)) {
+                if (length > 3) append('-')
+                for (b in chunk) append(alphabet[(b.toInt() and 0xFF) % alphabet.length])
+            }
+        }
     }
 
     private fun sha256(value: String): String = MessageDigest.getInstance("SHA-256")
@@ -103,6 +118,5 @@ class ChatIdentity @Inject constructor(
         const val KEY_MY_ID = "my_id"
         const val KEY_PARTNER_ID = "partner_id"
         const val KEY_DEVICE_ID = "device_public_id"
-        const val KEY_LEGACY_IDENTITY_KEY = "legacy_identity_key"
     }
 }
