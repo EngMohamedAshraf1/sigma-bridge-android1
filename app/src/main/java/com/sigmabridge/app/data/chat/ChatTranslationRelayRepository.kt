@@ -72,7 +72,9 @@ class ChatTranslationRelayRepository @Inject constructor(
 
     suspend fun awaitTranslation(clientMessageId: String, targetLanguage: String): Result<String> = runCatching {
         withTimeout(30_000L) {
-            while (true) {
+            var translatedText: String? = null
+
+            while (translatedText == null) {
                 val result = supabase.postgrest.rpc(
                     "sigma_get_translation",
                     TranslationLookupRpcParams(clientMessageId, targetLanguage)
@@ -82,13 +84,15 @@ class ChatTranslationRelayRepository @Inject constructor(
                     "COMPLETED" -> {
                         val encrypted = result.translatedCiphertext
                             ?: error("Translation result is empty.")
-                        return@withTimeout crypto.decrypt(encrypted)
+                        translatedText = crypto.decrypt(encrypted)
                     }
                     "FAILED" -> error("Remote translation failed.")
+                    else -> delay(2_000L)
                 }
-
-                delay(2_000L)
             }
+
+            translatedText
+                ?: error("Translation result is empty.")
         }
     }
 
