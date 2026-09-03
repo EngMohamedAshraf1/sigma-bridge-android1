@@ -10,10 +10,10 @@ import io.github.jan.supabase.postgrest.decodeList
 import io.github.jan.supabase.postgrest.decodeSingle
 import io.github.jan.supabase.realtime.PostgresAction
 import kotlinx.coroutines.awaitCancellation
-import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.emptyFlow
-import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -44,16 +44,17 @@ class SupabaseChatRepository @Inject constructor(
         require(userId == sessionManager.currentUserId()) { "Supabase session changed unexpectedly." }
 
         val encrypted = crypto.encrypt(message.text)
-        val params = SendMessageRpcParams(
-            conversationKey = identity.conversationKeyHex(),
-            clientMessageId = UUID.fromString(message.id).toString(),
-            senderDeviceId = cachedDeviceId ?: error("Supabase device is not registered."),
-            ciphertext = encrypted,
-            nonce = crypto.nonceFromEncrypted(encrypted),
-            messageVersion = 1
-        )
-
-        supabase.postgrest.rpc("sigma_send_message", params).decodeSingle<SupabaseMessageRow>()
+        supabase.postgrest.rpc(
+            "sigma_send_message",
+            SendMessageRpcParams(
+                conversationKey = identity.conversationKeyHex(),
+                clientMessageId = UUID.fromString(message.id).toString(),
+                senderDeviceId = cachedDeviceId ?: error("Supabase device is not registered."),
+                ciphertext = encrypted,
+                nonce = crypto.nonceFromEncrypted(encrypted),
+                messageVersion = 1
+            )
+        ).decodeSingle<SupabaseMessageRow>()
     }
 
     override suspend fun sendDeliveredReceipt(topic: String, receipt: ChatReceipt): Result<Unit> =
@@ -87,103 +88,104 @@ class SupabaseChatRepository @Inject constructor(
             ?: return emptyFlow()
         if (normalized.none { it == activeTopic }) return emptyFlow()
 
-        return flow {
+        return channelFlow {
             val preparedUserId = prepareConversation()
-            val conversationId = cachedConversationId ?: error("Supabase conversation is not initialized.")
+            val conversationId = cachedConversationId
+                ?: error("Supabase conversation is not initialized.")
             val knownMessageIds = mutableSetOf<String>()
 
             val channel = supabase.realtime.channel("sigma-chat-$conversationId")
             try {
                 channel.subscribe()
 
-                coroutineScope {
-                    val messageJob = launch {
-                        channel.postgresChangeFlow<PostgresAction.Insert>(schema = "public") {
-                            table = "messages"
-                        }.collect { change ->
-                            val row = change.decodeRecord<SupabaseMessageRow>()
-                            if (row.conversationId != conversationId || row.senderUserId == preparedUserId) return@collect
-                            if (!knownMessageIds.add(row.id)) return@collect
+                val messageJob = launch {
+                    channel.postgresChangeFlow<PostgresAction.Insert>(schema = "public") {
+                        table = "messages"
+                    }.collect { change ->
+                        val row = change.decodeRecord<SupabaseMessageRow>()
+                        if (row.conversationId != conversationId || row.senderUserId == preparedUserId) return@collect
+                        if (!knownMessageIds.add(row.id)) return@collect
 
-                            val text = runCatching { crypto.decrypt(row.ciphertext) }.getOrNull()
-                                ?: return@collect
+                        val text = runCatching { crypto.decrypt(row.ciphertext) }.getOrNull()
+                            ?: return@collect
 
-                            emit(ChatEvent.Message(
+                        send(
+                            ChatEvent.Message(
                                 ChatMessage(
                                     id = row.id,
                                     senderId = identity.partnerId,
                                     text = text,
                                     createdAt = parseTimestamp(row.createdAt),
-                                    deliveryStatus = MessageDeliveryStatus.SENT
-                                )
-                            ))
-                        }
-                    }
-
-                    val receiptJob = launch {
-                        channel.postgresChangeFlow<PostgresAction.Insert>(schema = "public") {
-                            table = "message_receipts"
-                        }.collect { change ->
-                            val row = change.decodeRecord<SupabaseReceiptRow>()
-                            if (row.userId == preparedUserId || row.messageId !in knownMessageIds) return@collect
-
-                            when {
-                                row.readAt != null -> emit(
-                                    ChatEvent.Read(
-                                        ChatReceipt(
-                                            messageId = row.messageId,
-                                            senderId = identity.partnerId
-                                        )
-                                    )
-                                )
-                                row.deliveredAt != null -> emit(
-                                    ChatEvent.Delivered(
-                                        ChatReceipt(
-                                            messageId = row.messageId,
-                                            senderId = identity.partnerId
-                                        )
-                                    )
-                                )
-                            }
-                        }
-                    }
-
-                    // Subscribe before fetching history so a message inserted during
-                    // the initial fetch is observed as well. The set below prevents duplicates.
-                    val initial = supabase.postgrest
-                        .from("messages")
-                        .select {
-                            filter { eq("conversation_id", conversationId) }
-                        }
-                        .decodeList<SupabaseMessageRow>()
-                        .sortedBy { it.sequenceNumber }
-
-                    initial.forEach { row ->
-                        if (!isActive) return@forEach
-                        if (row.conversationId != conversationId || !knownMessageIds.add(row.id)) return@forEach
-                        val text = runCatching { crypto.decrypt(row.ciphertext) }.getOrNull()
-                            ?: return@forEach
-                        emit(
-                            ChatEvent.Message(
-                                ChatMessage(
-                                    id = row.id,
-                                    senderId = if (row.senderUserId == preparedUserId) identity.myId else identity.partnerId,
-                                    text = text,
-                                    createdAt = parseTimestamp(row.createdAt),
-                                    deliveryStatus = if (row.senderUserId == preparedUserId) {
-                                        MessageDeliveryStatus.SENT
-                                    } else {
-                                        MessageDeliveryStatus.DELIVERED
-                                    }
+                                    deliveryStatus = MessageDeliveryStatus.DELIVERED
                                 )
                             )
                         )
                     }
-
-                    awaitCancellation()
-                    messageJob.cancel()
-                    receiptJob.cancel()
                 }
+
+                val receiptJob = launch {
+                    channel.postgresChangeFlow<PostgresAction.Insert>(schema = "public") {
+                        table = "message_receipts"
+                    }.collect { change ->
+                        val row = change.decodeRecord<SupabaseReceiptRow>()
+                        if (row.userId == preparedUserId || row.messageId !in knownMessageIds) return@collect
+
+                        when {
+                            row.readAt != null -> send(
+                                ChatEvent.Read(
+                                    ChatReceipt(
+                                        messageId = row.messageId,
+                                        senderId = identity.partnerId,
+                                        type = com.sigmabridge.app.domain.chat.ChatReceiptType.READ
+                                    )
+                                )
+                            )
+                            row.deliveredAt != null -> send(
+                                ChatEvent.Delivered(
+                                    ChatReceipt(
+                                        messageId = row.messageId,
+                                        senderId = identity.partnerId,
+                                        type = com.sigmabridge.app.domain.chat.ChatReceiptType.DELIVERED
+                                    )
+                                )
+                            )
+                        }
+                    }
+                }
+
+                val initial = supabase.postgrest
+                    .from("messages")
+                    .select {
+                        filter { eq("conversation_id", conversationId) }
+                    }
+                    .decodeList<SupabaseMessageRow>()
+                    .sortedBy { it.sequenceNumber }
+
+                initial.forEach { row ->
+                    if (!isActive) return@forEach
+                    if (row.conversationId != conversationId || !knownMessageIds.add(row.id)) return@forEach
+                    val text = runCatching { crypto.decrypt(row.ciphertext) }.getOrNull()
+                        ?: return@forEach
+                    send(
+                        ChatEvent.Message(
+                            ChatMessage(
+                                id = row.id,
+                                senderId = if (row.senderUserId == preparedUserId) identity.myId else identity.partnerId,
+                                text = text,
+                                createdAt = parseTimestamp(row.createdAt),
+                                deliveryStatus = if (row.senderUserId == preparedUserId) {
+                                    MessageDeliveryStatus.SENT
+                                } else {
+                                    MessageDeliveryStatus.DELIVERED
+                                }
+                            )
+                        )
+                    )
+                }
+
+                awaitCancellation()
+                messageJob.cancel()
+                receiptJob.cancel()
             } finally {
                 runCatching { supabase.realtime.removeChannel(channel) }
             }
