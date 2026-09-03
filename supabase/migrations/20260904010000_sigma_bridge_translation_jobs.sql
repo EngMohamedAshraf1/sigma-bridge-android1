@@ -5,7 +5,7 @@
 create table if not exists public.translation_jobs (
     id uuid primary key default gen_random_uuid(),
     message_id uuid not null references public.messages(id) on delete cascade,
-    requested_by_user_id text not null references public.users(id) on delete cascade,
+    requested_by_user_id uuid not null references public.users(id) on delete cascade,
     target_language text not null,
     status text not null default 'PENDING'
         check (status in ('PENDING', 'PROCESSING', 'COMPLETED', 'FAILED')),
@@ -18,8 +18,8 @@ create table if not exists public.translation_jobs (
     unique (message_id, requested_by_user_id, target_language)
 );
 
-create index if not exists idx_translation_jobs_pending_sender
-    on public.translation_jobs(status, message_id, updated_at);
+create index if not exists idx_translation_jobs_pending
+    on public.translation_jobs(status, updated_at, created_at);
 
 alter table public.translation_jobs enable row level security;
 
@@ -39,7 +39,6 @@ before update on public.translation_jobs
 for each row
 execute function public.touch_translation_job_updated_at();
 
--- Secondary device requests translation of a message using its local target language.
 create or replace function public.sigma_request_translation(
     p_client_message_id uuid,
     p_target_language text
@@ -50,12 +49,16 @@ security definer
 set search_path = public
 as $$
 declare
-    v_user_id text := auth.uid()::text;
+    v_user_id uuid := auth.uid();
     v_message public.messages;
     v_job_id uuid;
+    v_target text := lower(trim(p_target_language));
 begin
-    if auth.uid() is null then
+    if v_user_id is null then
         raise exception 'AUTH_REQUIRED';
+    end if;
+    if v_target = '' then
+        raise exception 'TARGET_LANGUAGE_REQUIRED';
     end if;
 
     select m.* into v_message
@@ -83,7 +86,7 @@ begin
     ) values (
         v_message.id,
         v_user_id,
-        lower(trim(p_target_language)),
+        v_target,
         'PENDING',
         0,
         null,
@@ -108,19 +111,19 @@ begin
             when public.translation_jobs.status in ('FAILED', 'COMPLETED') then null
             else public.translation_jobs.translated_nonce
         end,
-        last_error = null;
+        last_error = null,
+        updated_at = now();
 
     select id into v_job_id
     from public.translation_jobs
     where message_id = v_message.id
       and requested_by_user_id = v_user_id
-      and target_language = lower(trim(p_target_language));
+      and target_language = v_target;
 
     return v_job_id;
 end;
 $$;
 
--- The primary device can claim only jobs for messages it originally sent.
 create or replace function public.sigma_claim_translation_jobs()
 returns table (
     job_id uuid,
@@ -135,9 +138,9 @@ security definer
 set search_path = public
 as $$
 declare
-    v_user_id text := auth.uid()::text;
+    v_user_id uuid := auth.uid();
 begin
-    if auth.uid() is null then
+    if v_user_id is null then
         raise exception 'AUTH_REQUIRED';
     end if;
 
@@ -148,7 +151,10 @@ begin
         join public.messages m on m.id = tj.message_id
         where m.sender_user_id = v_user_id
           and tj.requested_by_user_id <> v_user_id
-          and tj.status = 'PENDING'
+          and (
+              tj.status = 'PENDING'
+              or (tj.status = 'PROCESSING' and tj.updated_at < now() - interval '2 minutes')
+          )
         order by tj.created_at
         for update of tj skip locked
         limit 10
@@ -179,9 +185,9 @@ security definer
 set search_path = public
 as $$
 declare
-    v_user_id text := auth.uid()::text;
+    v_user_id uuid := auth.uid();
 begin
-    if auth.uid() is null then
+    if v_user_id is null then
         raise exception 'AUTH_REQUIRED';
     end if;
 
@@ -212,9 +218,9 @@ security definer
 set search_path = public
 as $$
 declare
-    v_user_id text := auth.uid()::text;
+    v_user_id uuid := auth.uid();
 begin
-    if auth.uid() is null then
+    if v_user_id is null then
         raise exception 'AUTH_REQUIRED';
     end if;
 
@@ -254,7 +260,7 @@ as $$
     from public.translation_jobs tj
     join public.messages m on m.id = tj.message_id
     where m.client_message_id = p_client_message_id
-      and tj.requested_by_user_id = auth.uid()::text
+      and tj.requested_by_user_id = auth.uid()
       and tj.target_language = lower(trim(p_target_language))
     order by tj.created_at desc
     limit 1;
