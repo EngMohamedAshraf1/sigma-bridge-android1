@@ -7,7 +7,7 @@ import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.createSupabaseClient
-import io.github.jan.supabase.gotrue.GoTrue
+import io.github.jan.supabase.gotrue.Auth
 import io.github.jan.supabase.postgrest.Postgrest
 import io.github.jan.supabase.realtime.Realtime
 import javax.inject.Singleton
@@ -34,7 +34,7 @@ object SupabaseModule {
             supabaseUrl = url,
             supabaseKey = key
         ) {
-            install(GoTrue)
+            install(Auth)
             install(Postgrest)
             install(Realtime) {
                 reconnectDelay = 5.seconds
