@@ -1,11 +1,9 @@
 begin;
 
--- =========================================================
 -- Sigma Bridge Chat RPC v1
 -- Run this in the sigma-bridge-android Supabase SQL Editor.
 -- These functions keep chat provisioning and message sequence
 -- allocation server-side while the client remains authenticated.
--- =========================================================
 
 -- 1) Register the existing SB-... identity + device
 create or replace function public.sigma_register_device(
@@ -62,7 +60,7 @@ begin
         p_device_public_id,
         p_identity_public_key
     )
-    on conflict (user_id, device_public_id)
+    on conflict on constraint devices_user_id_device_public_id_key
     do update set
         identity_public_key = excluded.identity_public_key,
         last_seen_at = now()
