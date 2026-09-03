@@ -98,10 +98,8 @@ class SupabaseChatRepository @Inject constructor(
                 ?: error("Supabase conversation is not initialized.")
             val knownMessageIds = mutableSetOf<String>()
 
-            // supabase.channel(...) is the supported SupabaseClient API for Realtime channels.
             val channel = supabase.channel("sigma-chat-$conversationId")
             try {
-                // Register Realtime postgres listeners before subscribe().
                 val messageJob = launch {
                     channel.postgresChangeFlow<PostgresAction.Insert>(schema = "public") {
                         table = "messages"
@@ -219,7 +217,7 @@ class SupabaseChatRepository @Inject constructor(
     }
 
     private suspend fun registerDeviceWithRecovery(): String {
-        repeat(2) { attempt ->
+        for (attempt in 0 until 2) {
             try {
                 val result = supabase.postgrest.rpc(
                     "sigma_register_device",
@@ -235,9 +233,6 @@ class SupabaseChatRepository @Inject constructor(
                 val isPublicIdConflict = error.message
                     ?.contains("PUBLIC_ID_ALREADY_IN_USE", ignoreCase = true) == true
                 if (attempt == 0 && isPublicIdConflict) {
-                    // This can happen after an interrupted first launch created an
-                    // anonymous Supabase user that does not own the persisted ID.
-                    // Generate a fresh ID and retry registration once.
                     identity.regenerateMyId()
                     continue
                 }
