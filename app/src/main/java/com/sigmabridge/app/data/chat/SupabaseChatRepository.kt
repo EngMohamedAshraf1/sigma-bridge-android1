@@ -33,9 +33,9 @@ import javax.inject.Singleton
  * Message bodies remain encrypted end-to-end; Supabase only relays ciphertext
  * and receipt metadata.
  *
- * Live delivery in the foreground uses lightweight PostgREST polling. A separate
- * Realtime observer is provided for the Private Chat background notification
- * service so the OS can receive live events while the UI is not open.
+ * Foreground Chat uses PostgREST polling so the already-working message and
+ * receipt behaviour remains unchanged. Background notifications use a
+ * separate Supabase Realtime channel owned by ChatNotificationService.
  */
 @Singleton
 class SupabaseChatRepository @Inject constructor(
@@ -50,9 +50,14 @@ class SupabaseChatRepository @Inject constructor(
     private val prepareMutex = Mutex()
 
     override suspend fun send(topic: String, message: ChatMessage): Result<Unit> = runCatching {
-        require(topic == identity.conversationTopic()) { "Supabase topic does not match the active partner." }
+        require(topic == identity.conversationTopic()) {
+            "Supabase topic does not match the active partner."
+        }
+
         val userId = prepareConversation()
-        require(userId == sessionManager.currentUserId()) { "Supabase session changed unexpectedly." }
+        require(userId == sessionManager.currentUserId()) {
+            "Supabase session changed unexpectedly."
+        }
 
         val encrypted = crypto.encrypt(message.text)
         supabase.postgrest.rpc(
@@ -82,6 +87,7 @@ class SupabaseChatRepository @Inject constructor(
     ): Result<Unit> = runCatching {
         val clientMessageId = UUID.fromString(messageId).toString()
         val conversationId = prepareConversationId()
+
         val serverMessageId = supabase.postgrest
             .from("messages")
             .select {
@@ -112,10 +118,9 @@ class SupabaseChatRepository @Inject constructor(
     /**
      * Background-only Realtime stream for one local Private Chat conversation.
      *
-     * This is intentionally separate from [observeEvents], which remains the
-     * PostgREST polling path used by the foreground UI. Keeping the two paths
-     * separate means enabling background push-like delivery cannot destabilize
-     * the already-working send/receive/receipt behaviour.
+     * The foreground UI continues using [observeEvents] and PostgREST polling.
+     * Keeping this listener separate prevents background notification changes
+     * from changing the working foreground send/receive/receipt path.
      */
     fun observeRealtimeEvents(partnerId: String): Flow<ChatEvent> {
         val normalizedPartnerId = partnerId.trim()
@@ -129,8 +134,13 @@ class SupabaseChatRepository @Inject constructor(
 
             val messageFlow = channel.postgresChangeFlow<PostgresAction.Insert>(schema = "public") {
                 table = "messages"
-                filter("conversation_id", io.github.jan.supabase.postgrest.query.filter.FilterOperator.EQ, conversationId)
+                filter(
+                    "conversation_id",
+                    io.github.jan.supabase.postgrest.query.filter.FilterOperator.EQ,
+                    conversationId
+                )
             }
+
             val receiptFlow = channel.postgresChangeFlow<PostgresAction>(schema = "public") {
                 table = "message_receipts"
             }
@@ -138,10 +148,18 @@ class SupabaseChatRepository @Inject constructor(
             val messageJob = launch {
                 messageFlow.collect { action ->
                     if (!isActive) return@collect
-                    val row = runCatching { action.decodeRecord<SupabaseMessageRow>() }.getOrNull() ?: return@collect
+
+                    val row = runCatching {
+                        action.decodeRecord<SupabaseMessageRow>()
+                    }.getOrNull() ?: return@collect
+
                     if (row.senderUserId == userId) return@collect
+
                     clientMessageIdByServerId[row.id] = row.clientMessageId
-                    val text = runCatching { crypto.decrypt(row.ciphertext) }.getOrNull() ?: return@collect
+                    val text = runCatching {
+                        crypto.decrypt(row.ciphertext)
+                    }.getOrNull() ?: return@collect
+
                     send(
                         ChatEvent.Message(
                             ChatMessage(
@@ -159,28 +177,38 @@ class SupabaseChatRepository @Inject constructor(
             val receiptJob = launch {
                 receiptFlow.collect { action ->
                     if (!isActive) return@collect
-                    val row = runCatching { action.decodeRecord<SupabaseReceiptRow>() }.getOrNull() ?: return@collect
+
+                    val row = runCatching {
+                        action.decodeRecord<SupabaseReceiptRow>()
+                    }.getOrNull() ?: return@collect
+
                     if (row.userId == userId) return@collect
+
                     val clientMessageId = clientMessageIdByServerId[row.messageId]
                         ?: resolveClientMessageId(row.messageId)
                         ?: return@collect
 
                     when {
-                        row.readAt != null -> send(
-                            ChatEvent.Read(
-                                ChatReceipt(
-                                    messageId = clientMessageId,
-                                    senderId = normalizedPartnerId,
-                                    type = ChatReceiptType.READ
+                        row.readAt != null -> {
+                            send(
+                                ChatEvent.Read(
+                                    ChatReceipt(
+                                        messageId = clientMessageId,
+                                        senderId = normalizedPartnerId,
+                                        type = ChatReceiptType.READ
+                                    )
                                 )
                             )
-                        )
-                        row.deliveredAt != null -> send(
-                            ChatEvent.Delivered(
-                                ChatReceipt(
-                                    messageId = clientMessageId,
-                                    senderId = normalizedPartnerId,
-                                    type = ChatReceiptType.DELIVERED
+                        }
+
+                        row.deliveredAt != null -> {
+                            send(
+                                ChatEvent.Delivered(
+                                    ChatReceipt(
+                                        messageId = clientMessageId,
+                                        senderId = normalizedPartnerId,
+                                        type = ChatReceiptType.DELIVERED
+                                    )
                                 )
                             )
                         }
@@ -199,13 +227,7 @@ class SupabaseChatRepository @Inject constructor(
         }
     }
 
-    /**
-     * Observe a conversation using PostgREST polling.
-     *
-     * The flow first loads the current history, then polls for newly-created
-     * messages and receipt changes every [POLL_INTERVAL_MS]. Network errors in
-     * later polls are transient: the loop stays alive and retries on the next tick.
-     */
+    /** Observe the foreground conversation using PostgREST polling. */
     override fun observeEvents(topics: List<String>, ownSenderId: String): Flow<ChatEvent> {
         val normalized = topics.map(String::trim).filter(String::isNotBlank).distinct()
         if (normalized.isEmpty()) return emptyFlow()
@@ -218,6 +240,7 @@ class SupabaseChatRepository @Inject constructor(
             val preparedUserId = prepareConversation()
             val conversationId = cachedConversationId
                 ?: error("Supabase conversation is not initialized.")
+
             val knownMessageIds = mutableSetOf<String>()
             val clientMessageIdByServerId = mutableMapOf<String, String>()
             var lastSequence = 0L
@@ -228,21 +251,25 @@ class SupabaseChatRepository @Inject constructor(
                     .select {
                         filter {
                             eq("conversation_id", conversationId)
-                            if (!initial) gt("sequence_number", lastSequence)
+                            if (!initial) {
+                                gt("sequence_number", lastSequence)
+                            }
                         }
                     }
                     .decodeList<SupabaseMessageRow>()
                     .sortedBy { it.sequenceNumber }
 
                 rows.forEach { row ->
-                    if (!isActive) return
+                    if (!isActive) return@forEach
                     if (row.conversationId != conversationId) return@forEach
+
                     lastSequence = maxOf(lastSequence, row.sequenceNumber)
                     clientMessageIdByServerId[row.id] = row.clientMessageId
                     if (!knownMessageIds.add(row.id)) return@forEach
 
-                    val text = runCatching { crypto.decrypt(row.ciphertext) }.getOrNull()
-                        ?: return@forEach
+                    val text = runCatching {
+                        crypto.decrypt(row.ciphertext)
+                    }.getOrNull() ?: return@forEach
 
                     val senderId = if (row.senderUserId == preparedUserId) {
                         identity.myId
@@ -277,10 +304,12 @@ class SupabaseChatRepository @Inject constructor(
                     .decodeList<SupabaseReceiptRow>()
 
                 rows.forEach { row ->
-                    if (!isActive) return
-                    if (row.userId == preparedUserId || row.messageId !in clientMessageIdByServerId) return
+                    if (!isActive) return@forEach
+                    if (row.userId == preparedUserId) return@forEach
 
-                    val clientMessageId = clientMessageIdByServerId[row.messageId] ?: return@forEach
+                    val clientMessageId = clientMessageIdByServerId[row.messageId]
+                        ?: return@forEach
+
                     when {
                         row.readAt != null -> {
                             send(
@@ -293,6 +322,7 @@ class SupabaseChatRepository @Inject constructor(
                                 )
                             )
                         }
+
                         row.deliveredAt != null -> {
                             send(
                                 ChatEvent.Delivered(
@@ -316,12 +346,8 @@ class SupabaseChatRepository @Inject constructor(
                 runCatching {
                     fetchMessages(initial = false)
                     fetchReceipts()
-                }.onFailure {
-                    // Keep the polling loop alive across temporary network failures.
                 }
             }
-
-            awaitCancellation()
         }
     }
 
@@ -378,14 +404,17 @@ class SupabaseChatRepository @Inject constructor(
                     )
                 ).decodeList<RegisterDeviceRpcResult>().firstOrNull()
                     ?: error("Supabase device registration returned no device.")
+
                 return result.deviceId
             } catch (error: Throwable) {
                 val isPublicIdConflict = error.message
                     ?.contains("PUBLIC_ID_ALREADY_IN_USE", ignoreCase = true) == true
+
                 if (attempt == 0 && isPublicIdConflict) {
                     identity.regenerateMyId()
                     continue
                 }
+
                 throw error
             }
         }
