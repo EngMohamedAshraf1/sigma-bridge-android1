@@ -95,9 +95,10 @@ class SupabaseChatRepository @Inject constructor(
                 ?: error("Supabase conversation is not initialized.")
             val knownMessageIds = mutableSetOf<String>()
 
-            val channel = supabase.realtime.channel("sigma-chat-$conversationId")
+            // supabase.channel(...) is the supported SupabaseClient API for Realtime channels.
+            val channel = supabase.channel("sigma-chat-$conversationId")
             try {
-                // Realtime postgres listeners must be registered before subscribe().
+                // Register Realtime postgres listeners before subscribe().
                 val messageJob = launch {
                     channel.postgresChangeFlow<PostgresAction.Insert>(schema = "public") {
                         table = "messages"
@@ -189,7 +190,7 @@ class SupabaseChatRepository @Inject constructor(
                 messageJob.cancel()
                 receiptJob.cancel()
             } finally {
-                runCatching { supabase.realtime.removeChannel(channel) }
+                runCatching { channel.unsubscribe() }
             }
         }
     }
