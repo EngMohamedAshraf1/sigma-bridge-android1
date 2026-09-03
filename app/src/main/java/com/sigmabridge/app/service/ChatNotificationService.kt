@@ -145,12 +145,10 @@ class ChatNotificationService : Service() {
                                 // persisted message must not wait for Gemini, especially on
                                 // the secondary device that has no local Gemini keys.
                                 serviceScope.launch {
-                                    runCatching {
-                                        chatTranslationService.translateIncoming(
-                                            event.message.text,
-                                            event.message.id
-                                        )
-                                    }.onSuccess { translated ->
+                                    chatTranslationService.translateIncoming(
+                                        event.message.text,
+                                        event.message.id
+                                    ).onSuccess { translated ->
                                         if (translated == event.message.text) return@onSuccess
                                         val latestHistory = historyStore.load(historyKey)
                                         if (latestHistory.any { it.id == event.message.id }) {
