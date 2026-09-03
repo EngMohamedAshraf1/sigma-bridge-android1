@@ -1,5 +1,6 @@
 package com.sigmabridge.app.presentation
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -19,7 +20,7 @@ class MainActivity : ComponentActivity() {
         // saved Private Chat conversations.
         ContextCompat.startForegroundService(
             this,
-            ChatNotificationService.startIntent(this)
+            Intent(this, ChatNotificationService::class.java).setAction(ChatNotificationService.ACTION_START)
         )
 
         val openPrivateChat = intent?.getBooleanExtra(EXTRA_OPEN_PRIVATE_CHAT, false) == true
