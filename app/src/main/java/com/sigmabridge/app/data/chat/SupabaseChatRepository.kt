@@ -19,6 +19,8 @@ import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -38,6 +40,7 @@ class SupabaseChatRepository @Inject constructor(
 
     private var cachedDeviceId: String? = null
     private var cachedConversationId: String? = null
+    private val prepareMutex = Mutex()
 
     override suspend fun send(topic: String, message: ChatMessage): Result<Unit> = runCatching {
         require(topic == identity.conversationTopic()) { "Supabase topic does not match the active partner." }
@@ -195,7 +198,7 @@ class SupabaseChatRepository @Inject constructor(
         }
     }
 
-    private suspend fun prepareConversation(): String {
+    private suspend fun prepareConversation(): String = prepareMutex.withLock {
         val userId = sessionManager.ensureAnonymousSession().getOrThrow()
 
         if (cachedDeviceId == null) {
@@ -221,7 +224,7 @@ class SupabaseChatRepository @Inject constructor(
             ).decodeSingle<String>()
         }
 
-        return userId
+        userId
     }
 
     private fun parseTimestamp(value: String): Long =
