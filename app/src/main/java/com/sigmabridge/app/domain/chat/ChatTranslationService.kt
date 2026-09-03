@@ -1,50 +1,45 @@
 package com.sigmabridge.app.domain.chat
 
 import com.sigmabridge.app.data.chat.ChatGeminiTranslationRepository
+import com.sigmabridge.app.data.chat.ChatLanguagePreferences
+import com.sigmabridge.app.domain.language.LanguageCatalog
 import com.sigmabridge.app.domain.model.LanguagePair
-import com.sigmabridge.app.domain.repository.LanguagePreferencesRepository
 import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
  * Private Chat translation facade. Chat uses its own Gemini runtime so its
  * health, key rotation and timeout behavior cannot mutate Telegram's Gemini
- * runtime. Both devices can share the same global language pair; the actual
- * message script selects the direction for common Arabic/Russian/English use.
+ * runtime. The target language is local to Private Chat on each device.
  */
 @Singleton
 class ChatTranslationService @Inject constructor(
     private val geminiRepository: ChatGeminiTranslationRepository,
-    private val languagePreferencesRepository: LanguagePreferencesRepository
+    private val languagePreferences: ChatLanguagePreferences
 ) {
+    fun targetLanguage() = languagePreferences.getTargetLanguage()
+
+    fun setTargetLanguage(code: String) {
+        LanguageCatalog.findByCode(code)?.let(languagePreferences::setTargetLanguage)
+    }
+
     suspend fun translateIncoming(text: String): Result<String> {
-        val configured = languagePreferencesRepository.getGlobal().toLanguagePair()
-        val pair = choosePairForText(text, configured, fallbackToConfigured = true)
-        return geminiRepository.translateText(text, pair)
-    }
-
-    suspend fun translateOutgoing(text: String): Result<String> {
-        val configured = languagePreferencesRepository.getGlobal().toLanguagePair()
-        val pair = choosePairForText(text, configured, fallbackToConfigured = false)
-        return geminiRepository.translateText(text, pair)
-    }
-
-    private fun choosePairForText(
-        text: String,
-        configured: LanguagePair,
-        fallbackToConfigured: Boolean
-    ): LanguagePair {
-        val detectedCode = detectSimpleLanguage(text)
-        return when (detectedCode) {
-            configured.source.code -> configured
-            configured.target.code -> LanguagePair(source = configured.target, target = configured.source)
-            else -> if (fallbackToConfigured) {
-                configured
-            } else {
-                LanguagePair(source = configured.target, target = configured.source)
-            }
+        val target = languagePreferences.getTargetLanguage()
+        val sourceCode = detectSimpleLanguage(text)
+            ?: return Result.success(text)
+        if (sourceCode == target.code || target.code == LanguageCatalog.AUTO_DETECT.code) {
+            return Result.success(text)
         }
+
+        val source = LanguageCatalog.findByCode(sourceCode)
+            ?: return Result.success(text)
+        return geminiRepository.translateText(
+            text,
+            LanguagePair(source = source, target = target)
+        )
     }
+
+    suspend fun translateOutgoing(text: String): Result<String> = translateIncoming(text)
 
     /** Lightweight script detection for chat; no extra network/model call. */
     private fun detectSimpleLanguage(text: String): String? {
