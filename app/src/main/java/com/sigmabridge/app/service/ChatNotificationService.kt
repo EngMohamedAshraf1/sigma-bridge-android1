@@ -20,6 +20,7 @@ import com.sigmabridge.app.data.chat.ChatUnreadStore
 import com.sigmabridge.app.domain.chat.ChatEvent
 import com.sigmabridge.app.domain.chat.ChatReceipt
 import com.sigmabridge.app.domain.chat.ChatRepository
+import com.sigmabridge.app.domain.chat.ChatTranslationService
 import com.sigmabridge.app.domain.chat.MessageDeliveryStatus
 import com.sigmabridge.app.presentation.MainActivity
 import dagger.hilt.android.AndroidEntryPoint
@@ -38,6 +39,7 @@ import javax.inject.Inject
 class ChatNotificationService : Service() {
 
     @Inject lateinit var chatRepository: ChatRepository
+    @Inject lateinit var chatTranslationService: ChatTranslationService
     @Inject lateinit var identity: ChatIdentity
     @Inject lateinit var conversationStore: ChatConversationStore
     @Inject lateinit var outboxStore: ChatOutboxStore
@@ -70,13 +72,14 @@ class ChatNotificationService : Service() {
                 serviceScope.coroutineContext.cancelChildren()
                 observeAllChatEvents()
                 retryPendingMessages()
+                processTranslationJobs()
                 return START_STICKY
             }
             else -> return START_NOT_STICKY
         }
     }
 
-    /** Keep background observation transport-only; translation is a foreground display concern. */
+    /** Keep background observation transport-focused; translation jobs are processed separately. */
     private fun observeAllChatEvents() {
         val conversations = conversationStore.load()
         val validConversations = conversations.filter {
@@ -109,11 +112,7 @@ class ChatNotificationService : Service() {
                             val historyKey = historyKeyFor(partnerId)
                             val topic = topicByPartnerId[partnerId] ?: return@collect
 
-                            // The message reached this device. Keep it unread until the user
-                            // actually opens this conversation.
                             unreadStore.addUnread(historyKey, event.message.id)
-
-                            // Tell the sender that this device received the message.
                             chatRepository.sendDeliveredReceipt(
                                 topic,
                                 ChatReceipt(messageId = event.message.id, senderId = identity.myId)
@@ -146,8 +145,18 @@ class ChatNotificationService : Service() {
                     }
                 }
             }.onFailure { error ->
-                // Background transport failures must never crash the application.
                 android.util.Log.e(TAG, "Private chat background observation stopped", error)
+            }
+        }
+    }
+
+    /** Primary-only translation worker. Secondary devices return immediately because they have no Chat Gemini keys. */
+    private fun processTranslationJobs() {
+        serviceScope.launch {
+            while (isActive) {
+                runCatching { chatTranslationService.processPendingRemoteTranslationJobs() }
+                    .onFailure { error -> android.util.Log.e(TAG, "Private chat translation worker failed", error) }
+                delay(2_000L)
             }
         }
     }
@@ -176,11 +185,7 @@ class ChatNotificationService : Service() {
 
                     for (message in pending) {
                         if (!isActive) break
-
-                        // The outbox contains the original message. Send it unchanged;
-                        // the recipient translates locally after decrypting it.
                         val result = chatRepository.send(topic, message)
-
                         if (result.isSuccess) {
                             outboxStore.remove(historyKey, message.id)
                             historyStore.markSent(historyKey, message.id)
