@@ -77,8 +77,8 @@ fun ChatScreen(
         }
     }
 
-    LaunchedEffect(partnerId) {
-        if (partnerId.isNotBlank()) {
+    LaunchedEffect(partnerId, connected) {
+        if (partnerId.isNotBlank() && connected) {
             ContextCompat.startForegroundService(
                 context,
                 ChatNotificationService.startIntent(context)
