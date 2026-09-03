@@ -15,8 +15,9 @@ import io.github.jan.supabase.realtime.postgresChangeFlow
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
-import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -29,6 +30,8 @@ import javax.inject.Singleton
  * Supabase transport for Private Chat.
  *
  * Telegram and Sigma Call do not use this repository.
+ * Message bodies remain encrypted end-to-end; Supabase only relays ciphertext
+ * and receipt metadata.
  */
 @Singleton
 class SupabaseChatRepository @Inject constructor(
@@ -126,9 +129,14 @@ class SupabaseChatRepository @Inject constructor(
                 }
 
                 val receiptJob = launch {
-                    channel.postgresChangeFlow<PostgresAction.Insert>(schema = "public") {
-                        table = "message_receipts"
-                    }.collect { change ->
+                    merge(
+                        channel.postgresChangeFlow<PostgresAction.Insert>(schema = "public") {
+                            table = "message_receipts"
+                        },
+                        channel.postgresChangeFlow<PostgresAction.Update>(schema = "public") {
+                            table = "message_receipts"
+                        }
+                    ).collect { change ->
                         val row = change.decodeRecord<SupabaseReceiptRow>()
                         if (row.userId == preparedUserId || row.messageId !in knownMessageIds) return@collect
 
@@ -155,6 +163,7 @@ class SupabaseChatRepository @Inject constructor(
                     }
                 }
 
+                // Listeners must be registered before the Realtime subscription.
                 channel.subscribe()
 
                 val initial = supabase.postgrest
