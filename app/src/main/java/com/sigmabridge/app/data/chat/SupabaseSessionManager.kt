@@ -1,7 +1,7 @@
 package com.sigmabridge.app.data.chat
 
 import io.github.jan.supabase.SupabaseClient
-import io.github.jan.supabase.gotrue.gotrue
+import io.github.jan.supabase.gotrue.GoTrue
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -14,14 +14,17 @@ import javax.inject.Singleton
 class SupabaseSessionManager @Inject constructor(
     private val supabase: SupabaseClient
 ) {
+    private val auth: GoTrue
+        get() = supabase.pluginManager.getPlugin(GoTrue)
+
     suspend fun ensureAnonymousSession(): Result<String> = runCatching {
-        val existing = supabase.gotrue.currentUserOrNull()
+        val existing = auth.currentUserOrNull()
         if (existing != null) return@runCatching existing.id
 
-        supabase.gotrue.signInAnonymously()
-        supabase.gotrue.currentUserOrNull()?.id
+        auth.signInAnonymously()
+        auth.currentUserOrNull()?.id
             ?: error("Supabase anonymous sign-in succeeded but no user session was returned.")
     }
 
-    fun currentUserId(): String? = supabase.gotrue.currentUserOrNull()?.id
+    fun currentUserId(): String? = auth.currentUserOrNull()?.id
 }
