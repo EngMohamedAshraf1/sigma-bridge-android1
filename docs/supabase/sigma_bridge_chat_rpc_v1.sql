@@ -7,10 +7,7 @@ begin;
 -- allocation server-side while the client remains authenticated.
 -- =========================================================
 
--- ---------------------------------------------------------
 -- 1) Register the existing SB-... identity + device
--- ---------------------------------------------------------
-
 create or replace function public.sigma_register_device(
     p_public_id text,
     p_device_public_id text,
@@ -41,12 +38,6 @@ begin
         raise exception 'PUBLIC_ID_TOO_LONG';
     end if;
 
-    insert into public.users (id, public_id)
-    values (v_user_id, p_public_id)
-    on conflict (id) do update
-        set public_id = excluded.public_id
-    where public.users.public_id = excluded.public_id;
-
     if exists (
         select 1
         from public.users u
@@ -55,6 +46,11 @@ begin
     ) then
         raise exception 'PUBLIC_ID_ALREADY_IN_USE';
     end if;
+
+    insert into public.users (id, public_id)
+    values (v_user_id, p_public_id)
+    on conflict (id) do update
+        set public_id = excluded.public_id;
 
     insert into public.devices (
         user_id,
@@ -80,11 +76,7 @@ $$;
 revoke all on function public.sigma_register_device(text, text, text) from public;
 grant execute on function public.sigma_register_device(text, text, text) to authenticated;
 
-
--- ---------------------------------------------------------
 -- 2) Create/find the deterministic 1-to-1 conversation
--- ---------------------------------------------------------
-
 create or replace function public.sigma_ensure_conversation(
     p_partner_public_id text,
     p_conversation_key text
@@ -187,11 +179,7 @@ $$;
 revoke all on function public.sigma_ensure_conversation(text, text) from public;
 grant execute on function public.sigma_ensure_conversation(text, text) to authenticated;
 
-
--- ---------------------------------------------------------
 -- 3) Insert one message with server-side sequence allocation
--- ---------------------------------------------------------
-
 create or replace function public.sigma_send_message(
     p_conversation_key text,
     p_client_message_id uuid,
@@ -243,7 +231,6 @@ begin
         raise exception 'INVALID_SENDER_DEVICE';
     end if;
 
-    -- Serialize sequence allocation per conversation.
     perform pg_advisory_xact_lock(hashtextextended(v_conversation_id::text, 0));
 
     select coalesce(max(m.sequence_number), 0) + 1
@@ -282,11 +269,7 @@ $$;
 revoke all on function public.sigma_send_message(text, uuid, uuid, text, text, integer) from public;
 grant execute on function public.sigma_send_message(text, uuid, uuid, text, text, integer) to authenticated;
 
-
--- ---------------------------------------------------------
 -- 4) Upsert a delivery/read receipt for the current user
--- ---------------------------------------------------------
-
 create or replace function public.sigma_set_receipt(
     p_message_id uuid,
     p_delivered boolean default false,
@@ -341,11 +324,7 @@ $$;
 revoke all on function public.sigma_set_receipt(uuid, boolean, boolean) from public;
 grant execute on function public.sigma_set_receipt(uuid, boolean, boolean) to authenticated;
 
-
--- ---------------------------------------------------------
 -- 5) Store/update a translation while keeping the original intact
--- ---------------------------------------------------------
-
 create or replace function public.sigma_store_translation(
     p_message_id uuid,
     p_source_language text,
