@@ -58,7 +58,7 @@ class SupabaseChatRepository @Inject constructor(
                 nonce = crypto.nonceFromEncrypted(encrypted),
                 messageVersion = 1
             )
-        ).decodeSingle<SupabaseMessageRow>()
+        ).decodeAs<SupabaseMessageRow>()
     }
 
     override suspend fun sendDeliveredReceipt(topic: String, receipt: ChatReceipt): Result<Unit> =
@@ -81,7 +81,7 @@ class SupabaseChatRepository @Inject constructor(
                 delivered = delivered,
                 read = read
             )
-        ).decodeSingle<SupabaseReceiptRow>()
+        ).decodeAs<SupabaseReceiptRow>()
     }
 
     override fun observeEvents(topics: List<String>, ownSenderId: String): Flow<ChatEvent> {
