@@ -116,7 +116,10 @@ class ChatViewModel @Inject constructor(
                             if (event.message.senderId != identity.partnerId) return@collect
                             if (_messages.value.any { it.id == event.message.id }) return@collect
 
-                            val translated = chatTranslationService.translateIncoming(event.message.text)
+                            val translated = chatTranslationService.translateIncoming(
+                                event.message.text,
+                                event.message.id
+                            )
                             val visible = event.message.copy(text = translated.getOrElse { error ->
                                 _error.value = sanitizeChatError(error)
                                 event.message.text
@@ -248,7 +251,7 @@ class ChatViewModel @Inject constructor(
         if (clean.isBlank()) return
 
         // Transport always carries the original plaintext encrypted by SupabaseChatRepository.
-        // Translation is a local display concern and is never required for delivery.
+        // Translation is a local/primary-worker concern and is never required for delivery.
         val localMessage = ChatMessage(
             id = UUID.randomUUID().toString(),
             senderId = ownSenderId,
@@ -273,7 +276,7 @@ class ChatViewModel @Inject constructor(
         pendingMessage: ChatMessage
     ) {
         // Never translate before transport. The outbox stores the original message;
-        // the recipient translates locally after decrypting it.
+        // the recipient translates locally or via the primary device after decrypting it.
         chatRepository.send(topic, pendingMessage)
             .onSuccess {
                 outboxStore.remove(historyKey, pendingMessage.id)
@@ -301,6 +304,8 @@ class ChatViewModel @Inject constructor(
                 "جلسة Sigma Bridge غير صالحة. أعد تشغيل التطبيق وحاول مرة أخرى."
             "INVALID_PUBLIC_ID" in normalized || "PUBLIC_ID_TOO_LONG" in normalized ->
                 "تعذر تسجيل هوية Sigma Bridge لهذا الجهاز."
+            "TRANSLATION_FAILED" in normalized || "REMOTE_TRANSLATION_FAILED" in normalized || "TRANSLATION" in normalized ->
+                "تعذر الحصول على الترجمة حاليًا. ستظل الرسالة الأصلية متاحة."
             "SUPABASE" in normalized || "HTTP 400" in normalized || "STATUS_CODE=400" in normalized ->
                 "تعذر إنشاء المحادثة مع الخادم. تحقق من اتصال الإنترنت وحاول مرة أخرى."
             raw.contains("Authorization", ignoreCase = true) || raw.contains("Bearer", ignoreCase = true) ->
