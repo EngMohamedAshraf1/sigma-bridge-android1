@@ -210,7 +210,7 @@ class SupabaseChatRepository @Inject constructor(
                     partnerPublicId = identity.partnerId,
                     conversationKey = identity.conversationKeyHex()
                 )
-            ).decodeSingle<String>()
+            ).decodeAs<String>()
         }
 
         userId
