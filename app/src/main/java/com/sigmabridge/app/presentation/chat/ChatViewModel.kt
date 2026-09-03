@@ -68,7 +68,7 @@ class ChatViewModel @Inject constructor(
         if (partner.isBlank()) { _error.value = "Enter the partner ID first."; return }
         if (partner == myId) { _error.value = "Partner ID must be different from your own ID."; return }
         val topic = runCatching { identity.conversationTopic() }.getOrElse {
-            _error.value = it.message ?: "Unable to create conversation."; return
+            _error.value = sanitizeChatError(it); return
         }
         if (currentTopic == topic && _connected.value) return
         statusSyncJob?.cancel()
@@ -108,7 +108,7 @@ class ChatViewModel @Inject constructor(
 
                             val translated = chatTranslationService.translateIncoming(event.message.text)
                             val visible = event.message.copy(text = translated.getOrElse { error ->
-                                _error.value = error.message ?: "Unable to translate incoming message."
+                                _error.value = sanitizeChatError(error)
                                 event.message.text
                             })
                             val updated = _messages.value + visible
@@ -133,7 +133,7 @@ class ChatViewModel @Inject constructor(
                 }
             }.onFailure { error ->
                 _connected.value = false
-                _error.value = error.message ?: "Chat connection lost."
+                _error.value = sanitizeChatError(error)
             }
         }
 
@@ -269,7 +269,29 @@ class ChatViewModel @Inject constructor(
                 }
             }
             .onFailure { error ->
-                _error.value = error.message ?: "Message queued. It will retry when the connection returns."
+                _error.value = sanitizeChatError(error)
             }
+    }
+
+    private fun sanitizeChatError(error: Throwable): String {
+        val raw = error.message.orEmpty()
+        val normalized = raw.uppercase()
+        return when {
+            "PUBLIC_ID_ALREADY_IN_USE" in normalized ->
+                "تم اكتشاف تعارض في هوية الجهاز وتمت محاولة استعادتها. أعد فتح المحادثة."
+            "PARTNER_NOT_FOUND" in normalized ->
+                "معرّف الطرف الآخر غير مسجل بعد على Sigma Bridge. افتح التطبيق على الجهاز الآخر وسجّل هويته أولًا."
+            "AUTH_REQUIRED" in normalized ->
+                "جلسة Sigma Bridge غير صالحة. أعد تشغيل التطبيق وحاول مرة أخرى."
+            "INVALID_PUBLIC_ID" in normalized || "PUBLIC_ID_TOO_LONG" in normalized ->
+                "تعذر تسجيل هوية Sigma Bridge لهذا الجهاز."
+            "SUPABASE" in normalized || "HTTP 400" in normalized || "STATUS_CODE=400" in normalized ->
+                "تعذر إنشاء المحادثة مع الخادم. تحقق من اتصال الإنترنت وحاول مرة أخرى."
+            raw.contains("Authorization", ignoreCase = true) || raw.contains("Bearer", ignoreCase = true) ->
+                "حدث خطأ في الاتصال بالخادم."
+            raw.length > 220 ->
+                "حدث خطأ أثناء الاتصال بالمحادثة. حاول مرة أخرى."
+            else -> raw.ifBlank { "حدث خطأ أثناء الاتصال بالمحادثة." }
+        }
     }
 }
