@@ -11,6 +11,10 @@ import javax.inject.Singleton
  * Private Chat translation facade. Chat uses its own Gemini runtime so its
  * health, key rotation and timeout behavior cannot mutate Telegram's Gemini
  * runtime. The target language is local to Private Chat on each device.
+ *
+ * Translation is optional for transport: a device without a local Gemini key
+ * simply displays the decrypted original message and never reports a Gemini
+ * configuration error to the user.
  */
 @Singleton
 class ChatTranslationService @Inject constructor(
@@ -28,6 +32,12 @@ class ChatTranslationService @Inject constructor(
         val sourceCode = detectSimpleLanguage(text)
             ?: return Result.success(text)
         if (sourceCode == target.code || target.code == LanguageCatalog.AUTO_DETECT.code) {
+            return Result.success(text)
+        }
+
+        // Gemini is optional on Private Chat devices. If this device has no
+        // local key configured, return the original decrypted text silently.
+        if (!geminiRepository.hasConfiguredKeys()) {
             return Result.success(text)
         }
 
