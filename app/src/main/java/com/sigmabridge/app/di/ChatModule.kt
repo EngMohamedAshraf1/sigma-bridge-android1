@@ -1,27 +1,21 @@
 package com.sigmabridge.app.di
 
-import com.sigmabridge.app.BuildConfig
-import com.sigmabridge.app.data.chat.NtfyChatRepository
 import com.sigmabridge.app.data.chat.SupabaseChatRepository
 import com.sigmabridge.app.domain.chat.ChatRepository
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
-import javax.inject.Provider
 import javax.inject.Singleton
 
 @Module
 @InstallIn(SingletonComponent::class)
 object ChatModule {
 
+    /** Private Chat uses Supabase as its only transport backend. */
     @Provides
     @Singleton
     fun provideChatRepository(
-        ntfy: Provider<NtfyChatRepository>,
-        supabase: Provider<SupabaseChatRepository>
-    ): ChatRepository = when (BuildConfig.SIGMA_CHAT_BACKEND.trim().lowercase()) {
-        "supabase" -> supabase.get()
-        else -> ntfy.get()
-    }
+        supabase: SupabaseChatRepository
+    ): ChatRepository = supabase
 }
