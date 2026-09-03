@@ -110,11 +110,6 @@ class SupabaseChatRepository @Inject constructor(
         ).decodeAs<SupabaseReceiptRow>()
     }
 
-    private suspend fun prepareConversationId(): String {
-        prepareConversation()
-        return cachedConversationId ?: error("Supabase conversation is not initialized.")
-    }
-
     /**
      * Background-only Realtime stream for one local Private Chat conversation.
      *
@@ -178,9 +173,17 @@ class SupabaseChatRepository @Inject constructor(
                 receiptFlow.collect { action ->
                     if (!isActive) return@collect
 
-                    val row = runCatching {
-                        action.decodeRecord<SupabaseReceiptRow>()
-                    }.getOrNull() ?: return@collect
+                    val row = when (action) {
+                        is PostgresAction.Insert -> runCatching {
+                            action.decodeRecord<SupabaseReceiptRow>()
+                        }.getOrNull()
+
+                        is PostgresAction.Update -> runCatching {
+                            action.decodeRecord<SupabaseReceiptRow>()
+                        }.getOrNull()
+
+                        else -> null
+                    } ?: return@collect
 
                     if (row.userId == userId) return@collect
 
