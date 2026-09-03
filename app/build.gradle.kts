@@ -38,7 +38,7 @@ android {
         buildConfigField(
             "String",
             "SIGMA_CHAT_BACKEND",
-            "\"${localProperties.getProperty("SIGMA_CHAT_BACKEND", "ntfy")}\""
+            "\"${localProperties.getProperty("SIGMA_CHAT_BACKEND", "supabase")}\""
         )
     }
 
