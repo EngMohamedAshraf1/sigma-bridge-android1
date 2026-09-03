@@ -13,6 +13,7 @@ import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.sigmabridge.app.data.chat.ChatConversationStore
+import com.sigmabridge.app.data.chat.ChatForegroundState
 import com.sigmabridge.app.data.chat.ChatHistoryStore
 import com.sigmabridge.app.data.chat.ChatIdentity
 import com.sigmabridge.app.data.chat.ChatOutboxStore
@@ -111,13 +112,22 @@ class ChatNotificationService : Service() {
 
                             val historyKey = historyKeyFor(partnerId)
                             val topic = topicByPartnerId[partnerId] ?: return@collect
+                            val isForegroundConversation = ChatForegroundState.openPartnerId == partnerId
 
-                            unreadStore.addUnread(historyKey, event.message.id)
+                            // A visible conversation is read by the foreground ViewModel.
+                            // Do not recreate its unread badge or notification from the
+                            // background polling service.
+                            if (!isForegroundConversation) {
+                                unreadStore.addUnread(historyKey, event.message.id)
+                            }
+
+                            // The message reached this device regardless of foreground state.
                             chatRepository.sendDeliveredReceipt(
                                 topic,
                                 ChatReceipt(messageId = event.message.id, senderId = identity.myId)
                             )
 
+                            if (isForegroundConversation) return@collect
                             if (event.message.createdAt <= lastNotifiedAt) return@collect
                             if (postMessageNotification(partnerId, event.message.id)) {
                                 lastNotifiedAt = event.message.createdAt
