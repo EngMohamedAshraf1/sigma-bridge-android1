@@ -43,10 +43,10 @@ class ChatTranslationService @Inject constructor(
         return if (geminiRepository.hasConfiguredKeys()) {
             translateLocally(text, sourceCode, target)
         } else {
-            relayRepository.requestTranslation(clientMessageId, target.code)
-                .flatMapCatching {
-                    relayRepository.awaitTranslation(clientMessageId, target.code)
-                }
+            relayRepository.requestTranslation(clientMessageId, target.code).fold(
+                onSuccess = { relayRepository.awaitTranslation(clientMessageId, target.code) },
+                onFailure = { Result.failure(it) }
+            )
         }
     }
 
@@ -64,9 +64,8 @@ class ChatTranslationService @Inject constructor(
     }
 
     /**
-     * Called by the primary device's background chat service. It claims jobs
-     * for messages this device originally sent, translates them with its local
-     * Gemini keys, and stores only the encrypted result in Supabase.
+     * Primary-device worker. Secondary devices return immediately because they
+     * do not have local Chat Gemini keys.
      */
     suspend fun processPendingRemoteTranslationJobs() {
         if (!geminiRepository.hasConfiguredKeys()) return
