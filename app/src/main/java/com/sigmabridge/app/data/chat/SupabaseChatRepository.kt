@@ -6,8 +6,8 @@ import com.sigmabridge.app.domain.chat.ChatReceipt
 import com.sigmabridge.app.domain.chat.ChatRepository
 import com.sigmabridge.app.domain.chat.MessageDeliveryStatus
 import io.github.jan.supabase.SupabaseClient
-import io.github.jan.supabase.postgrest.result.decodeList
-import io.github.jan.supabase.postgrest.result.decodeSingle
+import io.github.jan.supabase.postgrest.postgrest
+import io.github.jan.supabase.postgrest.rpc
 import io.github.jan.supabase.realtime.PostgresAction
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.Flow
