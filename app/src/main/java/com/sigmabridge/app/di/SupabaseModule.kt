@@ -1,16 +1,17 @@
 package com.sigmabridge.app.di
 
 import com.sigmabridge.app.BuildConfig
+import dagger.Module
+import dagger.Provides
+import dagger.hilt.InstallIn
+import dagger.hilt.components.SingletonComponent
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.createSupabaseClient
 import io.github.jan.supabase.gotrue.GoTrue
 import io.github.jan.supabase.postgrest.Postgrest
 import io.github.jan.supabase.realtime.Realtime
-import dagger.Module
-import dagger.Provides
-import dagger.hilt.InstallIn
-import dagger.hilt.components.SingletonComponent
 import javax.inject.Singleton
+import kotlin.time.Duration.Companion.seconds
 
 @Module
 @InstallIn(SingletonComponent::class)
@@ -36,7 +37,7 @@ object SupabaseModule {
             install(GoTrue)
             install(Postgrest)
             install(Realtime) {
-                reconnectDelay = kotlin.time.Duration.Companion.seconds(5)
+                reconnectDelay = 5.seconds
             }
         }
     }
