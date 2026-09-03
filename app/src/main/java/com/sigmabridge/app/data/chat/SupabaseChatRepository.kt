@@ -202,16 +202,7 @@ class SupabaseChatRepository @Inject constructor(
         val userId = sessionManager.ensureAnonymousSession().getOrThrow()
 
         if (cachedDeviceId == null) {
-            val result = supabase.postgrest.rpc(
-                "sigma_register_device",
-                RegisterDeviceRpcParams(
-                    publicId = identity.myId,
-                    devicePublicId = identity.devicePublicId,
-                    identityPublicKey = identity.legacyIdentityKey
-                )
-            ).decodeList<RegisterDeviceRpcResult>().firstOrNull()
-                ?: error("Supabase device registration returned no device.")
-            cachedDeviceId = result.deviceId
+            cachedDeviceId = registerDeviceWithRecovery()
         }
 
         if (cachedConversationId == null) {
@@ -225,6 +216,36 @@ class SupabaseChatRepository @Inject constructor(
         }
 
         userId
+    }
+
+    private suspend fun registerDeviceWithRecovery(): String {
+        repeat(2) { attempt ->
+            try {
+                val result = supabase.postgrest.rpc(
+                    "sigma_register_device",
+                    RegisterDeviceRpcParams(
+                        publicId = identity.myId,
+                        devicePublicId = identity.devicePublicId,
+                        identityPublicKey = identity.legacyIdentityKey
+                    )
+                ).decodeList<RegisterDeviceRpcResult>().firstOrNull()
+                    ?: error("Supabase device registration returned no device.")
+                return result.deviceId
+            } catch (error: Throwable) {
+                val isPublicIdConflict = error.message
+                    ?.contains("PUBLIC_ID_ALREADY_IN_USE", ignoreCase = true) == true
+                if (attempt == 0 && isPublicIdConflict) {
+                    // This can happen after an interrupted first launch created an
+                    // anonymous Supabase user that does not own the persisted ID.
+                    // Generate a fresh ID and retry registration once.
+                    identity.regenerateMyId()
+                    continue
+                }
+                throw error
+            }
+        }
+
+        error("Supabase device registration failed after identity recovery.")
     }
 
     private fun parseTimestamp(value: String): Long =
