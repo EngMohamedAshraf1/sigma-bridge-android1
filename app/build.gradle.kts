@@ -35,6 +35,11 @@ android {
             "SUPABASE_PUBLISHABLE_KEY",
             "\"${localProperties.getProperty("SUPABASE_PUBLISHABLE_KEY", "")}"\"
         )
+        buildConfigField(
+            "String",
+            "SIGMA_CHAT_BACKEND",
+            "\"${localProperties.getProperty("SIGMA_CHAT_BACKEND", "ntfy")}"\"
+        )
     }
 
     buildTypes {
