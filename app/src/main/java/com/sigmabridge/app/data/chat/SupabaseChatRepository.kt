@@ -124,6 +124,7 @@ class SupabaseChatRepository @Inject constructor(
             val conversationId = cachedConversationId
                 ?: error("Supabase conversation is not initialized.")
             val knownMessageIds = mutableSetOf<String>()
+            val clientMessageIdByServerId = mutableMapOf<String, String>()
             var lastSequence = 0L
 
             suspend fun fetchMessages(initial: Boolean) {
@@ -142,6 +143,7 @@ class SupabaseChatRepository @Inject constructor(
                     if (!isActive) return
                     if (row.conversationId != conversationId) return@forEach
                     lastSequence = maxOf(lastSequence, row.sequenceNumber)
+                    clientMessageIdByServerId[row.id] = row.clientMessageId
                     if (!knownMessageIds.add(row.id)) return@forEach
 
                     val text = runCatching { crypto.decrypt(row.ciphertext) }.getOrNull()
@@ -183,12 +185,13 @@ class SupabaseChatRepository @Inject constructor(
                     if (!isActive) return
                     if (row.userId == preparedUserId || row.messageId !in knownMessageIds) return
 
+                    val clientMessageId = clientMessageIdByServerId[row.messageId] ?: return@forEach
                     when {
                         row.readAt != null -> {
                             send(
                                 ChatEvent.Read(
                                     ChatReceipt(
-                                        messageId = resolveClientMessageId(row.messageId),
+                                        messageId = clientMessageId,
                                         senderId = identity.partnerId,
                                         type = com.sigmabridge.app.domain.chat.ChatReceiptType.READ
                                     )
@@ -199,7 +202,7 @@ class SupabaseChatRepository @Inject constructor(
                             send(
                                 ChatEvent.Delivered(
                                     ChatReceipt(
-                                        messageId = resolveClientMessageId(row.messageId),
+                                        messageId = clientMessageId,
                                         senderId = identity.partnerId,
                                         type = com.sigmabridge.app.domain.chat.ChatReceiptType.DELIVERED
                                     )
@@ -225,17 +228,6 @@ class SupabaseChatRepository @Inject constructor(
 
             awaitCancellation()
         }
-    }
-
-    private suspend fun resolveClientMessageId(serverMessageId: String): String {
-        return supabase.postgrest
-            .from("messages")
-            .select {
-                filter { eq("id", serverMessageId) }
-            }
-            .decodeSingleOrNull<SupabaseMessageRow>()
-            ?.clientMessageId
-            ?: serverMessageId
     }
 
     private suspend fun prepareConversation(): String = prepareMutex.withLock {
@@ -290,6 +282,6 @@ class SupabaseChatRepository @Inject constructor(
             .getOrElse { System.currentTimeMillis() }
 
     private companion object {
-        const val POLL_INTERVAL_MS = 2_000L
+        const val POLL_INTERVAL_MS = 1_000L
     }
 }
