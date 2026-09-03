@@ -4,7 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import androidx.core.content.ContextCompat
-import com.sigmabridge.app.data.chat.ChatConversationStore
+import com.sigmabridge.app.data.chat.ChatIdentity
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
 
@@ -12,11 +12,11 @@ import javax.inject.Inject
 @AndroidEntryPoint
 class ChatBootReceiver : BroadcastReceiver() {
 
-    @Inject lateinit var conversationStore: ChatConversationStore
+    @Inject lateinit var identity: ChatIdentity
 
     override fun onReceive(context: Context, intent: Intent?) {
         if (intent?.action != Intent.ACTION_BOOT_COMPLETED) return
-        if (conversationStore.load().isEmpty()) return
+        if (identity.partnerId.isBlank()) return
 
         ContextCompat.startForegroundService(
             context,
