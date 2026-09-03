@@ -83,10 +83,7 @@ fun ChatScreen(
     // same Supabase client. Keep the foreground chat as the sole listener while this
     // destination is visible; restore the background service when we leave the chat.
     DisposableEffect(Unit) {
-        ContextCompat.stopService(
-            context,
-            ChatNotificationService.stopIntent(context)
-        )
+        context.stopService(ChatNotificationService.stopIntent(context))
         onDispose {
             if (partnerId.isNotBlank()) {
                 ContextCompat.startForegroundService(
