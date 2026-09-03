@@ -28,6 +28,8 @@ class ChatGeminiTranslationRepository @Inject constructor(
     private var keyCursor = 0
     private val invalidKeys = mutableSetOf<String>()
 
+    suspend fun hasConfiguredKeys(): Boolean = settingsRepository.geminiApiKeys.first().isNotEmpty()
+
     suspend fun translateText(text: String, languagePair: LanguagePair): Result<String> = runCatching {
         withTimeout(TOTAL_TIMEOUT_MS) {
             val maxAttempts = totalKeyCount()
