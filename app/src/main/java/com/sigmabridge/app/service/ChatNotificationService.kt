@@ -18,6 +18,7 @@ import com.sigmabridge.app.data.chat.ChatHistoryStore
 import com.sigmabridge.app.data.chat.ChatIdentity
 import com.sigmabridge.app.data.chat.ChatOutboxStore
 import com.sigmabridge.app.data.chat.ChatUnreadStore
+import com.sigmabridge.app.data.chat.SupabaseChatRepository
 import com.sigmabridge.app.domain.chat.ChatEvent
 import com.sigmabridge.app.domain.chat.ChatReceipt
 import com.sigmabridge.app.domain.chat.ChatRepository
@@ -40,6 +41,7 @@ import javax.inject.Inject
 class ChatNotificationService : Service() {
 
     @Inject lateinit var chatRepository: ChatRepository
+    @Inject lateinit var supabaseChatRepository: SupabaseChatRepository
     @Inject lateinit var chatTranslationService: ChatTranslationService
     @Inject lateinit var identity: ChatIdentity
     @Inject lateinit var conversationStore: ChatConversationStore
@@ -82,89 +84,75 @@ class ChatNotificationService : Service() {
         }
     }
 
-    /** Keep background observation transport-focused; translation jobs are processed separately. */
+    /**
+     * Background notifications use Supabase Realtime, while the foreground
+     * ChatViewModel continues using its existing PostgREST polling path.
+     */
     private fun observeAllChatEvents() {
         val conversations = conversationStore.load()
-        val validConversations = conversations.filter {
-            it.partnerId.isNotBlank() && it.partnerId != identity.myId
-        }
-        if (validConversations.isEmpty()) return
+            .filter { it.partnerId.isNotBlank() && it.partnerId != identity.myId }
+        if (conversations.isEmpty()) return
 
-        val topics = validConversations.mapNotNull { conversation ->
-            runCatching { identity.conversationTopicFor(conversation.partnerId) }.getOrNull()
-        }.distinct()
-        if (topics.isEmpty()) return
+        conversations.forEach { conversation ->
+            val partnerId = conversation.partnerId.trim()
+            serviceScope.launch {
+                val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+                val lastNotifiedKey = "$KEY_LAST_NOTIFIED_AT_PREFIX$partnerId"
+                var lastNotifiedAt = prefs.getLong(lastNotifiedKey, 0L)
 
-        val conversationsByPartnerId = validConversations.associateBy { it.partnerId.trim() }
-        val topicByPartnerId = validConversations.associate { conversation ->
-            conversation.partnerId.trim() to identity.conversationTopicFor(conversation.partnerId)
-        }
+                runCatching {
+                    supabaseChatRepository.observeRealtimeEvents(partnerId).collect { event ->
+                        when (event) {
+                            is ChatEvent.Message -> {
+                                val historyKey = historyKeyFor(partnerId)
+                                val topic = identity.conversationTopicFor(partnerId)
+                                val isForegroundConversation = ChatForegroundState.openPartnerId == partnerId
+                                val isKnownLocally = historyStore.load(historyKey).any { it.id == event.message.id }
 
-        serviceScope.launch {
-            val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
-            val storedLastNotifiedAt = prefs.getLong(KEY_LAST_NOTIFIED_AT_GLOBAL, 0L)
-            var lastNotifiedAt = storedLastNotifiedAt
+                                if (isForegroundConversation) {
+                                    unreadStore.clear(historyKey)
+                                } else if (!isKnownLocally) {
+                                    unreadStore.addUnread(historyKey, event.message.id)
+                                }
 
-            runCatching {
-                chatRepository.observeEvents(topics, identity.myId).collect { event ->
-                    when (event) {
-                        is ChatEvent.Message -> {
-                            val partnerId = event.message.senderId.trim()
-                            if (partnerId.isBlank() || !conversationsByPartnerId.containsKey(partnerId)) return@collect
+                                // Realtime means the message is now known to have reached this device.
+                                chatRepository.sendDeliveredReceipt(
+                                    topic,
+                                    ChatReceipt(messageId = event.message.id, senderId = identity.myId)
+                                )
 
-                            val historyKey = historyKeyFor(partnerId)
-                            val topic = topicByPartnerId[partnerId] ?: return@collect
-                            val isForegroundConversation = ChatForegroundState.openPartnerId == partnerId
-                            val isKnownLocally = historyStore.load(historyKey).any { it.id == event.message.id }
-
-                            if (isForegroundConversation) {
-                                // The foreground screen owns read/unread state.
-                                unreadStore.clear(historyKey)
-                            } else if (!isKnownLocally) {
-                                // Initial polling can replay history. Only truly new messages
-                                // are allowed to create a new unread item.
-                                unreadStore.addUnread(historyKey, event.message.id)
+                                // Never notify for a message already present in local history.
+                                if (isForegroundConversation || isKnownLocally) return@collect
+                                if (event.message.createdAt <= lastNotifiedAt) return@collect
+                                if (postMessageNotification(partnerId, event.message.id)) {
+                                    lastNotifiedAt = event.message.createdAt
+                                    prefs.edit().putLong(lastNotifiedKey, lastNotifiedAt).apply()
+                                }
                             }
-
-                            chatRepository.sendDeliveredReceipt(
-                                topic,
-                                ChatReceipt(messageId = event.message.id, senderId = identity.myId)
-                            )
-
-                            if (isForegroundConversation || isKnownLocally) return@collect
-                            if (event.message.createdAt <= lastNotifiedAt) return@collect
-                            if (postMessageNotification(partnerId, event.message.id)) {
-                                lastNotifiedAt = event.message.createdAt
-                                prefs.edit().putLong(KEY_LAST_NOTIFIED_AT_GLOBAL, lastNotifiedAt).apply()
+                            is ChatEvent.Delivered -> {
+                                historyStore.updateDeliveryStatus(
+                                    historyKeyFor(partnerId),
+                                    event.receipt.messageId,
+                                    MessageDeliveryStatus.DELIVERED
+                                )
                             }
-                        }
-                        is ChatEvent.Delivered -> {
-                            val partnerId = event.receipt.senderId.trim()
-                            if (!conversationsByPartnerId.containsKey(partnerId)) return@collect
-                            historyStore.updateDeliveryStatus(
-                                historyKeyFor(partnerId),
-                                event.receipt.messageId,
-                                MessageDeliveryStatus.DELIVERED
-                            )
-                        }
-                        is ChatEvent.Read -> {
-                            val partnerId = event.receipt.senderId.trim()
-                            if (!conversationsByPartnerId.containsKey(partnerId)) return@collect
-                            historyStore.updateDeliveryStatus(
-                                historyKeyFor(partnerId),
-                                event.receipt.messageId,
-                                MessageDeliveryStatus.READ
-                            )
+                            is ChatEvent.Read -> {
+                                historyStore.updateDeliveryStatus(
+                                    historyKeyFor(partnerId),
+                                    event.receipt.messageId,
+                                    MessageDeliveryStatus.READ
+                                )
+                            }
                         }
                     }
+                }.onFailure { error ->
+                    android.util.Log.e(TAG, "Private chat realtime background observation stopped for $partnerId", error)
                 }
-            }.onFailure { error ->
-                android.util.Log.e(TAG, "Private chat background observation stopped", error)
             }
         }
     }
 
-    /** Primary-only translation worker. Secondary devices return immediately because they have no Chat Gemini keys. */
+    /** Primary-only translation worker. Secondary devices return without Gemini credentials. */
     private fun processTranslationJobs() {
         serviceScope.launch {
             while (isActive) {
@@ -283,7 +271,7 @@ class ChatNotificationService : Service() {
         private const val CHAT_CHANNEL_ID = "sigma_chat_messages"
         private const val SERVICE_NOTIFICATION_ID = 2001
         private const val PREFS_NAME = "sigma_bridge_chat_notifications"
-        private const val KEY_LAST_NOTIFIED_AT_GLOBAL = "last_notified_at_global"
+        private const val KEY_LAST_NOTIFIED_AT_PREFIX = "last_notified_at_"
         private const val INITIAL_RETRY_MS = 2_000L
         private const val MAX_RETRY_MS = 60_000L
         private const val IDLE_RETRY_MS = 15_000L
