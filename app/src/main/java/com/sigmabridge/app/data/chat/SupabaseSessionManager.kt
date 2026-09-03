@@ -1,6 +1,5 @@
 package com.sigmabridge.app.data.chat
 
-import com.sigmabridge.app.domain.chat.ChatRepository
 import io.github.jan.supabase.SupabaseClient
 import javax.inject.Inject
 import javax.inject.Singleton
