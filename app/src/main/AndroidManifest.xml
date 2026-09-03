@@ -1,16 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Phase 7 adds exactly what a Foreground Service needs to run and show its
-         mandatory notification: FOREGROUND_SERVICE (+ the DATA_SYNC subtype required
-         on API 34+) and POST_NOTIFICATIONS (API 33+, or the notification is silently
-         hidden). RECEIVE_BOOT_COMPLETED and any battery-optimization-exemption intent
-         are still NOT here — those are Phase 8, not this one. -->
+    <!-- Private Chat background messaging. -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_REMOTE_MESSAGING" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <application
         android:name=".SigmaBridgeApplication"
@@ -31,19 +29,28 @@
             </intent-filter>
         </activity>
 
-        <!-- Orchestration only: starts/stops BridgeOrchestrator and shows the
-             mandatory foreground notification. No boot-time auto-start (no
-             BOOT_COMPLETED receiver registered anywhere), per Phase 7 scope. -->
+        <!-- Existing Telegram/Bridge foreground orchestration service. -->
         <service
             android:name=".service.BridgeForegroundService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 
-        <!-- Private chat notification listener. It is independent from Telegram Bridge. -->
+        <!-- Private Chat. remoteMessaging is the Android foreground-service type
+             intended for transferring text messages between devices. -->
         <service
             android:name=".service.ChatNotificationService"
             android:exported="false"
-            android:foregroundServiceType="dataSync" />
+            android:foregroundServiceType="remoteMessaging" />
+
+        <!-- Restores the Private Chat notification service after device boot. -->
+        <receiver
+            android:name=".service.ChatBootReceiver"
+            android:enabled="true"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
 
     </application>
 
