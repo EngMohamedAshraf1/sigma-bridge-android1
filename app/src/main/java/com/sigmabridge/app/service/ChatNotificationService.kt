@@ -10,7 +10,6 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.IBinder
-import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.sigmabridge.app.data.chat.ChatConversationStore
@@ -21,7 +20,6 @@ import com.sigmabridge.app.data.chat.ChatUnreadStore
 import com.sigmabridge.app.domain.chat.ChatEvent
 import com.sigmabridge.app.domain.chat.ChatReceipt
 import com.sigmabridge.app.domain.chat.ChatRepository
-import com.sigmabridge.app.domain.chat.ChatTranslationService
 import com.sigmabridge.app.domain.chat.MessageDeliveryStatus
 import com.sigmabridge.app.presentation.MainActivity
 import dagger.hilt.android.AndroidEntryPoint
@@ -45,11 +43,10 @@ class ChatNotificationService : Service() {
     @Inject lateinit var outboxStore: ChatOutboxStore
     @Inject lateinit var historyStore: ChatHistoryStore
     @Inject lateinit var unreadStore: ChatUnreadStore
-    @Inject lateinit var chatTranslationService: ChatTranslationService
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    override fun onBind(intent: Intent?): android.os.IBinder? = null
+    override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -79,12 +76,7 @@ class ChatNotificationService : Service() {
         }
     }
 
-    /**
-     * Keep exactly two long-lived relay connections for all saved conversations:
-     * one for message topics and one for their receipt topics. ntfy supports a
-     * comma-separated topic list in one subscription URL, so adding conversations
-     * does not multiply background HTTP connections.
-     */
+    /** Keep background observation transport-only; translation is a foreground display concern. */
     private fun observeAllChatEvents() {
         val conversations = conversationStore.load()
         val validConversations = conversations.filter {
@@ -154,10 +146,8 @@ class ChatNotificationService : Service() {
                     }
                 }
             }.onFailure { error ->
-                // A missing/unavailable partner or a temporary Supabase failure must not
-                // crash the application from this background coroutine. The foreground
-                // ChatViewModel handles the active conversation error independently.
-                Log.e(TAG, "Private chat background observation stopped", error)
+                // Background transport failures must never crash the application.
+                android.util.Log.e(TAG, "Private chat background observation stopped", error)
             }
         }
     }
@@ -165,7 +155,7 @@ class ChatNotificationService : Service() {
     private fun historyKeyFor(partnerId: String): String =
         identity.conversationKeyFor(partnerId).joinToString("") { "%02x".format(it) }
 
-    /** Retry queued outgoing messages for all saved conversations. */
+    /** Retry queued outgoing messages without making Gemini a transport dependency. */
     private fun retryPendingMessages() {
         serviceScope.launch {
             var retryDelayMs = INITIAL_RETRY_MS
@@ -187,9 +177,9 @@ class ChatNotificationService : Service() {
                     for (message in pending) {
                         if (!isActive) break
 
-                        val translationResult = chatTranslationService.translateOutgoing(message.text)
-                        val textToSend = translationResult.getOrElse { message.text }
-                        val result = chatRepository.send(topic, message.copy(text = textToSend))
+                        // The outbox contains the original message. Send it unchanged;
+                        // the recipient translates locally after decrypting it.
+                        val result = chatRepository.send(topic, message)
 
                         if (result.isSuccess) {
                             outboxStore.remove(historyKey, message.id)
