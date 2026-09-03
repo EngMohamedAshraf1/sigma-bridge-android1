@@ -35,7 +35,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
-/** Keeps the private-chat listener alive in the background and retries queued sends. */
+/** Keeps Private Chat messaging alive while the UI is closed or the screen is locked. */
 @AndroidEntryPoint
 class ChatNotificationService : Service() {
 
@@ -58,7 +58,9 @@ class ChatNotificationService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        when (intent?.action) {
+        // START_STICKY may recreate the service with a null Intent. In that case
+        // resume the Private Chat worker instead of immediately returning.
+        when (intent?.action ?: ACTION_START) {
             ACTION_STOP -> {
                 serviceScope.coroutineContext.cancelChildren()
                 stopForeground(STOP_FOREGROUND_REMOVE)
@@ -119,18 +121,16 @@ class ChatNotificationService : Service() {
                                 // The foreground screen owns read/unread state.
                                 unreadStore.clear(historyKey)
                             } else if (!isKnownLocally) {
-                                // Initial polling also emits existing history. Only a message
-                                // that is genuinely new to this device may create an unread badge.
+                                // Initial polling can replay history. Only truly new messages
+                                // are allowed to create a new unread item.
                                 unreadStore.addUnread(historyKey, event.message.id)
                             }
 
-                            // The message reached this device regardless of foreground state.
                             chatRepository.sendDeliveredReceipt(
                                 topic,
                                 ChatReceipt(messageId = event.message.id, senderId = identity.myId)
                             )
 
-                            // Never notify for historical messages replayed by the initial poll.
                             if (isForegroundConversation || isKnownLocally) return@collect
                             if (event.message.createdAt <= lastNotifiedAt) return@collect
                             if (postMessageNotification(partnerId, event.message.id)) {
