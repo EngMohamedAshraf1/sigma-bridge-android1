@@ -163,8 +163,10 @@ class SupabaseChatRepository @Inject constructor(
                     }
                 }
 
-                // Listeners must be registered before the Realtime subscription.
-                channel.subscribe()
+                // Register listeners before joining, then wait for SUBSCRIBED.
+                // This removes a race where the initial history query or an immediate
+                // incoming insert could happen before the WebSocket subscription is ready.
+                channel.subscribe(blockUntilSubscribed = true)
 
                 val initial = supabase.postgrest
                     .from("messages")
