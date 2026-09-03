@@ -162,8 +162,6 @@ class SupabaseChatRepository @Inject constructor(
                     send(
                         ChatEvent.Message(
                             ChatMessage(
-                                // Preserve the client message id as the UI/history id.
-                                // Receipt writes resolve it to row.id separately.
                                 id = row.clientMessageId,
                                 senderId = senderId,
                                 text = text,
@@ -190,8 +188,6 @@ class SupabaseChatRepository @Inject constructor(
                             send(
                                 ChatEvent.Read(
                                     ChatReceipt(
-                                        // The UI/history uses client_message_id. Resolve the
-                                        // server receipt message id back to that id when needed.
                                         messageId = resolveClientMessageId(row.messageId),
                                         senderId = identity.partnerId,
                                         type = com.sigmabridge.app.domain.chat.ChatReceiptType.READ
@@ -202,10 +198,12 @@ class SupabaseChatRepository @Inject constructor(
                         row.deliveredAt != null -> {
                             send(
                                 ChatEvent.Delivered(
-                                    messageId = resolveClientMessageId(row.messageId),
-                                    senderId = identity.partnerId,
-                                    type = com.sigmabridge.app.domain.chat.ChatReceiptType.DELIVERED
-                                ).let { ChatEvent.Delivered(it.receipt) }
+                                    ChatReceipt(
+                                        messageId = resolveClientMessageId(row.messageId),
+                                        senderId = identity.partnerId,
+                                        type = com.sigmabridge.app.domain.chat.ChatReceiptType.DELIVERED
+                                    )
+                                )
                             )
                         }
                     }
