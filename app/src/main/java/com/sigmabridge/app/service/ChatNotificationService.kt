@@ -113,11 +113,14 @@ class ChatNotificationService : Service() {
                             val historyKey = historyKeyFor(partnerId)
                             val topic = topicByPartnerId[partnerId] ?: return@collect
                             val isForegroundConversation = ChatForegroundState.openPartnerId == partnerId
+                            val isKnownLocally = historyStore.load(historyKey).any { it.id == event.message.id }
 
-                            // A visible conversation is read by the foreground ViewModel.
-                            // Do not recreate its unread badge or notification from the
-                            // background polling service.
-                            if (!isForegroundConversation) {
+                            if (isForegroundConversation) {
+                                // The foreground screen owns read/unread state.
+                                unreadStore.clear(historyKey)
+                            } else if (!isKnownLocally) {
+                                // Initial polling also emits existing history. Only a message
+                                // that is genuinely new to this device may create an unread badge.
                                 unreadStore.addUnread(historyKey, event.message.id)
                             }
 
@@ -127,7 +130,8 @@ class ChatNotificationService : Service() {
                                 ChatReceipt(messageId = event.message.id, senderId = identity.myId)
                             )
 
-                            if (isForegroundConversation) return@collect
+                            // Never notify for historical messages replayed by the initial poll.
+                            if (isForegroundConversation || isKnownLocally) return@collect
                             if (event.message.createdAt <= lastNotifiedAt) return@collect
                             if (postMessageNotification(partnerId, event.message.id)) {
                                 lastNotifiedAt = event.message.createdAt
