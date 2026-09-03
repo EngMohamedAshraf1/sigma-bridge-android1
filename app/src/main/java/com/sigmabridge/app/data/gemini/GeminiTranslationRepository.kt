@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withTimeout
+import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -23,9 +24,11 @@ import javax.inject.Singleton
  * or any Gemini-specific type directly; everyone else depends on
  * TranslationRepository.
  *
- * The existing file/audio path is unchanged. Phase Chat adds [translateText]
- * as an additive text-only entry point so Private Chat can reuse the same
- * Gemini key manager, rotation, status tracking, and transient retry policy.
+ * Small Telegram audio files use Gemini inline audio to avoid the extra
+ * Files API upload/poll lifecycle. Larger files keep the existing Files API
+ * path unchanged. Phase Chat adds [translateText] as an additive text-only
+ * entry point so Private Chat can reuse the same Gemini key manager, rotation,
+ * status tracking, and transient retry policy.
  */
 @Singleton
 class GeminiTranslationRepository @Inject constructor(
@@ -125,12 +128,29 @@ class GeminiTranslationRepository @Inject constructor(
     }
 
     private suspend fun translateWithKey(apiKey: String, request: TranslationRequest): TranslationResult {
+        val file = File(request.sourceFile.path)
+        val mimeType = request.sourceFile.mimeType
+        val prompt = buildPrompt(request.languagePair)
+
+        // Small Telegram voice/audio files avoid the Files API upload + ACTIVE polling cycle.
+        if (file.length() <= INLINE_AUDIO_MAX_BYTES) {
+            val rawText = withRetryOnTransientFailure {
+                apiClient.generateContentInline(
+                    apiKey = apiKey,
+                    model = MODEL,
+                    prompt = prompt,
+                    mimeType = mimeType,
+                    data = file.readBytes()
+                )
+            }
+            return TranslationResult(translatedText = cleanTranslation(rawText))
+        }
+
         var uploadedFile: GeminiFileDto? = null
         try {
-            val mimeType = request.sourceFile.mimeType
             uploadedFile = apiClient.uploadFile(
                 apiKey = apiKey,
-                sourceFilePath = request.sourceFile.path,
+                sourceFilePath = file.path,
                 mimeType = mimeType,
                 displayName = request.sourceFile.id
             )
@@ -138,7 +158,6 @@ class GeminiTranslationRepository @Inject constructor(
             val activeFile = awaitActiveState(apiKey, uploadedFile)
             val fileUri = activeFile.uri ?: error("Gemini file has no uri after becoming ACTIVE")
 
-            val prompt = buildPrompt(request.languagePair)
             val rawText = withRetryOnTransientFailure {
                 apiClient.generateContent(
                     apiKey = apiKey,
@@ -306,6 +325,7 @@ class GeminiTranslationRepository @Inject constructor(
 
         const val ACTIVE_POLL_INTERVAL_MS = 1_000L
         const val ACTIVE_POLL_TIMEOUT_MS = 60_000L
+        const val INLINE_AUDIO_MAX_BYTES = 15L * 1024L * 1024L
 
         const val HTTP_REQUEST_TIMEOUT = 408
         const val HTTP_TOO_MANY_REQUESTS = 429
