@@ -28,7 +28,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -78,19 +77,12 @@ fun ChatScreen(
         }
     }
 
-    // The background notification service and the open chat must never create two
-    // independent Postgres Changes subscriptions for the same conversation on the
-    // same Supabase client. Keep the foreground chat as the sole listener while this
-    // destination is visible; restore the background service when we leave the chat.
-    DisposableEffect(Unit) {
-        context.stopService(ChatNotificationService.stopIntent(context))
-        onDispose {
-            if (partnerId.isNotBlank()) {
-                ContextCompat.startForegroundService(
-                    context,
-                    ChatNotificationService.startIntent(context)
-                )
-            }
+    LaunchedEffect(partnerId, connected) {
+        if (partnerId.isNotBlank() && connected) {
+            ContextCompat.startForegroundService(
+                context,
+                ChatNotificationService.startIntent(context)
+            )
         }
     }
 
