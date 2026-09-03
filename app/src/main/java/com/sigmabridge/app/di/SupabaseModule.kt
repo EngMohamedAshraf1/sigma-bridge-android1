@@ -34,7 +34,9 @@ object SupabaseModule {
             supabaseUrl = url,
             supabaseKey = key
         ) {
-            install(Auth)
+            install(Auth) {
+                enableLifecycleCallbacks = false
+            }
             install(Postgrest)
             install(Realtime) {
                 reconnectDelay = 5.seconds
