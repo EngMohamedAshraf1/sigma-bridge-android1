@@ -106,7 +106,8 @@ class ChatViewModel @Inject constructor(
         _error.value = null
         _connected.value = true
 
-        sendPendingReadReceipts(topic, historyKey)
+        // Opening the conversation means all currently visible incoming messages are read.
+        markVisibleMessagesRead()
 
         viewModelScope.launch {
             runCatching {
@@ -179,6 +180,10 @@ class ChatViewModel @Inject constructor(
     fun markVisibleMessagesRead() {
         val topic = currentTopic ?: return
         val historyKey = currentHistoryKey ?: return
+
+        // Clear the local badge immediately. The server read receipt is sent separately.
+        unreadStore.clear(historyKey)
+
         val incomingIds = _messages.value
             .asSequence()
             .filter { it.senderId == identity.partnerId }
@@ -250,8 +255,6 @@ class ChatViewModel @Inject constructor(
         val clean = text.trim()
         if (clean.isBlank()) return
 
-        // Transport always carries the original plaintext encrypted by SupabaseChatRepository.
-        // Translation is a local/primary-worker concern and is never required for delivery.
         val localMessage = ChatMessage(
             id = UUID.randomUUID().toString(),
             senderId = ownSenderId,
@@ -275,8 +278,6 @@ class ChatViewModel @Inject constructor(
         topic: String,
         pendingMessage: ChatMessage
     ) {
-        // Never translate before transport. The outbox stores the original message;
-        // the recipient translates locally or via the primary device after decrypting it.
         chatRepository.send(topic, pendingMessage)
             .onSuccess {
                 outboxStore.remove(historyKey, pendingMessage.id)
