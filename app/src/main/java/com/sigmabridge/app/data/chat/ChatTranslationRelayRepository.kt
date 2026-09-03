@@ -5,31 +5,58 @@ import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.rpc
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeout
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
 import javax.inject.Inject
 import javax.inject.Singleton
 
 @Serializable
+data class TranslationRequestRpcParams(
+    @SerialName("p_client_message_id") val clientMessageId: String,
+    @SerialName("p_target_language") val targetLanguage: String
+)
+
+@Serializable
+data class TranslationJobRpcParams(
+    @SerialName("p_job_id") val jobId: String,
+    @SerialName("p_translated_ciphertext") val translatedCiphertext: String,
+    @SerialName("p_translated_nonce") val translatedNonce: String
+)
+
+@Serializable
+data class TranslationJobErrorRpcParams(
+    @SerialName("p_job_id") val jobId: String,
+    @SerialName("p_error") val error: String
+)
+
+@Serializable
+data class TranslationLookupRpcParams(
+    @SerialName("p_client_message_id") val clientMessageId: String,
+    @SerialName("p_target_language") val targetLanguage: String
+)
+
+@Serializable
 data class TranslationJobRpcResult(
-    val jobId: String,
-    val clientMessageId: String,
-    val targetLanguage: String,
-    val ciphertext: String,
-    val nonce: String,
-    val messageVersion: Int
+    @SerialName("job_id") val jobId: String,
+    @SerialName("client_message_id") val clientMessageId: String,
+    @SerialName("target_language") val targetLanguage: String,
+    @SerialName("ciphertext") val ciphertext: String,
+    @SerialName("nonce") val nonce: String,
+    @SerialName("message_version") val messageVersion: Int
 )
 
 @Serializable
 data class TranslationResultRpcRow(
     val status: String,
-    val translatedCiphertext: String? = null,
-    val translatedNonce: String? = null,
-    val lastError: String? = null
+    @SerialName("translated_ciphertext") val translatedCiphertext: String? = null,
+    @SerialName("translated_nonce") val translatedNonce: String? = null,
+    @SerialName("last_error") val lastError: String? = null
 )
 
 /**
- * Supabase relay for primary-device translation.
- * No plaintext is stored here: requests contain identifiers only and the
- * translated result is encrypted before it is written back by the primary.
+ * Relay used only by Private Chat's primary/secondary translation protocol.
+ * Requests contain identifiers only; translated text is encrypted before it
+ * is stored in Supabase. Telegram never uses this repository.
  */
 @Singleton
 class ChatTranslationRelayRepository @Inject constructor(
@@ -39,10 +66,7 @@ class ChatTranslationRelayRepository @Inject constructor(
     suspend fun requestTranslation(clientMessageId: String, targetLanguage: String): Result<Unit> = runCatching {
         supabase.postgrest.rpc(
             "sigma_request_translation",
-            mapOf(
-                "p_client_message_id" to clientMessageId,
-                "p_target_language" to targetLanguage
-            )
+            TranslationRequestRpcParams(clientMessageId, targetLanguage)
         )
     }
 
@@ -51,10 +75,7 @@ class ChatTranslationRelayRepository @Inject constructor(
             while (true) {
                 val result = supabase.postgrest.rpc(
                     "sigma_get_translation",
-                    mapOf(
-                        "p_client_message_id" to clientMessageId,
-                        "p_target_language" to targetLanguage
-                    )
+                    TranslationLookupRpcParams(clientMessageId, targetLanguage)
                 ).decodeList<TranslationResultRpcRow>().firstOrNull()
 
                 when (result?.status) {
@@ -75,17 +96,14 @@ class ChatTranslationRelayRepository @Inject constructor(
         supabase.postgrest.rpc("sigma_claim_translation_jobs")
             .decodeList<TranslationJobRpcResult>()
 
-    suspend fun completeJob(
-        jobId: String,
-        translatedText: String
-    ): Result<Unit> = runCatching {
+    suspend fun completeJob(jobId: String, translatedText: String): Result<Unit> = runCatching {
         val encrypted = crypto.encrypt(translatedText)
         supabase.postgrest.rpc(
             "sigma_complete_translation_job",
-            mapOf(
-                "p_job_id" to jobId,
-                "p_translated_ciphertext" to encrypted,
-                "p_translated_nonce" to crypto.nonceFromEncrypted(encrypted)
+            TranslationJobRpcParams(
+                jobId = jobId,
+                translatedCiphertext = encrypted,
+                translatedNonce = crypto.nonceFromEncrypted(encrypted)
             )
         )
     }
@@ -93,10 +111,7 @@ class ChatTranslationRelayRepository @Inject constructor(
     suspend fun failJob(jobId: String, error: Throwable): Result<Unit> = runCatching {
         supabase.postgrest.rpc(
             "sigma_fail_translation_job",
-            mapOf(
-                "p_job_id" to jobId,
-                "p_error" to "TRANSLATION_FAILED"
-            )
+            TranslationJobErrorRpcParams(jobId, "TRANSLATION_FAILED")
         )
     }
 }
