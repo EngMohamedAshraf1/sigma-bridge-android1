@@ -78,7 +78,8 @@ dependencies {
 
     // Supabase (Chat backend migration; Telegram path unchanged)
     implementation(platform("io.github.jan-tennert.supabase:bom:2.6.0"))
-    implementation("io.github.jan-tennert.supabase:gotrue-kt")
+    // Pin the Android GoTrue artifact explicitly. Version 2.6.0 is the SDK used by this branch.
+    implementation("io.github.jan-tennert.supabase:gotrue-kt-android:2.6.0")
     implementation("io.github.jan-tennert.supabase:postgrest-kt")
     implementation("io.github.jan-tennert.supabase:realtime-kt")
     implementation("io.ktor:ktor-client-android:2.3.12")
