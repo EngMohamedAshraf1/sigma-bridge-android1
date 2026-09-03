@@ -13,7 +13,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.emptyFlow
-import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -70,21 +69,39 @@ class SupabaseChatRepository @Inject constructor(
     override suspend fun sendReadReceipt(topic: String, receipt: ChatReceipt): Result<Unit> =
         setReceipt(receipt.messageId, delivered = true, read = true)
 
+    /** Resolve the UI/client message id to the server message id before writing a receipt. */
     private suspend fun setReceipt(
         messageId: String,
         delivered: Boolean,
         read: Boolean
     ): Result<Unit> = runCatching {
-        require(messageId.isNotBlank()) { "Message ID must not be blank." }
-        prepareConversation()
+        val clientMessageId = UUID.fromString(messageId).toString()
+        val conversationId = prepareConversationId()
+        val serverMessageId = supabase.postgrest
+            .from("messages")
+            .select {
+                filter {
+                    eq("conversation_id", conversationId)
+                    eq("client_message_id", clientMessageId)
+                }
+            }
+            .decodeSingleOrNull<SupabaseMessageRow>()
+            ?.id
+            ?: error("Supabase message was not found for receipt.")
+
         supabase.postgrest.rpc(
             "sigma_set_receipt",
             SetReceiptRpcParams(
-                messageId = UUID.fromString(messageId).toString(),
+                messageId = UUID.fromString(serverMessageId).toString(),
                 delivered = delivered,
                 read = read
             )
         ).decodeAs<SupabaseReceiptRow>()
+    }
+
+    private suspend fun prepareConversationId(): String {
+        prepareConversation()
+        return cachedConversationId ?: error("Supabase conversation is not initialized.")
     }
 
     /**
@@ -145,6 +162,8 @@ class SupabaseChatRepository @Inject constructor(
                     send(
                         ChatEvent.Message(
                             ChatMessage(
+                                // Preserve the client message id as the UI/history id.
+                                // Receipt writes resolve it to row.id separately.
                                 id = row.clientMessageId,
                                 senderId = senderId,
                                 text = text,
@@ -164,15 +183,16 @@ class SupabaseChatRepository @Inject constructor(
 
                 rows.forEach { row ->
                     if (!isActive) return
-                    if (row.userId == preparedUserId) return
-                    if (row.messageId !in knownMessageIds) return
+                    if (row.userId == preparedUserId || row.messageId !in knownMessageIds) return
 
                     when {
                         row.readAt != null -> {
                             send(
                                 ChatEvent.Read(
                                     ChatReceipt(
-                                        messageId = row.messageId,
+                                        // The UI/history uses client_message_id. Resolve the
+                                        // server receipt message id back to that id when needed.
+                                        messageId = resolveClientMessageId(row.messageId),
                                         senderId = identity.partnerId,
                                         type = com.sigmabridge.app.domain.chat.ChatReceiptType.READ
                                     )
@@ -182,19 +202,16 @@ class SupabaseChatRepository @Inject constructor(
                         row.deliveredAt != null -> {
                             send(
                                 ChatEvent.Delivered(
-                                    ChatReceipt(
-                                        messageId = row.messageId,
-                                        senderId = identity.partnerId,
-                                        type = com.sigmabridge.app.domain.chat.ChatReceiptType.DELIVERED
-                                    )
-                                )
+                                    messageId = resolveClientMessageId(row.messageId),
+                                    senderId = identity.partnerId,
+                                    type = com.sigmabridge.app.domain.chat.ChatReceiptType.DELIVERED
+                                ).let { ChatEvent.Delivered(it.receipt) }
                             )
                         }
                     }
                 }
             }
 
-            // Initial snapshot: history + current receipt states.
             fetchMessages(initial = true)
             fetchReceipts()
 
@@ -210,6 +227,17 @@ class SupabaseChatRepository @Inject constructor(
 
             awaitCancellation()
         }
+    }
+
+    private suspend fun resolveClientMessageId(serverMessageId: String): String {
+        return supabase.postgrest
+            .from("messages")
+            .select {
+                filter { eq("id", serverMessageId) }
+            }
+            .decodeSingleOrNull<SupabaseMessageRow>()
+            ?.clientMessageId
+            ?: serverMessageId
     }
 
     private suspend fun prepareConversation(): String = prepareMutex.withLock {
