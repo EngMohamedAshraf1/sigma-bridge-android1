@@ -8,6 +8,7 @@ import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
+import javax.inject.Provider
 import javax.inject.Singleton
 
 @Module
@@ -17,10 +18,10 @@ object ChatModule {
     @Provides
     @Singleton
     fun provideChatRepository(
-        ntfy: NtfyChatRepository,
-        supabase: SupabaseChatRepository
+        ntfy: Provider<NtfyChatRepository>,
+        supabase: Provider<SupabaseChatRepository>
     ): ChatRepository = when (BuildConfig.SIGMA_CHAT_BACKEND.trim().lowercase()) {
-        "supabase" -> supabase
-        else -> ntfy
+        "supabase" -> supabase.get()
+        else -> ntfy.get()
     }
 }
