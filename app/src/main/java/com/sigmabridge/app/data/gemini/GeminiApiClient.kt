@@ -1,5 +1,6 @@
 package com.sigmabridge.app.data.gemini
 
+import android.util.Base64
 import com.sigmabridge.app.data.gemini.dto.GeminiContentDto
 import com.sigmabridge.app.data.gemini.dto.GeminiFileDataDto
 import com.sigmabridge.app.data.gemini.dto.GeminiFileDto
@@ -22,7 +23,6 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.File
-import java.util.Base64
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 
@@ -148,7 +148,7 @@ class GeminiApiClient @Inject constructor(
             .addQueryParameter("key", apiKey)
             .build()
 
-        val encodedData = Base64.getEncoder().encodeToString(data)
+        val encodedData = Base64.encodeToString(data, Base64.NO_WRAP)
         val requestDto = GeminiGenerateContentRequestDto(
             contents = listOf(
                 GeminiContentDto(
