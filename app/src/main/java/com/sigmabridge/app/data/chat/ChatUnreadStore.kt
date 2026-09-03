@@ -29,6 +29,12 @@ class ChatUnreadStore @Inject constructor(
         if (ids.remove(messageId)) save(historyKey, ids)
     }
 
+    /** Clear every unread marker for a conversation when it becomes visible. */
+    @Synchronized
+    fun clear(historyKey: String) {
+        preferences.edit().remove(key(historyKey)).apply()
+    }
+
     private fun save(historyKey: String, ids: Set<String>) {
         preferences.edit().putStringSet(key(historyKey), ids).apply()
     }
