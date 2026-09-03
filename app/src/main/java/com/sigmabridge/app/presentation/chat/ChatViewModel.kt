@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.sigmabridge.app.data.chat.ChatConversationStore
 import com.sigmabridge.app.data.chat.ChatHistoryStore
 import com.sigmabridge.app.data.chat.ChatIdentity
+import com.sigmabridge.app.data.chat.ChatLanguagePreferences
 import com.sigmabridge.app.data.chat.ChatOutboxStore
 import com.sigmabridge.app.data.chat.ChatUnreadStore
 import com.sigmabridge.app.domain.chat.ChatConversation
@@ -14,6 +15,7 @@ import com.sigmabridge.app.domain.chat.ChatReceipt
 import com.sigmabridge.app.domain.chat.ChatRepository
 import com.sigmabridge.app.domain.chat.ChatTranslationService
 import com.sigmabridge.app.domain.chat.MessageDeliveryStatus
+import com.sigmabridge.app.domain.model.Language
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -29,6 +31,7 @@ import javax.inject.Inject
 class ChatViewModel @Inject constructor(
     private val chatRepository: ChatRepository,
     private val chatTranslationService: ChatTranslationService,
+    private val chatLanguagePreferences: ChatLanguagePreferences,
     private val historyStore: ChatHistoryStore,
     private val outboxStore: ChatOutboxStore,
     private val unreadStore: ChatUnreadStore,
@@ -46,6 +49,8 @@ class ChatViewModel @Inject constructor(
     val connected: StateFlow<Boolean> = _connected.asStateFlow()
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error.asStateFlow()
+    private val _translationTargetLanguage = MutableStateFlow(chatLanguagePreferences.getTargetLanguage())
+    val translationTargetLanguage: StateFlow<Language> = _translationTargetLanguage.asStateFlow()
     val ownSenderId: String = myId
     private var currentTopic: String? = null
     private var currentHistoryKey: String? = null
@@ -53,6 +58,12 @@ class ChatViewModel @Inject constructor(
     private val readReceiptSentIds = mutableSetOf<String>()
 
     init { if (_partnerId.value.isNotBlank()) connect() }
+
+    fun setTranslationTargetLanguage(language: Language) {
+        chatLanguagePreferences.setTargetLanguage(language)
+        chatTranslationService.setTargetLanguage(language.code)
+        _translationTargetLanguage.value = language
+    }
 
     fun setPartnerId(value: String) {
         val normalized = value.trim()
@@ -261,8 +272,8 @@ class ChatViewModel @Inject constructor(
         topic: String,
         pendingMessage: ChatMessage
     ) {
-        // Never translate before transport. The recipient performs local translation
-        // after decrypting the original message, so devices do not double-translate.
+        // Never translate before transport. The outbox stores the original message;
+        // the recipient translates locally after decrypting it.
         chatRepository.send(topic, pendingMessage)
             .onSuccess {
                 outboxStore.remove(historyKey, pendingMessage.id)
