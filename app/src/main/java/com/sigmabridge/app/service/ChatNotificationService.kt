@@ -83,10 +83,10 @@ class ChatNotificationService : Service() {
     }
 
     /**
-     * Background delivery intentionally uses the same PostgREST polling observer as the
-     * foreground path. The foreground collector remains independent, while this worker
-     * persists genuinely new messages locally so opening the chat later does not need to
-     * rediscover them from the network.
+     * Background delivery deliberately uses the same proven PostgREST polling
+     * source as the foreground transport. Every new message is persisted before
+     * a notification is posted, so opening the chat is never required to make
+     * the message appear in local history.
      */
     private fun observeAllChatEvents() {
         val conversations = conversationStore.load()
@@ -111,8 +111,15 @@ class ChatNotificationService : Service() {
                                 val isKnownLocally = existingHistory.any { it.id == event.message.id }
 
                                 if (!isKnownLocally) {
-                                    historyStore.save(historyKey, (existingHistory + event.message).takeLast(MAX_HISTORY_MESSAGES))
-                                    updateConversationPreview(partnerId, event.message.text, event.message.createdAt)
+                                    historyStore.save(
+                                        historyKey,
+                                        (existingHistory + event.message).takeLast(MAX_HISTORY_MESSAGES)
+                                    )
+                                    updateConversationPreview(
+                                        partnerId,
+                                        event.message.text,
+                                        event.message.createdAt
+                                    )
                                 }
 
                                 if (isForegroundConversation) {
@@ -133,6 +140,46 @@ class ChatNotificationService : Service() {
                                     lastNotifiedAt = maxOf(lastNotifiedAt, event.message.createdAt)
                                     prefs.edit().putLong(lastNotifiedKey, lastNotifiedAt).apply()
                                 }
+
+                                // Translation is post-transport work. The notification and
+                                // persisted message must not wait for Gemini, especially on
+                                // the secondary device that has no local Gemini keys.
+                                serviceScope.launch {
+                                    runCatching {
+                                        chatTranslationService.translateIncoming(
+                                            event.message.text,
+                                            event.message.id
+                                        )
+                                    }.onSuccess { translated ->
+                                        if (translated == event.message.text) return@onSuccess
+                                        val latestHistory = historyStore.load(historyKey)
+                                        if (latestHistory.any { it.id == event.message.id }) {
+                                            historyStore.save(
+                                                historyKey,
+                                                latestHistory.map { message ->
+                                                    if (message.id == event.message.id) {
+                                                        message.copy(text = translated)
+                                                    } else {
+                                                        message
+                                                    }
+                                                }
+                                            )
+                                            val latestConversation = conversationStore.load()
+                                                .firstOrNull { it.partnerId == partnerId }
+                                            if (latestConversation != null && latestConversation.lastMessage == event.message.text) {
+                                                conversationStore.upsert(
+                                                    latestConversation.copy(lastMessage = translated)
+                                                )
+                                            }
+                                        }
+                                    }.onFailure { error ->
+                                        android.util.Log.e(
+                                            TAG,
+                                            "Private chat background translation failed for $partnerId",
+                                            error
+                                        )
+                                    }
+                                }
                             }
                             is ChatEvent.Delivered -> {
                                 historyStore.updateDeliveryStatus(
@@ -151,7 +198,11 @@ class ChatNotificationService : Service() {
                         }
                     }
                 }.onFailure { error ->
-                    android.util.Log.e(TAG, "Private chat background observation stopped for $partnerId", error)
+                    android.util.Log.e(
+                        TAG,
+                        "Private chat background observation stopped for $partnerId",
+                        error
+                    )
                 }
             }
         }
@@ -170,6 +221,7 @@ class ChatNotificationService : Service() {
         )
     }
 
+    /** Primary-only translation worker. Secondary devices return without Gemini credentials. */
     private fun processTranslationJobs() {
         serviceScope.launch {
             while (isActive) {
@@ -263,8 +315,20 @@ class ChatNotificationService : Service() {
 
     private fun createNotificationChannels() {
         val manager = getSystemService(NotificationManager::class.java)
-        manager.createNotificationChannel(NotificationChannel(SERVICE_CHANNEL_ID, "Chat background service", NotificationManager.IMPORTANCE_LOW))
-        manager.createNotificationChannel(NotificationChannel(CHAT_CHANNEL_ID, "Chat messages", NotificationManager.IMPORTANCE_DEFAULT))
+        manager.createNotificationChannel(
+            NotificationChannel(
+                SERVICE_CHANNEL_ID,
+                "Chat background service",
+                NotificationManager.IMPORTANCE_LOW
+            )
+        )
+        manager.createNotificationChannel(
+            NotificationChannel(
+                CHAT_CHANNEL_ID,
+                "Chat messages",
+                NotificationManager.IMPORTANCE_DEFAULT
+            )
+        )
     }
 
     private fun checkSelfPermissionCompat(permission: String): Int =
@@ -293,5 +357,11 @@ class ChatNotificationService : Service() {
         private const val MAX_RETRY_MS = 60_000L
         private const val IDLE_RETRY_MS = 15_000L
         private const val MAX_HISTORY_MESSAGES = 200
+
+        fun startIntent(context: Context): Intent =
+            Intent(context, ChatNotificationService::class.java).setAction(ACTION_START)
+
+        fun stopIntent(context: Context): Intent =
+            Intent(context, ChatNotificationService::class.java).setAction(ACTION_STOP)
     }
 }
