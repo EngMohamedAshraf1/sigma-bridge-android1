@@ -19,6 +19,7 @@ import com.sigmabridge.app.data.chat.ChatIdentity
 import com.sigmabridge.app.data.chat.ChatOutboxStore
 import com.sigmabridge.app.data.chat.ChatUnreadStore
 import com.sigmabridge.app.data.chat.SupabaseChatRepository
+import com.sigmabridge.app.domain.chat.ChatConversation
 import com.sigmabridge.app.domain.chat.ChatEvent
 import com.sigmabridge.app.domain.chat.ChatReceipt
 import com.sigmabridge.app.domain.chat.ChatRepository
@@ -36,7 +37,6 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
-/** Keeps Private Chat messaging alive while the UI is closed or the screen is locked. */
 @AndroidEntryPoint
 class ChatNotificationService : Service() {
 
@@ -60,8 +60,6 @@ class ChatNotificationService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        // START_STICKY may recreate the service with a null Intent. In that case
-        // resume the Private Chat worker instead of immediately returning.
         when (intent?.action ?: ACTION_START) {
             ACTION_STOP -> {
                 serviceScope.coroutineContext.cancelChildren()
@@ -85,10 +83,10 @@ class ChatNotificationService : Service() {
     }
 
     /**
-     * Background notifications use Supabase Realtime, while the foreground
-     * ChatViewModel continues using its existing PostgREST polling path.
-     * The realtime worker reconnects after an unexpected disconnect instead of
-     * silently stopping background notifications.
+     * Background delivery intentionally uses the same PostgREST polling observer as the
+     * foreground path. The foreground collector remains independent, while this worker
+     * persists genuinely new messages locally so opening the chat later does not need to
+     * rediscover them from the network.
      */
     private fun observeAllChatEvents() {
         val conversations = conversationStore.load()
@@ -102,67 +100,76 @@ class ChatNotificationService : Service() {
                 val lastNotifiedKey = "$KEY_LAST_NOTIFIED_AT_PREFIX$partnerId"
                 var lastNotifiedAt = prefs.getLong(lastNotifiedKey, 0L)
 
-                while (isActive) {
-                    runCatching {
-                        supabaseChatRepository.observeRealtimeEvents(partnerId).collect { event ->
-                            when (event) {
-                                is ChatEvent.Message -> {
-                                    val historyKey = historyKeyFor(partnerId)
-                                    val topic = identity.conversationTopicFor(partnerId)
-                                    val isForegroundConversation = ChatForegroundState.openPartnerId == partnerId
-                                    val isKnownLocally = historyStore.load(historyKey).any { it.id == event.message.id }
+                runCatching {
+                    supabaseChatRepository.observeRealtimeEvents(partnerId).collect { event ->
+                        when (event) {
+                            is ChatEvent.Message -> {
+                                val historyKey = historyKeyFor(partnerId)
+                                val topic = identity.conversationTopicFor(partnerId)
+                                val isForegroundConversation = ChatForegroundState.openPartnerId == partnerId
+                                val existingHistory = historyStore.load(historyKey)
+                                val isKnownLocally = existingHistory.any { it.id == event.message.id }
 
-                                    if (isForegroundConversation) {
-                                        unreadStore.clear(historyKey)
-                                    } else if (!isKnownLocally) {
-                                        unreadStore.addUnread(historyKey, event.message.id)
-                                    }
-
-                                    // Realtime means the message is now known to have reached this device.
-                                    chatRepository.sendDeliveredReceipt(
-                                        topic,
-                                        ChatReceipt(messageId = event.message.id, senderId = identity.myId)
-                                    )
-
-                                    // Never notify for a message already present in local history.
-                                    if (isForegroundConversation || isKnownLocally) return@collect
-                                    if (event.message.createdAt <= lastNotifiedAt) return@collect
-                                    if (postMessageNotification(partnerId, event.message.id, event.message.text)) {
-                                        lastNotifiedAt = event.message.createdAt
-                                        prefs.edit().putLong(lastNotifiedKey, lastNotifiedAt).apply()
-                                    }
+                                if (!isKnownLocally) {
+                                    historyStore.save(historyKey, (existingHistory + event.message).takeLast(MAX_HISTORY_MESSAGES))
+                                    updateConversationPreview(partnerId, event.message.text, event.message.createdAt)
                                 }
-                                is ChatEvent.Delivered -> {
-                                    historyStore.updateDeliveryStatus(
-                                        historyKeyFor(partnerId),
-                                        event.receipt.messageId,
-                                        MessageDeliveryStatus.DELIVERED
-                                    )
+
+                                if (isForegroundConversation) {
+                                    unreadStore.clear(historyKey)
+                                } else if (!isKnownLocally) {
+                                    unreadStore.addUnread(historyKey, event.message.id)
                                 }
-                                is ChatEvent.Read -> {
-                                    historyStore.updateDeliveryStatus(
-                                        historyKeyFor(partnerId),
-                                        event.receipt.messageId,
-                                        MessageDeliveryStatus.READ
-                                    )
+
+                                chatRepository.sendDeliveredReceipt(
+                                    topic,
+                                    ChatReceipt(messageId = event.message.id, senderId = identity.myId)
+                                )
+
+                                if (isForegroundConversation || isKnownLocally) return@collect
+                                if (event.message.createdAt <= lastNotifiedAt) return@collect
+
+                                if (postMessageNotification(partnerId, event.message.id, event.message.text)) {
+                                    lastNotifiedAt = maxOf(lastNotifiedAt, event.message.createdAt)
+                                    prefs.edit().putLong(lastNotifiedKey, lastNotifiedAt).apply()
                                 }
                             }
+                            is ChatEvent.Delivered -> {
+                                historyStore.updateDeliveryStatus(
+                                    historyKeyFor(partnerId),
+                                    event.receipt.messageId,
+                                    MessageDeliveryStatus.DELIVERED
+                                )
+                            }
+                            is ChatEvent.Read -> {
+                                historyStore.updateDeliveryStatus(
+                                    historyKeyFor(partnerId),
+                                    event.receipt.messageId,
+                                    MessageDeliveryStatus.READ
+                                )
+                            }
                         }
-                    }.onFailure { error ->
-                        android.util.Log.e(
-                            TAG,
-                            "Private chat realtime background observation stopped for $partnerId; reconnecting",
-                            error
-                        )
                     }
-
-                    if (isActive) delay(RECONNECT_DELAY_MS)
+                }.onFailure { error ->
+                    android.util.Log.e(TAG, "Private chat background observation stopped for $partnerId", error)
                 }
             }
         }
     }
 
-    /** Primary-only translation worker. Secondary devices return without Gemini credentials. */
+    private fun updateConversationPreview(partnerId: String, text: String, at: Long) {
+        val current = conversationStore.load().firstOrNull { it.partnerId == partnerId }
+        conversationStore.upsert(
+            current?.copy(lastMessage = text, lastMessageAt = at)
+                ?: ChatConversation(
+                    partnerId = partnerId,
+                    displayName = partnerId,
+                    lastMessage = text,
+                    lastMessageAt = at
+                )
+        )
+    }
+
     private fun processTranslationJobs() {
         serviceScope.launch {
             while (isActive) {
@@ -176,7 +183,6 @@ class ChatNotificationService : Service() {
     private fun historyKeyFor(partnerId: String): String =
         identity.conversationKeyFor(partnerId).joinToString("") { "%02x".format(it) }
 
-    /** Retry queued outgoing messages without making Gemini a transport dependency. */
     private fun retryPendingMessages() {
         serviceScope.launch {
             var retryDelayMs = INITIAL_RETRY_MS
@@ -286,9 +292,6 @@ class ChatNotificationService : Service() {
         private const val INITIAL_RETRY_MS = 2_000L
         private const val MAX_RETRY_MS = 60_000L
         private const val IDLE_RETRY_MS = 15_000L
-        private const val RECONNECT_DELAY_MS = 5_000L
-
-        fun startIntent(context: Context): Intent = Intent(context, ChatNotificationService::class.java).setAction(ACTION_START)
-        fun stopIntent(context: Context): Intent = Intent(context, ChatNotificationService::class.java).setAction(ACTION_STOP)
+        private const val MAX_HISTORY_MESSAGES = 200
     }
 }
