@@ -28,17 +28,17 @@ android {
         buildConfigField(
             "String",
             "SUPABASE_URL",
-            "\"${localProperties.getProperty("SUPABASE_URL", "")}"\"
+            "\"${localProperties.getProperty("SUPABASE_URL", "")}\""
         )
         buildConfigField(
             "String",
             "SUPABASE_PUBLISHABLE_KEY",
-            "\"${localProperties.getProperty("SUPABASE_PUBLISHABLE_KEY", "")}"\"
+            "\"${localProperties.getProperty("SUPABASE_PUBLISHABLE_KEY", "")}\""
         )
         buildConfigField(
             "String",
             "SIGMA_CHAT_BACKEND",
-            "\"${localProperties.getProperty("SIGMA_CHAT_BACKEND", "ntfy")}"\"
+            "\"${localProperties.getProperty("SIGMA_CHAT_BACKEND", "ntfy")}\""
         )
     }
 
