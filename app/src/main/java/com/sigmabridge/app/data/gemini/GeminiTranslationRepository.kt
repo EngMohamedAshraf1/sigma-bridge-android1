@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withTimeout
 import java.io.File
+import java.io.IOException
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -54,22 +55,48 @@ class GeminiTranslationRepository @Inject constructor(
         while (attempt < maxAttempts) {
             val apiKey = keyManager.nextKey() ?: break
             attempt++
-            try {
-                return@runCatching translateWithKey(apiKey, request).also {
-                    keyManager.markSucceeded(apiKey)
-                }
-            } catch (error: GeminiApiException) {
-                lastError = error
-                when (error.httpCode) {
-                    HTTP_TOO_MANY_REQUESTS -> {
-                        logger.debug(TAG, "Key ending in \"${apiKey.takeLast(4)}\" hit quota (429); trying next key")
-                        keyManager.markQuotaExceeded(apiKey)
+
+            // A transport timeout is not evidence that this key's quota/auth is bad.
+            // Retry the same key once before rotating to another project/key.
+            var networkRetry = 0
+            while (true) {
+                try {
+                    return@runCatching translateWithKey(apiKey, request).also {
+                        keyManager.markSucceeded(apiKey)
                     }
-                    HTTP_UNAUTHORIZED, HTTP_FORBIDDEN -> {
-                        logger.error(TAG, "Key ending in \"${apiKey.takeLast(4)}\" failed auth (${error.httpCode}); marking invalid for this session", error)
-                        keyManager.markInvalid(apiKey)
+                } catch (error: IOException) {
+                    lastError = error
+                    if (networkRetry >= NETWORK_RETRY_ATTEMPTS) {
+                        logger.error(
+                            TAG,
+                            "Network error with key ending in \"${apiKey.takeLast(4)}\"; moving to next key",
+                            error
+                        )
+                        break
                     }
-                    else -> throw error
+
+                    networkRetry++
+                    logger.debug(
+                        TAG,
+                        "Network error with key ending in \"${apiKey.takeLast(4)}\"; " +
+                            "retrying same key ($networkRetry/$NETWORK_RETRY_ATTEMPTS) in " +
+                            "${NETWORK_INITIAL_BACKOFF_MS}ms"
+                    )
+                    delay(NETWORK_INITIAL_BACKOFF_MS)
+                } catch (error: GeminiApiException) {
+                    lastError = error
+                    when (error.httpCode) {
+                        HTTP_TOO_MANY_REQUESTS -> {
+                            logger.debug(TAG, "Key ending in \"${apiKey.takeLast(4)}\" hit quota (429); trying next key")
+                            keyManager.markQuotaExceeded(apiKey)
+                        }
+                        HTTP_UNAUTHORIZED, HTTP_FORBIDDEN -> {
+                            logger.error(TAG, "Key ending in \"${apiKey.takeLast(4)}\" failed auth (${error.httpCode}); marking invalid for this session", error)
+                            keyManager.markInvalid(apiKey)
+                        }
+                        else -> throw error
+                    }
+                    break
                 }
             }
         }
@@ -322,10 +349,10 @@ class GeminiTranslationRepository @Inject constructor(
         const val MODEL = "gemini-3.6-flash"
         const val CHAT_MODEL = "gemini-3.1-flash-lite"
         const val STATE_ACTIVE = "ACTIVE"
+        const val INLINE_AUDIO_MAX_BYTES = 15L * 1024L * 1024L
 
         const val ACTIVE_POLL_INTERVAL_MS = 1_000L
         const val ACTIVE_POLL_TIMEOUT_MS = 60_000L
-        const val INLINE_AUDIO_MAX_BYTES = 15L * 1024L * 1024L
 
         const val HTTP_REQUEST_TIMEOUT = 408
         const val HTTP_TOO_MANY_REQUESTS = 429
@@ -338,6 +365,8 @@ class GeminiTranslationRepository @Inject constructor(
         const val DEFAULT_MAX_RETRY_ATTEMPTS = 4
         const val DEFAULT_INITIAL_BACKOFF_MS = 2_000L
         const val DEFAULT_MAX_BACKOFF_MS = 30_000L
+        const val NETWORK_RETRY_ATTEMPTS = 1
+        const val NETWORK_INITIAL_BACKOFF_MS = 1_000L
 
         const val CHAT_TEXT_MAX_RETRY_ATTEMPTS = 2
         const val CHAT_TEXT_INITIAL_BACKOFF_MS = 500L
