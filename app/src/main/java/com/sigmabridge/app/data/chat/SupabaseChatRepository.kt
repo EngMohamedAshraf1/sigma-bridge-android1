@@ -86,7 +86,9 @@ class SupabaseChatRepository @Inject constructor(
         read: Boolean
     ): Result<Unit> = runCatching {
         val clientMessageId = UUID.fromString(messageId).toString()
-        val conversationId = prepareConversationId()
+        prepareConversation()
+        val conversationId = cachedConversationId
+            ?: error("Supabase conversation is not initialized.")
 
         val serverMessageId = supabase.postgrest
             .from("messages")
@@ -110,13 +112,7 @@ class SupabaseChatRepository @Inject constructor(
         ).decodeAs<SupabaseReceiptRow>()
     }
 
-    /**
-     * Background-only Realtime stream for one local Private Chat conversation.
-     *
-     * The foreground UI continues using [observeEvents] and PostgREST polling.
-     * Keeping this listener separate prevents background notification changes
-     * from changing the working foreground send/receive/receipt path.
-     */
+    /** Background-only Realtime stream for one local Private Chat conversation. */
     fun observeRealtimeEvents(partnerId: String): Flow<ChatEvent> {
         val normalizedPartnerId = partnerId.trim()
         if (normalizedPartnerId.isBlank()) return emptyFlow()
@@ -143,18 +139,10 @@ class SupabaseChatRepository @Inject constructor(
             val messageJob = launch {
                 messageFlow.collect { action ->
                     if (!isActive) return@collect
-
-                    val row = runCatching {
-                        action.decodeRecord<SupabaseMessageRow>()
-                    }.getOrNull() ?: return@collect
-
+                    val row = runCatching { action.decodeRecord<SupabaseMessageRow>() }.getOrNull() ?: return@collect
                     if (row.senderUserId == userId) return@collect
-
                     clientMessageIdByServerId[row.id] = row.clientMessageId
-                    val text = runCatching {
-                        crypto.decrypt(row.ciphertext)
-                    }.getOrNull() ?: return@collect
-
+                    val text = runCatching { crypto.decrypt(row.ciphertext) }.getOrNull() ?: return@collect
                     send(
                         ChatEvent.Message(
                             ChatMessage(
@@ -172,49 +160,34 @@ class SupabaseChatRepository @Inject constructor(
             val receiptJob = launch {
                 receiptFlow.collect { action ->
                     if (!isActive) return@collect
-
                     val row = when (action) {
-                        is PostgresAction.Insert -> runCatching {
-                            action.decodeRecord<SupabaseReceiptRow>()
-                        }.getOrNull()
-
-                        is PostgresAction.Update -> runCatching {
-                            action.decodeRecord<SupabaseReceiptRow>()
-                        }.getOrNull()
-
+                        is PostgresAction.Insert -> runCatching { action.decodeRecord<SupabaseReceiptRow>() }.getOrNull()
+                        is PostgresAction.Update -> runCatching { action.decodeRecord<SupabaseReceiptRow>() }.getOrNull()
                         else -> null
                     } ?: return@collect
-
                     if (row.userId == userId) return@collect
-
                     val clientMessageId = clientMessageIdByServerId[row.messageId]
                         ?: resolveClientMessageId(row.messageId)
                         ?: return@collect
-
                     when {
-                        row.readAt != null -> {
-                            send(
-                                ChatEvent.Read(
-                                    ChatReceipt(
-                                        messageId = clientMessageId,
-                                        senderId = normalizedPartnerId,
-                                        type = ChatReceiptType.READ
-                                    )
+                        row.readAt != null -> send(
+                            ChatEvent.Read(
+                                ChatReceipt(
+                                    messageId = clientMessageId,
+                                    senderId = normalizedPartnerId,
+                                    type = ChatReceiptType.READ
                                 )
                             )
-                        }
-
-                        row.deliveredAt != null -> {
-                            send(
-                                ChatEvent.Delivered(
-                                    ChatReceipt(
-                                        messageId = clientMessageId,
-                                        senderId = normalizedPartnerId,
-                                        type = ChatReceiptType.DELIVERED
-                                    )
+                        )
+                        row.deliveredAt != null -> send(
+                            ChatEvent.Delivered(
+                                ChatReceipt(
+                                    messageId = clientMessageId,
+                                    senderId = normalizedPartnerId,
+                                    type = ChatReceiptType.DELIVERED
                                 )
                             )
-                        }
+                        )
                     }
                 }
             }
@@ -234,109 +207,58 @@ class SupabaseChatRepository @Inject constructor(
     override fun observeEvents(topics: List<String>, ownSenderId: String): Flow<ChatEvent> {
         val normalized = topics.map(String::trim).filter(String::isNotBlank).distinct()
         if (normalized.isEmpty()) return emptyFlow()
-
-        val activeTopic = runCatching { identity.conversationTopic() }.getOrNull()
-            ?: return emptyFlow()
+        val activeTopic = runCatching { identity.conversationTopic() }.getOrNull() ?: return emptyFlow()
         if (normalized.none { it == activeTopic }) return emptyFlow()
 
         return channelFlow {
             val preparedUserId = prepareConversation()
-            val conversationId = cachedConversationId
-                ?: error("Supabase conversation is not initialized.")
-
+            val conversationId = cachedConversationId ?: error("Supabase conversation is not initialized.")
             val knownMessageIds = mutableSetOf<String>()
             val clientMessageIdByServerId = mutableMapOf<String, String>()
             var lastSequence = 0L
 
             suspend fun fetchMessages(initial: Boolean) {
-                val rows = supabase.postgrest
-                    .from("messages")
-                    .select {
-                        filter {
-                            eq("conversation_id", conversationId)
-                            if (!initial) {
-                                gt("sequence_number", lastSequence)
-                            }
-                        }
+                val rows = supabase.postgrest.from("messages").select {
+                    filter {
+                        eq("conversation_id", conversationId)
+                        if (!initial) gt("sequence_number", lastSequence)
                     }
-                    .decodeList<SupabaseMessageRow>()
-                    .sortedBy { it.sequenceNumber }
+                }.decodeList<SupabaseMessageRow>().sortedBy { it.sequenceNumber }
 
                 rows.forEach { row ->
-                    if (!isActive) return@forEach
-                    if (row.conversationId != conversationId) return@forEach
-
+                    if (!isActive || row.conversationId != conversationId) return@forEach
                     lastSequence = maxOf(lastSequence, row.sequenceNumber)
                     clientMessageIdByServerId[row.id] = row.clientMessageId
                     if (!knownMessageIds.add(row.id)) return@forEach
-
-                    val text = runCatching {
-                        crypto.decrypt(row.ciphertext)
-                    }.getOrNull() ?: return@forEach
-
-                    val senderId = if (row.senderUserId == preparedUserId) {
-                        identity.myId
-                    } else {
-                        identity.partnerId
-                    }
-
-                    val status = if (row.senderUserId == preparedUserId) {
-                        MessageDeliveryStatus.SENT
-                    } else {
-                        MessageDeliveryStatus.DELIVERED
-                    }
-
-                    send(
-                        ChatEvent.Message(
-                            ChatMessage(
-                                id = row.clientMessageId,
-                                senderId = senderId,
-                                text = text,
-                                createdAt = parseTimestamp(row.createdAt),
-                                deliveryStatus = status
-                            )
-                        )
-                    )
+                    val text = runCatching { crypto.decrypt(row.ciphertext) }.getOrNull() ?: return@forEach
+                    val senderId = if (row.senderUserId == preparedUserId) identity.myId else identity.partnerId
+                    val status = if (row.senderUserId == preparedUserId) MessageDeliveryStatus.SENT else MessageDeliveryStatus.DELIVERED
+                    send(ChatEvent.Message(ChatMessage(
+                        id = row.clientMessageId,
+                        senderId = senderId,
+                        text = text,
+                        createdAt = parseTimestamp(row.createdAt),
+                        deliveryStatus = status
+                    )))
                 }
             }
 
             suspend fun fetchReceipts() {
-                val rows = supabase.postgrest
-                    .from("message_receipts")
-                    .select()
-                    .decodeList<SupabaseReceiptRow>()
-
+                val rows = supabase.postgrest.from("message_receipts").select().decodeList<SupabaseReceiptRow>()
                 rows.forEach { row ->
-                    if (!isActive) return@forEach
-                    if (row.userId == preparedUserId) return@forEach
-
-                    val clientMessageId = clientMessageIdByServerId[row.messageId]
-                        ?: return@forEach
-
+                    if (!isActive || row.userId == preparedUserId) return@forEach
+                    val clientMessageId = clientMessageIdByServerId[row.messageId] ?: return@forEach
                     when {
-                        row.readAt != null -> {
-                            send(
-                                ChatEvent.Read(
-                                    ChatReceipt(
-                                        messageId = clientMessageId,
-                                        senderId = identity.partnerId,
-                                        type = ChatReceiptType.READ
-                                    )
-                                )
-                            )
-                        }
-
-                        row.deliveredAt != null -> {
-                            send(
-                                ChatEvent.Delivered(
-                                    ChatReceipt(
-                                        messageId = clientMessageId,
-                                        senderId = identity.partnerId,
-                                        type = ChatReceiptType.DELIVERED
-                                    )
-                                )
-                            )
-                        }
+                        row.readAt != null -> send(ChatEvent.Read(ChatReceipt(
+                            messageId = clientMessageId,
+                            senderId = identity.partnerId,
+                            type = ChatReceiptType.READ
+                        )))
+                        row.deliveredAt != null -> send(ChatEvent.Delivered(ChatReceipt(
+                            messageId = clientMessageId,
+                            senderId = identity.partnerId,
+                            type = ChatReceiptType.DELIVERED
+                        )))
                     }
                 }
             }
@@ -354,34 +276,23 @@ class SupabaseChatRepository @Inject constructor(
         }
     }
 
-    private suspend fun ensureConversationForPartner(partnerId: String): String {
-        return supabase.postgrest.rpc(
+    private suspend fun ensureConversationForPartner(partnerId: String): String =
+        supabase.postgrest.rpc(
             "sigma_ensure_conversation",
             EnsureConversationRpcParams(
                 partnerPublicId = partnerId,
-                conversationKey = identity.conversationKeyFor(partnerId)
-                    .joinToString("") { "%02x".format(it) }
+                conversationKey = identity.conversationKeyFor(partnerId).joinToString("") { "%02x".format(it) }
             )
         ).decodeAs<String>()
-    }
 
-    private suspend fun resolveClientMessageId(serverMessageId: String): String? {
-        return supabase.postgrest
-            .from("messages")
-            .select {
-                filter { eq("id", serverMessageId) }
-            }
-            .decodeSingleOrNull<SupabaseMessageRow>()
-            ?.clientMessageId
-    }
+    private suspend fun resolveClientMessageId(serverMessageId: String): String? =
+        supabase.postgrest.from("messages").select {
+            filter { eq("id", serverMessageId) }
+        }.decodeSingleOrNull<SupabaseMessageRow>()?.clientMessageId
 
     private suspend fun prepareConversation(): String = prepareMutex.withLock {
         val userId = sessionManager.ensureAnonymousSession().getOrThrow()
-
-        if (cachedDeviceId == null) {
-            cachedDeviceId = registerDeviceWithRecovery()
-        }
-
+        if (cachedDeviceId == null) cachedDeviceId = registerDeviceWithRecovery()
         if (cachedConversationId == null) {
             cachedConversationId = supabase.postgrest.rpc(
                 "sigma_ensure_conversation",
@@ -391,7 +302,6 @@ class SupabaseChatRepository @Inject constructor(
                 )
             ).decodeAs<String>()
         }
-
         userId
     }
 
@@ -407,27 +317,21 @@ class SupabaseChatRepository @Inject constructor(
                     )
                 ).decodeList<RegisterDeviceRpcResult>().firstOrNull()
                     ?: error("Supabase device registration returned no device.")
-
                 return result.deviceId
             } catch (error: Throwable) {
-                val isPublicIdConflict = error.message
-                    ?.contains("PUBLIC_ID_ALREADY_IN_USE", ignoreCase = true) == true
-
+                val isPublicIdConflict = error.message?.contains("PUBLIC_ID_ALREADY_IN_USE", ignoreCase = true) == true
                 if (attempt == 0 && isPublicIdConflict) {
                     identity.regenerateMyId()
                     continue
                 }
-
                 throw error
             }
         }
-
         error("Supabase device registration failed after identity recovery.")
     }
 
     private fun parseTimestamp(value: String): Long =
-        runCatching { java.time.Instant.parse(value).toEpochMilli() }
-            .getOrElse { System.currentTimeMillis() }
+        runCatching { java.time.Instant.parse(value).toEpochMilli() }.getOrElse { System.currentTimeMillis() }
 
     private companion object {
         const val POLL_INTERVAL_MS = 1_000L
