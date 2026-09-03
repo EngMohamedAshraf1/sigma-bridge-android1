@@ -7,7 +7,6 @@ import com.sigmabridge.app.data.chat.ChatHistoryStore
 import com.sigmabridge.app.data.chat.ChatIdentity
 import com.sigmabridge.app.data.chat.ChatOutboxStore
 import com.sigmabridge.app.data.chat.ChatUnreadStore
-import com.sigmabridge.app.data.chat.NtfyChatRepository
 import com.sigmabridge.app.domain.chat.ChatConversation
 import com.sigmabridge.app.domain.chat.ChatEvent
 import com.sigmabridge.app.domain.chat.ChatMessage
@@ -23,12 +22,12 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import java.util.UUID
 import javax.inject.Inject
 
 @HiltViewModel
 class ChatViewModel @Inject constructor(
     private val chatRepository: ChatRepository,
-    private val ntfyRepository: NtfyChatRepository,
     private val chatTranslationService: ChatTranslationService,
     private val historyStore: ChatHistoryStore,
     private val outboxStore: ChatOutboxStore,
@@ -237,8 +236,15 @@ class ChatViewModel @Inject constructor(
         val clean = text.trim()
         if (clean.isBlank()) return
 
-        val localMessage = ntfyRepository.createMessage(ownSenderId, clean)
-            .copy(deliveryStatus = MessageDeliveryStatus.PENDING)
+        // Transport always carries the original plaintext encrypted by SupabaseChatRepository.
+        // Translation is a local display concern and is never required for delivery.
+        val localMessage = ChatMessage(
+            id = UUID.randomUUID().toString(),
+            senderId = ownSenderId,
+            text = clean,
+            createdAt = System.currentTimeMillis(),
+            deliveryStatus = MessageDeliveryStatus.PENDING
+        )
 
         val updatedWithPending = _messages.value + localMessage
         _messages.value = updatedWithPending
@@ -255,10 +261,9 @@ class ChatViewModel @Inject constructor(
         topic: String,
         pendingMessage: ChatMessage
     ) {
-        val translationResult = chatTranslationService.translateOutgoing(pendingMessage.text)
-        val textToSend = translationResult.getOrElse { pendingMessage.text }
-
-        chatRepository.send(topic, pendingMessage.copy(text = textToSend))
+        // Never translate before transport. The recipient performs local translation
+        // after decrypting the original message, so devices do not double-translate.
+        chatRepository.send(topic, pendingMessage)
             .onSuccess {
                 outboxStore.remove(historyKey, pendingMessage.id)
                 val persisted = historyStore.markSent(historyKey, pendingMessage.id)
