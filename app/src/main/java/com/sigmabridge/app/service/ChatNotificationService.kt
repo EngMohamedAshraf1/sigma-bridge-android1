@@ -10,6 +10,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.IBinder
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.sigmabridge.app.data.chat.ChatConversationStore
@@ -106,50 +107,57 @@ class ChatNotificationService : Service() {
             val storedLastNotifiedAt = prefs.getLong(KEY_LAST_NOTIFIED_AT_GLOBAL, 0L)
             var lastNotifiedAt = storedLastNotifiedAt
 
-            chatRepository.observeEvents(topics, identity.myId).collect { event ->
-                when (event) {
-                    is ChatEvent.Message -> {
-                        val partnerId = event.message.senderId.trim()
-                        if (partnerId.isBlank() || !conversationsByPartnerId.containsKey(partnerId)) return@collect
+            runCatching {
+                chatRepository.observeEvents(topics, identity.myId).collect { event ->
+                    when (event) {
+                        is ChatEvent.Message -> {
+                            val partnerId = event.message.senderId.trim()
+                            if (partnerId.isBlank() || !conversationsByPartnerId.containsKey(partnerId)) return@collect
 
-                        val historyKey = historyKeyFor(partnerId)
-                        val topic = topicByPartnerId[partnerId] ?: return@collect
+                            val historyKey = historyKeyFor(partnerId)
+                            val topic = topicByPartnerId[partnerId] ?: return@collect
 
-                        // The message reached this device. Keep it unread until the user
-                        // actually opens this conversation.
-                        unreadStore.addUnread(historyKey, event.message.id)
+                            // The message reached this device. Keep it unread until the user
+                            // actually opens this conversation.
+                            unreadStore.addUnread(historyKey, event.message.id)
 
-                        // Tell the sender that this device received the message.
-                        chatRepository.sendDeliveredReceipt(
-                            topic,
-                            ChatReceipt(messageId = event.message.id, senderId = identity.myId)
-                        )
+                            // Tell the sender that this device received the message.
+                            chatRepository.sendDeliveredReceipt(
+                                topic,
+                                ChatReceipt(messageId = event.message.id, senderId = identity.myId)
+                            )
 
-                        if (event.message.createdAt <= lastNotifiedAt) return@collect
-                        if (postMessageNotification(partnerId, event.message.id)) {
-                            lastNotifiedAt = event.message.createdAt
-                            prefs.edit().putLong(KEY_LAST_NOTIFIED_AT_GLOBAL, lastNotifiedAt).apply()
+                            if (event.message.createdAt <= lastNotifiedAt) return@collect
+                            if (postMessageNotification(partnerId, event.message.id)) {
+                                lastNotifiedAt = event.message.createdAt
+                                prefs.edit().putLong(KEY_LAST_NOTIFIED_AT_GLOBAL, lastNotifiedAt).apply()
+                            }
+                        }
+                        is ChatEvent.Delivered -> {
+                            val partnerId = event.receipt.senderId.trim()
+                            if (!conversationsByPartnerId.containsKey(partnerId)) return@collect
+                            historyStore.updateDeliveryStatus(
+                                historyKeyFor(partnerId),
+                                event.receipt.messageId,
+                                MessageDeliveryStatus.DELIVERED
+                            )
+                        }
+                        is ChatEvent.Read -> {
+                            val partnerId = event.receipt.senderId.trim()
+                            if (!conversationsByPartnerId.containsKey(partnerId)) return@collect
+                            historyStore.updateDeliveryStatus(
+                                historyKeyFor(partnerId),
+                                event.receipt.messageId,
+                                MessageDeliveryStatus.READ
+                            )
                         }
                     }
-                    is ChatEvent.Delivered -> {
-                        val partnerId = event.receipt.senderId.trim()
-                        if (!conversationsByPartnerId.containsKey(partnerId)) return@collect
-                        historyStore.updateDeliveryStatus(
-                            historyKeyFor(partnerId),
-                            event.receipt.messageId,
-                            MessageDeliveryStatus.DELIVERED
-                        )
-                    }
-                    is ChatEvent.Read -> {
-                        val partnerId = event.receipt.senderId.trim()
-                        if (!conversationsByPartnerId.containsKey(partnerId)) return@collect
-                        historyStore.updateDeliveryStatus(
-                            historyKeyFor(partnerId),
-                            event.receipt.messageId,
-                            MessageDeliveryStatus.READ
-                        )
-                    }
                 }
+            }.onFailure { error ->
+                // A missing/unavailable partner or a temporary Supabase failure must not
+                // crash the application from this background coroutine. The foreground
+                // ChatViewModel handles the active conversation error independently.
+                Log.e(TAG, "Private chat background observation stopped", error)
             }
         }
     }
@@ -261,6 +269,7 @@ class ChatNotificationService : Service() {
     companion object {
         const val ACTION_START = "com.sigmabridge.app.action.START_CHAT_NOTIFICATIONS"
         const val ACTION_STOP = "com.sigmabridge.app.action.STOP_CHAT_NOTIFICATIONS"
+        private const val TAG = "ChatNotificationService"
         private const val SERVICE_CHANNEL_ID = "sigma_chat_service"
         private const val CHAT_CHANNEL_ID = "sigma_chat_messages"
         private const val SERVICE_NOTIFICATION_ID = 2001
