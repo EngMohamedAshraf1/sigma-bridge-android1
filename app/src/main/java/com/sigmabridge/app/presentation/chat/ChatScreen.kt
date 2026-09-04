@@ -18,8 +18,6 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -40,9 +38,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.DefaultLifecycleObserver
@@ -50,12 +45,8 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.sigmabridge.app.data.chat.ChatForegroundState
-import com.sigmabridge.app.domain.chat.MessageDeliveryStatus
 import com.sigmabridge.app.domain.language.LanguageCatalog
 import com.sigmabridge.app.domain.model.Language
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
@@ -64,6 +55,7 @@ fun ChatScreen(
     viewModel: ChatViewModel = hiltViewModel()
 ) {
     val messages by viewModel.messages.collectAsState()
+    val reactions by viewModel.reactions.collectAsState()
     val connected by viewModel.connected.collectAsState()
     val conversationName by viewModel.conversationName.collectAsState()
     val partnerId by viewModel.partnerId.collectAsState()
@@ -74,6 +66,7 @@ fun ChatScreen(
     val listState = rememberLazyListState()
     var input by remember { mutableStateOf("") }
     var languageMenuExpanded by remember { mutableStateOf(false) }
+    var selectedMessageId by remember { mutableStateOf<String?>(null) }
 
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -90,9 +83,6 @@ fun ChatScreen(
         }
     }
 
-    // The conversation is foreground-active only while the Activity is actually
-    // resumed. Switching to another app or locking the screen therefore releases
-    // the foreground marker, allowing the background worker to notify normally.
     DisposableEffect(lifecycleOwner, partnerId, connected) {
         val observer = object : DefaultLifecycleObserver {
             override fun onResume(owner: LifecycleOwner) {
@@ -192,57 +182,18 @@ fun ChatScreen(
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 items(messages, key = { it.id }) { message ->
-                    val mine = message.senderId == viewModel.ownSenderId
-                    val background = if (mine) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start
-                    ) {
-                        Card(
-                            modifier = Modifier.fillMaxWidth(0.86f),
-                            colors = CardDefaults.cardColors(containerColor = background)
-                        ) {
-                            Column(
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                                horizontalAlignment = if (mine) Alignment.End else Alignment.Start
-                            ) {
-                                Text(
-                                    text = message.text,
-                                    modifier = Modifier.fillMaxWidth(),
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    textAlign = if (mine) TextAlign.End else TextAlign.Start
-                                )
-                                Row(
-                                    modifier = Modifier.padding(top = 3.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(
-                                        text = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(message.createdAt)),
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                    if (mine) {
-                                        val receiptText = when (message.deliveryStatus) {
-                                            MessageDeliveryStatus.PENDING -> "• Sending…"
-                                            MessageDeliveryStatus.SENT -> "✓"
-                                            MessageDeliveryStatus.DELIVERED -> "✓✓"
-                                            MessageDeliveryStatus.READ -> "✓✓"
-                                        }
-                                        val receiptColor = if (message.deliveryStatus == MessageDeliveryStatus.READ) {
-                                            Color(0xFF0084FF)
-                                        } else MaterialTheme.colorScheme.onSurfaceVariant
-                                        Text(
-                                            text = receiptText,
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = receiptColor
-                                        )
-                                    }
-                                }
-                            }
+                    ChatMessageItem(
+                        message = message,
+                        reactions = reactions[message.id].orEmpty(),
+                        isMine = message.senderId == viewModel.ownSenderId,
+                        ownUserId = viewModel.ownSenderId,
+                        reactionPickerVisible = selectedMessageId == message.id,
+                        onLongPress = { selectedMessageId = message.id },
+                        onReaction = { emoji ->
+                            viewModel.setReaction(message.id, emoji)
+                            selectedMessageId = null
                         }
-                    }
+                    )
                 }
             }
 
