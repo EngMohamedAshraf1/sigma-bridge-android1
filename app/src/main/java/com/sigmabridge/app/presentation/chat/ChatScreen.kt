@@ -45,6 +45,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.sigmabridge.app.data.chat.ChatForegroundState
 import com.sigmabridge.app.domain.chat.MessageDeliveryStatus
 import com.sigmabridge.app.domain.language.LanguageCatalog
@@ -66,6 +70,7 @@ fun ChatScreen(
     val error by viewModel.error.collectAsState()
     val translationTarget by viewModel.translationTargetLanguage.collectAsState()
     val context = androidx.compose.ui.platform.LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val listState = rememberLazyListState()
     var input by remember { mutableStateOf("") }
     var languageMenuExpanded by remember { mutableStateOf(false) }
@@ -85,15 +90,35 @@ fun ChatScreen(
         }
     }
 
-    // The foreground screen marks this conversation as active. The background
-    // worker remains alive for service-level work (including primary-device
-    // translation jobs), but ignores this conversation while it is open so it
-    // cannot compete with ChatViewModel for message/receipt state.
-    DisposableEffect(partnerId, connected) {
-        if (partnerId.isNotBlank() && connected) {
+    // The conversation is foreground-active only while the Activity is actually
+    // resumed. Switching to another app or locking the screen therefore releases
+    // the foreground marker, allowing the background worker to notify normally.
+    DisposableEffect(lifecycleOwner, partnerId, connected) {
+        val observer = object : DefaultLifecycleObserver {
+            override fun onResume(owner: LifecycleOwner) {
+                if (partnerId.isNotBlank() && connected) {
+                    ChatForegroundState.openPartnerId = partnerId
+                    viewModel.markVisibleMessagesRead()
+                }
+            }
+
+            override fun onPause(owner: LifecycleOwner) {
+                if (ChatForegroundState.openPartnerId == partnerId) {
+                    ChatForegroundState.openPartnerId = null
+                }
+            }
+        }
+
+        lifecycleOwner.lifecycle.addObserver(observer)
+
+        if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) &&
+            partnerId.isNotBlank() && connected
+        ) {
             ChatForegroundState.openPartnerId = partnerId
         }
+
         onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
             if (ChatForegroundState.openPartnerId == partnerId) {
                 ChatForegroundState.openPartnerId = null
             }
@@ -102,7 +127,9 @@ fun ChatScreen(
 
     LaunchedEffect(messages.size, connected) {
         if (messages.isNotEmpty()) listState.scrollToItem(messages.lastIndex)
-        if (connected) viewModel.markVisibleMessagesRead()
+        if (connected && lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+            viewModel.markVisibleMessagesRead()
+        }
     }
 
     Scaffold(
@@ -121,7 +148,7 @@ fun ChatScreen(
                     }
                 },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    IconButton(onClick = { viewModel.disconnect(); onBack() }) {
                         Icon(Icons.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
