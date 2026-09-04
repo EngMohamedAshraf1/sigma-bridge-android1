@@ -3,7 +3,6 @@ package com.sigmabridge.app.presentation.chat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.sigmabridge.app.data.chat.ChatIdentity
-import com.sigmabridge.app.data.chat.ChatReactionRepository
 import com.sigmabridge.app.data.chat.SupabaseReactionRepository
 import com.sigmabridge.app.data.chat.SupabaseRealtimeReactionRow
 import com.sigmabridge.app.domain.chat.ChatReaction
@@ -32,7 +31,6 @@ class ChatReactionViewModel @Inject constructor(
 
     private val pendingOwnOperations = mutableMapOf<String, PendingOwnOperation>()
     private var realtimeJob: Job? = null
-    private var realtimeChannel: io.github.jan.supabase.realtime.RealtimeChannel? = null
 
     init {
         connect()
@@ -43,14 +41,8 @@ class ChatReactionViewModel @Inject constructor(
         if (partner.isBlank() || partner == identity.myId) return
 
         realtimeJob?.cancel()
-        viewModelScope.launch {
-            reactionRepository.getReactions(partner)
-                .onSuccess { all -> _reactions.value = all.groupBy { it.messageId } }
-        }
-
         realtimeJob = viewModelScope.launch {
             val channel = supabase.channel("sigma-chat-reactions-${identity.conversationKeyHex()}")
-            realtimeChannel = channel
             val changes = channel.postgresChangeFlow<PostgresAction>(schema = "public") {
                 table = "message_reactions"
             }
@@ -63,11 +55,30 @@ class ChatReactionViewModel @Inject constructor(
 
             try {
                 channel.subscribe(blockUntilSubscribed = true)
+                reactionRepository.getReactions(partner)
+                    .onSuccess { all ->
+                        val serverSnapshot = all.groupBy { it.messageId }
+                        val merged = serverSnapshot.toMutableMap()
+                        pendingOwnOperations.forEach { (messageId, pending) ->
+                            val withoutOwn = merged[messageId].orEmpty()
+                                .filterNot { it.userId == identity.myId }
+                            if (pending.desiredEmoji == null) {
+                                if (withoutOwn.isEmpty()) merged.remove(messageId) else merged[messageId] = withoutOwn
+                            } else {
+                                merged[messageId] = withoutOwn + ChatReaction(
+                                    messageId = messageId,
+                                    userId = identity.myId,
+                                    emoji = pending.desiredEmoji,
+                                    createdAt = System.currentTimeMillis()
+                                )
+                            }
+                        }
+                        _reactions.value = merged
+                    }
                 collector.join()
             } finally {
                 collector.cancel()
                 runCatching { channel.unsubscribe() }
-                if (realtimeChannel === channel) realtimeChannel = null
             }
         }
     }
@@ -113,8 +124,8 @@ class ChatReactionViewModel @Inject constructor(
         val messageId = context.clientMessageId
         val userId = context.userPublicId
 
-        // Our own change is already reflected optimistically. Ignoring the echoed
-        // Realtime event prevents an older server snapshot from replacing it.
+        // The local device already reflects its own operation optimistically.
+        // Realtime echo events from this device are intentionally ignored.
         if (userId == identity.myId) return
 
         when (action) {
@@ -128,13 +139,15 @@ class ChatReactionViewModel @Inject constructor(
                 if (row.emoji.isBlank()) return
                 val current = _reactions.value[messageId].orEmpty()
                 val withoutUser = current.filterNot { it.userId == userId }
-                val updated = withoutUser + ChatReaction(
-                    messageId = messageId,
-                    userId = userId,
-                    emoji = row.emoji,
-                    createdAt = parseTimestamp(row.createdAt)
+                setMessageReactions(
+                    messageId,
+                    withoutUser + ChatReaction(
+                        messageId = messageId,
+                        userId = userId,
+                        emoji = row.emoji,
+                        createdAt = parseTimestamp(row.createdAt)
+                    )
                 )
-                setMessageReactions(messageId, updated)
             }
             is PostgresAction.Select -> Unit
         }
@@ -165,15 +178,6 @@ class ChatReactionViewModel @Inject constructor(
     private fun parseTimestamp(value: String): Long =
         runCatching { java.time.Instant.parse(value).toEpochMilli() }
             .getOrElse { System.currentTimeMillis() }
-
-    override fun onCleared() {
-        realtimeJob?.cancel()
-        realtimeChannel?.let { channel ->
-            viewModelScope.launch { runCatching { channel.unsubscribe() } }
-        }
-        realtimeChannel = null
-        super.onCleared()
-    }
 
     private data class PendingOwnOperation(
         val token: String,
