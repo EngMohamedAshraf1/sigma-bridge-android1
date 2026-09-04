@@ -8,15 +8,21 @@ import com.sigmabridge.app.data.chat.ChatIdentity
 import com.sigmabridge.app.data.chat.ChatLanguagePreferences
 import com.sigmabridge.app.data.chat.ChatOutboxStore
 import com.sigmabridge.app.data.chat.ChatUnreadStore
+import com.sigmabridge.app.data.chat.SupabaseReactionRepository
 import com.sigmabridge.app.domain.chat.ChatConversation
 import com.sigmabridge.app.domain.chat.ChatEvent
 import com.sigmabridge.app.domain.chat.ChatMessage
+import com.sigmabridge.app.domain.chat.ChatReaction
 import com.sigmabridge.app.domain.chat.ChatReceipt
 import com.sigmabridge.app.domain.chat.ChatRepository
 import com.sigmabridge.app.domain.chat.ChatTranslationService
 import com.sigmabridge.app.domain.chat.MessageDeliveryStatus
 import com.sigmabridge.app.domain.model.Language
 import dagger.hilt.android.lifecycle.HiltViewModel
+import io.github.jan.supabase.SupabaseClient
+import io.github.jan.supabase.realtime.PostgresAction
+import io.github.jan.supabase.realtime.channel
+import io.github.jan.supabase.realtime.postgresChangeFlow
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -36,7 +42,9 @@ class ChatViewModel @Inject constructor(
     private val outboxStore: ChatOutboxStore,
     private val unreadStore: ChatUnreadStore,
     private val conversationStore: ChatConversationStore,
-    private val identity: ChatIdentity
+    private val identity: ChatIdentity,
+    private val reactionRepository: SupabaseReactionRepository,
+    private val supabase: SupabaseClient
 ) : ViewModel() {
     val myId: String = identity.myId
     private val _partnerId = MutableStateFlow(identity.partnerId)
@@ -51,10 +59,13 @@ class ChatViewModel @Inject constructor(
     val error: StateFlow<String?> = _error.asStateFlow()
     private val _translationTargetLanguage = MutableStateFlow(chatLanguagePreferences.getTargetLanguage())
     val translationTargetLanguage: StateFlow<Language> = _translationTargetLanguage.asStateFlow()
+    private val _reactions = MutableStateFlow<Map<String, List<ChatReaction>>>(emptyMap())
+    val reactions: StateFlow<Map<String, List<ChatReaction>>> = _reactions.asStateFlow()
     val ownSenderId: String = myId
     private var currentTopic: String? = null
     private var currentHistoryKey: String? = null
     private var statusSyncJob: Job? = null
+    private var reactionSyncJob: Job? = null
     private val readReceiptSentIds = mutableSetOf<String>()
 
     init { if (_partnerId.value.isNotBlank()) connect() }
@@ -82,6 +93,7 @@ class ChatViewModel @Inject constructor(
         }
         if (currentTopic == topic && _connected.value) return
         statusSyncJob?.cancel()
+        reactionSyncJob?.cancel()
         readReceiptSentIds.clear()
         currentTopic = topic
         currentHistoryKey = identity.conversationKey().joinToString("") { "%02x".format(it) }
@@ -94,6 +106,7 @@ class ChatViewModel @Inject constructor(
             } else message
         }
         _messages.value = history
+        _reactions.value = emptyMap()
         _conversationName.value = existingConversation?.displayName ?: partner
         conversationStore.upsert(
             ChatConversation(
@@ -113,10 +126,6 @@ class ChatViewModel @Inject constructor(
                 chatRepository.observeEvents(topic, ownSenderId).collect { event ->
                     when (event) {
                         is ChatEvent.Message -> {
-                            // SupabaseChatRepository already excludes our own messages and
-                            // labels all remaining message events as coming from the partner.
-                            // Do not apply a second partner-ID filter here; that could drop
-                            // valid incoming messages on one side of the conversation.
                             if (_messages.value.any { it.id == event.message.id }) return@collect
 
                             val translated = chatTranslationService.translateIncoming(
@@ -177,6 +186,30 @@ class ChatViewModel @Inject constructor(
                 delay(1_000L)
             }
         }
+
+        reactionSyncJob = viewModelScope.launch {
+            val channel = supabase.channel("sigma-chat-reactions-$historyKey")
+            try {
+                reactionRepository.getReactions(partner)
+                    .onSuccess { all -> _reactions.value = all.groupBy { it.messageId } }
+
+                val changeFlow = channel.postgresChangeFlow<PostgresAction>(schema = "public") {
+                    table = "message_reactions"
+                }
+
+                val collector = launch {
+                    changeFlow.collect {
+                        reactionRepository.getReactions(partner)
+                            .onSuccess { all -> _reactions.value = all.groupBy { it.messageId } }
+                    }
+                }
+
+                channel.subscribe()
+                collector.join()
+            } finally {
+                runCatching { channel.unsubscribe() }
+            }
+        }
     }
 
     fun markVisibleMessagesRead() {
@@ -211,6 +244,29 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    fun setReaction(messageId: String, emoji: String) {
+        val current = _reactions.value[messageId].orEmpty()
+        val own = current.firstOrNull { it.userId == myId }
+        val optimistic = current.filterNot { it.userId == myId } +
+            if (own?.emoji == emoji) emptyList() else listOf(
+                ChatReaction(messageId, myId, emoji, System.currentTimeMillis())
+            )
+        _reactions.value = _reactions.value + (messageId to optimistic)
+
+        viewModelScope.launch {
+            val result = if (own?.emoji == emoji) {
+                reactionRepository.removeReaction(messageId)
+            } else {
+                reactionRepository.setReaction(messageId, emoji)
+            }
+            if (result.isFailure) {
+                reactionRepository.getReactions(identity.partnerId)
+                    .onSuccess { all -> _reactions.value = all.groupBy { it.messageId } }
+                    .onFailure { _error.value = "تعذر حفظ التفاعل حاليًا." }
+            }
+        }
+    }
+
     private fun updateConversationPreview(partnerId: String, lastMessage: String, lastMessageAt: Long) {
         val current = conversationStore.load().firstOrNull { it.partnerId == partnerId }
         conversationStore.upsert(
@@ -241,7 +297,9 @@ class ChatViewModel @Inject constructor(
 
     fun disconnect() {
         statusSyncJob?.cancel()
+        reactionSyncJob?.cancel()
         statusSyncJob = null
+        reactionSyncJob = null
         currentTopic = null
         currentHistoryKey = null
         _connected.value = false
