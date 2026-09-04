@@ -1,5 +1,6 @@
 package com.sigmabridge.app.data.chat
 
+import com.sigmabridge.app.domain.chat.ChatReply
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
@@ -71,3 +72,14 @@ data class SupabaseReceiptRow(
     @SerialName("delivered_at") val deliveredAt: String? = null,
     @SerialName("read_at") val readAt: String? = null
 )
+
+@Serializable
+data class ChatMessageWirePayload(
+    @SerialName("type") val type: String = TYPE,
+    @SerialName("text") val text: String,
+    @SerialName("reply_to") val replyTo: ChatReply? = null
+) {
+    companion object {
+        const val TYPE = "sigma_bridge_chat_message_v2"
+    }
+}
