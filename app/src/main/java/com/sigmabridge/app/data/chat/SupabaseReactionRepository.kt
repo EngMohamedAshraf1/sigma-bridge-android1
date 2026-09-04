@@ -58,25 +58,18 @@ class SupabaseReactionRepository @Inject constructor(
         serverUserId: String
     ): Result<ReactionRealtimeContext> = runCatching {
         sessionManager.ensureAnonymousSession().getOrThrow()
-
-        val message = supabase.postgrest
-            .from("messages")
-            .select {
-                filter { eq("id", serverMessageId) }
-            }
-            .decodeSingle<ReactionMessageContextRow>()
-
-        val user = supabase.postgrest
-            .from("users")
-            .select {
-                filter { eq("id", serverUserId) }
-            }
-            .decodeSingle<ReactionUserContextRow>()
-
-        ReactionRealtimeContext(
-            clientMessageId = message.clientMessageId,
-            userPublicId = user.publicId
-        )
+        supabase.postgrest.rpc(
+            "sigma_get_reaction_context",
+            GetReactionContextRpcParams(
+                messageId = serverMessageId,
+                userId = serverUserId
+            )
+        ).decodeSingle<ReactionRealtimeContextRow>().let { row ->
+            ReactionRealtimeContext(
+                clientMessageId = row.clientMessageId,
+                userPublicId = row.userPublicId
+            )
+        }
     }
 
     private suspend fun serverMessageIdFor(clientMessageId: String): String {
