@@ -42,12 +42,18 @@ class SupabaseChatRepository @Inject constructor(
         require(userId == sessionManager.currentUserId()) {
             "Supabase session changed unexpectedly."
         }
-        val plaintext = wireJson.encodeToString(
-            ChatMessageWirePayload(
-                text = message.text,
-                replyTo = message.replyTo
+        val hasReply = message.replyTo != null
+        val plaintext = if (hasReply) {
+            wireJson.encodeToString(
+                ChatMessageWirePayload(
+                    type = ChatMessageWirePayload.TYPE,
+                    text = message.text,
+                    replyTo = message.replyTo
+                )
             )
-        )
+        } else {
+            message.text
+        }
         val encrypted = crypto.encrypt(plaintext)
         supabase.postgrest.rpc(
             "sigma_send_message",
@@ -57,7 +63,7 @@ class SupabaseChatRepository @Inject constructor(
                 senderDeviceId = cachedDeviceId ?: error("Supabase device is not registered."),
                 ciphertext = encrypted,
                 nonce = crypto.nonceFromEncrypted(encrypted),
-                messageVersion = 2
+                messageVersion = if (hasReply) 2 else 1
             )
         ).decodeAs<SupabaseMessageRow>()
     }
@@ -262,9 +268,9 @@ class SupabaseChatRepository @Inject constructor(
         return runCatching {
             val payload = wireJson.decodeFromString<ChatMessageWirePayload>(value)
             if (payload.type == ChatMessageWirePayload.TYPE) payload
-            else ChatMessageWirePayload(text = value, replyTo = null)
+            else ChatMessageWirePayload(type = ChatMessageWirePayload.TYPE, text = value, replyTo = null)
         }.getOrElse {
-            ChatMessageWirePayload(text = value, replyTo = null)
+            ChatMessageWirePayload(type = ChatMessageWirePayload.TYPE, text = value, replyTo = null)
         }
     }
 
