@@ -67,6 +67,7 @@ class ChatViewModel @Inject constructor(
     private var statusSyncJob: Job? = null
     private var reactionSyncJob: Job? = null
     private val readReceiptSentIds = mutableSetOf<String>()
+    private var reactionStateVersion = 0L
 
     init { if (_partnerId.value.isNotBlank()) connect() }
 
@@ -190,8 +191,13 @@ class ChatViewModel @Inject constructor(
         reactionSyncJob = viewModelScope.launch {
             val channel = supabase.channel("sigma-chat-reactions-$historyKey")
             try {
+                val initialVersion = reactionStateVersion
                 reactionRepository.getReactions(partner)
-                    .onSuccess { all -> _reactions.value = all.groupBy { it.messageId } }
+                    .onSuccess { all ->
+                        if (initialVersion == reactionStateVersion) {
+                            _reactions.value = all.groupBy { it.messageId }
+                        }
+                    }
 
                 val changeFlow = channel.postgresChangeFlow<PostgresAction>(schema = "public") {
                     table = "message_reactions"
@@ -199,8 +205,14 @@ class ChatViewModel @Inject constructor(
 
                 val collector = launch {
                     changeFlow.collect {
+                        val observedVersion = reactionStateVersion
+                        delay(1_500L)
                         reactionRepository.getReactions(partner)
-                            .onSuccess { all -> _reactions.value = all.groupBy { it.messageId } }
+                            .onSuccess { all ->
+                                if (observedVersion == reactionStateVersion) {
+                                    _reactions.value = all.groupBy { it.messageId }
+                                }
+                            }
                     }
                 }
 
@@ -245,6 +257,8 @@ class ChatViewModel @Inject constructor(
     }
 
     fun setReaction(messageId: String, emoji: String) {
+        reactionStateVersion++
+        val localVersion = reactionStateVersion
         val current = _reactions.value[messageId].orEmpty()
         val own = current.firstOrNull { it.userId == myId }
         val optimistic = current.filterNot { it.userId == myId } +
@@ -259,11 +273,31 @@ class ChatViewModel @Inject constructor(
             } else {
                 reactionRepository.setReaction(messageId, emoji)
             }
+
             if (result.isFailure) {
                 reactionRepository.getReactions(identity.partnerId)
-                    .onSuccess { all -> _reactions.value = all.groupBy { it.messageId } }
+                    .onSuccess { all ->
+                        if (localVersion == reactionStateVersion) {
+                            _reactions.value = all.groupBy { it.messageId }
+                        }
+                    }
                     .onFailure { _error.value = "تعذر حفظ التفاعل حاليًا." }
+                return@launch
             }
+
+            // Do not let the Realtime notification immediately overwrite the
+            // optimistic local state with a possibly still-stale PostgREST read.
+            // After the mutation has had time to commit, confirm the server state.
+            delay(1_500L)
+            if (localVersion != reactionStateVersion) return@launch
+
+            reactionRepository.getReactions(identity.partnerId)
+                .onSuccess { all ->
+                    if (localVersion == reactionStateVersion) {
+                        _reactions.value = all.groupBy { it.messageId }
+                    }
+                }
+                .onFailure { _error.value = "تعذر مزامنة التفاعل حاليًا." }
         }
     }
 
