@@ -80,9 +80,10 @@ class ChatNotificationService : Service() {
 
     /**
      * Background delivery uses the same proven PostgREST polling source as the
-     * foreground transport. The worker is keyed by the persistent Partner ID,
-     * not ChatConversationStore, so it can start after process recreation/boot
-     * without requiring the user to open Private Chat first.
+     * foreground transport. When a conversation is currently open, the service
+     * deliberately ignores that conversation's events so ChatViewModel remains
+     * its sole owner of message/receipt state. The service itself stays alive,
+     * so the primary device can keep processing remote translation jobs.
      */
     private fun observeAllChatEvents() {
         serviceScope.launch {
@@ -106,11 +107,14 @@ class ChatNotificationService : Service() {
 
         runCatching {
             supabaseChatRepository.observeRealtimeEvents(partnerId).collect { event ->
+                // While the conversation is open, let ChatViewModel exclusively
+                // handle messages and receipts. Do not touch local history here.
+                if (ChatForegroundState.openPartnerId == partnerId) return@collect
+
                 when (event) {
                     is ChatEvent.Message -> {
                         val historyKey = historyKeyFor(partnerId)
                         val topic = identity.conversationTopicFor(partnerId)
-                        val isForegroundConversation = ChatForegroundState.openPartnerId == partnerId
                         val existingHistory = historyStore.load(historyKey)
                         val isKnownLocally = existingHistory.any { it.id == event.message.id }
 
@@ -126,20 +130,16 @@ class ChatNotificationService : Service() {
                             )
                         }
 
-                        if (isForegroundConversation) {
-                            unreadStore.clear(historyKey)
-                        } else if (!isKnownLocally) {
+                        if (!isKnownLocally) {
                             unreadStore.addUnread(historyKey, event.message.id)
                         }
 
-                        // Delivery receipt is independent of Gemini and notification UI.
                         chatRepository.sendDeliveredReceipt(
                             topic,
                             ChatReceipt(messageId = event.message.id, senderId = identity.myId)
                         )
 
-                        // Never notify for a message already present in local history.
-                        if (isForegroundConversation || isKnownLocally) return@collect
+                        if (isKnownLocally) return@collect
                         if (event.message.createdAt <= lastNotifiedAt) return@collect
 
                         if (postMessageNotification(partnerId, event.message.id, event.message.text)) {
@@ -147,8 +147,6 @@ class ChatNotificationService : Service() {
                             prefs.edit().putLong(lastNotifiedKey, lastNotifiedAt).apply()
                         }
 
-                        // Translation is post-transport work. A missing Gemini key on the
-                        // secondary device must never prevent delivery or notification.
                         serviceScope.launch {
                             chatTranslationService.translateIncoming(
                                 event.message.text,
@@ -222,7 +220,6 @@ class ChatNotificationService : Service() {
         )
     }
 
-    /** Primary-only translation worker. Secondary devices return without Gemini credentials. */
     private fun processTranslationJobs() {
         serviceScope.launch {
             while (isActive) {
