@@ -106,7 +106,6 @@ class ChatViewModel @Inject constructor(
         _error.value = null
         _connected.value = true
 
-        // Opening the conversation means all currently visible incoming messages are read.
         markVisibleMessagesRead()
 
         viewModelScope.launch {
@@ -114,7 +113,10 @@ class ChatViewModel @Inject constructor(
                 chatRepository.observeEvents(topic, ownSenderId).collect { event ->
                     when (event) {
                         is ChatEvent.Message -> {
-                            if (event.message.senderId != identity.partnerId) return@collect
+                            // SupabaseChatRepository already excludes our own messages and
+                            // labels all remaining message events as coming from the partner.
+                            // Do not apply a second partner-ID filter here; that could drop
+                            // valid incoming messages on one side of the conversation.
                             if (_messages.value.any { it.id == event.message.id }) return@collect
 
                             val translated = chatTranslationService.translateIncoming(
@@ -180,10 +182,7 @@ class ChatViewModel @Inject constructor(
     fun markVisibleMessagesRead() {
         val topic = currentTopic ?: return
         val historyKey = currentHistoryKey ?: return
-
-        // Clear the local badge immediately. The server read receipt is sent separately.
         unreadStore.clear(historyKey)
-
         val incomingIds = _messages.value
             .asSequence()
             .filter { it.senderId == identity.partnerId }
