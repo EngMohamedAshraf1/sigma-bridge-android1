@@ -12,6 +12,7 @@ import com.sigmabridge.app.domain.chat.ChatConversation
 import com.sigmabridge.app.domain.chat.ChatEvent
 import com.sigmabridge.app.domain.chat.ChatMessage
 import com.sigmabridge.app.domain.chat.ChatReceipt
+import com.sigmabridge.app.domain.chat.ChatReply
 import com.sigmabridge.app.domain.chat.ChatRepository
 import com.sigmabridge.app.domain.chat.ChatTranslationService
 import com.sigmabridge.app.domain.chat.MessageDeliveryStatus
@@ -113,10 +114,6 @@ class ChatViewModel @Inject constructor(
                 chatRepository.observeEvents(topic, ownSenderId).collect { event ->
                     when (event) {
                         is ChatEvent.Message -> {
-                            // SupabaseChatRepository already excludes our own messages and
-                            // labels all remaining message events as coming from the partner.
-                            // Do not apply a second partner-ID filter here; that could drop
-                            // valid incoming messages on one side of the conversation.
                             if (_messages.value.any { it.id == event.message.id }) return@collect
 
                             val translated = chatTranslationService.translateIncoming(
@@ -248,7 +245,7 @@ class ChatViewModel @Inject constructor(
         readReceiptSentIds.clear()
     }
 
-    fun send(text: String) {
+    fun send(text: String, replyTo: ChatMessage? = null) {
         val topic = currentTopic ?: return
         val historyKey = currentHistoryKey ?: return
         val clean = text.trim()
@@ -259,7 +256,14 @@ class ChatViewModel @Inject constructor(
             senderId = ownSenderId,
             text = clean,
             createdAt = System.currentTimeMillis(),
-            deliveryStatus = MessageDeliveryStatus.PENDING
+            deliveryStatus = MessageDeliveryStatus.PENDING,
+            replyTo = replyTo?.let {
+                ChatReply(
+                    messageId = it.id,
+                    senderId = it.senderId,
+                    text = it.text
+                )
+            }
         )
 
         val updatedWithPending = _messages.value + localMessage
