@@ -16,6 +16,7 @@ import com.sigmabridge.app.data.chat.ChatConversationStore
 import com.sigmabridge.app.data.chat.ChatForegroundState
 import com.sigmabridge.app.data.chat.ChatHistoryStore
 import com.sigmabridge.app.data.chat.ChatIdentity
+import com.sigmabridge.app.data.chat.ChatNetworkState
 import com.sigmabridge.app.data.chat.ChatOutboxStore
 import com.sigmabridge.app.data.chat.ChatUnreadStore
 import com.sigmabridge.app.data.chat.SupabaseChatRepository
@@ -48,6 +49,7 @@ class ChatNotificationService : Service() {
     @Inject lateinit var outboxStore: ChatOutboxStore
     @Inject lateinit var historyStore: ChatHistoryStore
     @Inject lateinit var unreadStore: ChatUnreadStore
+    @Inject lateinit var networkState: ChatNetworkState
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -91,6 +93,11 @@ class ChatNotificationService : Service() {
                 val partnerId = identity.partnerId.trim()
                 if (partnerId.isBlank()) {
                     delay(PARTNER_CHECK_INTERVAL_MS)
+                    continue
+                }
+
+                if (!networkState.isOnline()) {
+                    delay(RECONNECT_DELAY_MS)
                     continue
                 }
 
@@ -237,6 +244,11 @@ class ChatNotificationService : Service() {
         serviceScope.launch {
             var retryDelayMs = INITIAL_RETRY_MS
             while (isActive) {
+                if (!networkState.isOnline()) {
+                    delay(RECONNECT_DELAY_MS)
+                    continue
+                }
+
                 val conversations = conversationStore.load()
                 var deliveredAny = false
 
