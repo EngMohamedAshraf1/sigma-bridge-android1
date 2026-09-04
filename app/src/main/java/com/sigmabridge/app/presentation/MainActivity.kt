@@ -55,11 +55,8 @@ class MainActivity : ComponentActivity() {
                             Text(
                                 buildString {
                                     append("الإصدار الجديد: ${update.versionName}\n\n")
-                                    if (update.releaseNotes.isNotBlank()) {
-                                        append(update.releaseNotes)
-                                    } else {
-                                        append("يتوفر إصدار أحدث من التطبيق.")
-                                    }
+                                    if (update.releaseNotes.isNotBlank()) append(update.releaseNotes)
+                                    else append("يتوفر إصدار أحدث من التطبيق.")
                                 }
                             )
                         },
@@ -69,9 +66,10 @@ class MainActivity : ComponentActivity() {
                                 lifecycleScope.launch(Dispatchers.IO) {
                                     val result = appUpdateManager.downloadAndInstall(this@MainActivity, update)
                                     if (result.isFailure) {
+                                        val message = result.exceptionOrNull()?.message
+                                            ?: "تعذر تنزيل التحديث."
                                         withContext(Dispatchers.Main) {
-                                            updateError = result.exceptionOrNull()?.message
-                                                ?: "تعذر تنزيل التحديث."
+                                            updateError = message
                                         }
                                     }
                                 }
@@ -111,7 +109,8 @@ class MainActivity : ComponentActivity() {
 
         lifecycleScope.launch(Dispatchers.IO) {
             val result = appUpdateManager.checkForUpdate()
-            result.onSuccess { update ->
+            if (result.isSuccess) {
+                val update = result.getOrNull()
                 if (update != null) {
                     withContext(Dispatchers.Main) {
                         availableUpdate = update
