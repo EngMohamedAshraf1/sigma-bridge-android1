@@ -45,6 +45,7 @@ class SupabaseChatRepository @Inject constructor(
         val hasReply = message.replyTo != null
         val plaintext = if (hasReply) {
             wireJson.encodeToString(
+                ChatMessageWirePayload.serializer(),
                 ChatMessageWirePayload(
                     type = ChatMessageWirePayload.TYPE,
                     text = message.text,
