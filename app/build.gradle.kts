@@ -22,8 +22,8 @@ android {
         applicationId = "com.sigmabridge.app"
         minSdk = 26 // Foreground Service + Doze APIs used from Phase 7 onward require this floor
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.7.1-phase7-fix-resources"
+        versionCode = 2
+        versionName = "0.7.2"
 
         buildConfigField(
             "String",
