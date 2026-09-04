@@ -15,12 +15,20 @@ enum class ChatReceiptType {
 }
 
 @Serializable
+data class ChatReply(
+    val messageId: String,
+    val senderId: String,
+    val text: String
+)
+
+@Serializable
 data class ChatMessage(
     val id: String,
     val senderId: String,
     val text: String,
     val createdAt: Long,
-    val deliveryStatus: MessageDeliveryStatus = MessageDeliveryStatus.SENT
+    val deliveryStatus: MessageDeliveryStatus = MessageDeliveryStatus.SENT,
+    val replyTo: ChatReply? = null
 )
 
 @Serializable
