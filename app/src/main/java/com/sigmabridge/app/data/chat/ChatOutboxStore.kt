@@ -18,6 +18,7 @@ class ChatOutboxStore @Inject constructor(
     private val preferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     private val serializer = ListSerializer(ChatMessage.serializer())
 
+    @Synchronized
     fun load(conversationKey: String): List<ChatMessage> {
         val raw = preferences.getString(keyFor(conversationKey), null) ?: return emptyList()
         return runCatching {
@@ -26,15 +27,18 @@ class ChatOutboxStore @Inject constructor(
         }.getOrDefault(emptyList())
     }
 
+    @Synchronized
     fun save(conversationKey: String, messages: List<ChatMessage>) {
         val raw = json.encodeToString(serializer, messages)
         preferences.edit().putString(keyFor(conversationKey), raw).apply()
     }
 
+    @Synchronized
     fun add(conversationKey: String, message: ChatMessage) {
         save(conversationKey, (load(conversationKey) + message).distinctBy { it.id })
     }
 
+    @Synchronized
     fun remove(conversationKey: String, messageId: String) {
         save(conversationKey, load(conversationKey).filterNot { it.id == messageId })
     }
