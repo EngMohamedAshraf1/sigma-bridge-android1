@@ -66,7 +66,7 @@ class AppUpdateManager @Inject constructor() {
 
             val latestVersion = parseVersion(release.tagName) ?: return@use null
             val currentVersion = parseVersion(BuildConfig.VERSION_NAME) ?: return@use null
-            if (latestVersion <= currentVersion) return@use null
+            if (compareVersions(latestVersion, currentVersion) <= 0) return@use null
 
             val asset = release.assets.firstOrNull { it.name == APK_ASSET_NAME }
                 ?: return@use null
@@ -125,7 +125,20 @@ class AppUpdateManager @Inject constructor() {
 
     private fun parseVersion(value: String): List<Int>? {
         val match = VERSION_REGEX.find(value) ?: return null
-        return match.value.split('.').mapNotNull { it.toIntOrNull() }.takeIf { it.size in 2..3 }
+        return match.value
+            .split('.')
+            .mapNotNull { it.toIntOrNull() }
+            .takeIf { it.size in 2..3 }
+    }
+
+    private fun compareVersions(left: List<Int>, right: List<Int>): Int {
+        val size = maxOf(left.size, right.size)
+        for (index in 0 until size) {
+            val a = left.getOrElse(index) { 0 }
+            val b = right.getOrElse(index) { 0 }
+            if (a != b) return a.compareTo(b)
+        }
+        return 0
     }
 
     private companion object {
