@@ -75,7 +75,7 @@ data class SupabaseReceiptRow(
 
 @Serializable
 data class ChatMessageWirePayload(
-    @SerialName("type") val type: String = TYPE,
+    @SerialName("type") val type: String,
     @SerialName("text") val text: String,
     @SerialName("reply_to") val replyTo: ChatReply? = null
 ) {
