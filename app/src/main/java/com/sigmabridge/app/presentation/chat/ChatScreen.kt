@@ -5,6 +5,8 @@ import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -50,6 +52,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.sigmabridge.app.data.chat.ChatForegroundState
+import com.sigmabridge.app.domain.chat.ChatMessage
 import com.sigmabridge.app.domain.chat.MessageDeliveryStatus
 import com.sigmabridge.app.domain.language.LanguageCatalog
 import com.sigmabridge.app.domain.model.Language
@@ -57,7 +60,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun ChatScreen(
     onBack: () -> Unit,
@@ -74,6 +77,7 @@ fun ChatScreen(
     val listState = rememberLazyListState()
     var input by remember { mutableStateOf("") }
     var languageMenuExpanded by remember { mutableStateOf(false) }
+    var replyingToMessage by remember { mutableStateOf<ChatMessage?>(null) }
 
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -193,20 +197,59 @@ fun ChatScreen(
             ) {
                 items(messages, key = { it.id }) { message ->
                     val mine = message.senderId == viewModel.ownSenderId
-                    val background = if (mine) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
+                    val background = if (mine) {
+                        MaterialTheme.colorScheme.primaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.surfaceVariant
+                    }
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start
                     ) {
                         Card(
-                            modifier = Modifier.fillMaxWidth(0.86f),
+                            modifier = Modifier
+                                .fillMaxWidth(0.86f)
+                                .combinedClickable(
+                                    onClick = { },
+                                    onLongClick = { replyingToMessage = message }
+                                ),
                             colors = CardDefaults.cardColors(containerColor = background)
                         ) {
                             Column(
                                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                                 horizontalAlignment = if (mine) Alignment.End else Alignment.Start
                             ) {
+                                message.replyTo?.let { reply ->
+                                    val replySender = if (reply.senderId == viewModel.ownSenderId) {
+                                        "You"
+                                    } else {
+                                        conversationName
+                                    }
+                                    Card(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(bottom = 6.dp),
+                                        colors = CardDefaults.cardColors(
+                                            containerColor = background.copy(alpha = 0.65f)
+                                        )
+                                    ) {
+                                        Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)) {
+                                            Text(
+                                                text = "↩ $replySender",
+                                                style = MaterialTheme.typography.labelMedium,
+                                                color = MaterialTheme.colorScheme.primary
+                                            )
+                                            Text(
+                                                text = reply.text,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                maxLines = 2,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    }
+                                }
+
                                 Text(
                                     text = message.text,
                                     modifier = Modifier.fillMaxWidth(),
@@ -246,6 +289,41 @@ fun ChatScreen(
                 }
             }
 
+            replyingToMessage?.let { reply ->
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 10.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant
+                    )
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 10.dp, top = 6.dp, bottom = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "↩ Reply to ${if (reply.senderId == viewModel.ownSenderId) "You" else conversationName}",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Text(
+                                text = reply.text,
+                                style = MaterialTheme.typography.bodySmall,
+                                maxLines = 2,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        TextButton(onClick = { replyingToMessage = null }) {
+                            Text("✕")
+                        }
+                    }
+                }
+            }
+
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -263,8 +341,9 @@ fun ChatScreen(
                 )
                 Button(
                     onClick = {
-                        viewModel.send(input)
+                        viewModel.send(input, replyingToMessage)
                         input = ""
+                        replyingToMessage = null
                     },
                     enabled = connected && input.isNotBlank()
                 ) {
