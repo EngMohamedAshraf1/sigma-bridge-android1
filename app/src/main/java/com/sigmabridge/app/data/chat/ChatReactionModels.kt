@@ -43,19 +43,20 @@ data class SupabaseMessageReactionRow(
 )
 
 @Serializable
-data class ReactionMessageContextRow(
-    @SerialName("id") val id: String,
-    @SerialName("client_message_id") val clientMessageId: String
-)
-
-@Serializable
-data class ReactionUserContextRow(
-    @SerialName("id") val id: String,
-    @SerialName("public_id") val publicId: String
+data class SupabaseRealtimeReactionRow(
+    @SerialName("message_id") val messageId: String,
+    @SerialName("user_id") val userId: String,
+    @SerialName("emoji") val emoji: String = "",
+    @SerialName("created_at") val createdAt: String = ""
 )
 
 @Serializable
 data class ReactionRealtimeContextRow(
     @SerialName("client_message_id") val clientMessageId: String,
     @SerialName("user_public_id") val userPublicId: String
+)
+
+@Serializable
+data class ConversationIdRow(
+    @SerialName("id") val id: String
 )
