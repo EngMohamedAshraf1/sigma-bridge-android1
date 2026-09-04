@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.serialization.json.Json
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -31,6 +32,7 @@ class SupabaseChatRepository @Inject constructor(
     private var cachedDeviceId: String? = null
     private var cachedConversationId: String? = null
     private val prepareMutex = Mutex()
+    private val wireJson = Json { ignoreUnknownKeys = true }
 
     override suspend fun send(topic: String, message: ChatMessage): Result<Unit> = runCatching {
         require(topic == identity.conversationTopic()) {
@@ -40,7 +42,13 @@ class SupabaseChatRepository @Inject constructor(
         require(userId == sessionManager.currentUserId()) {
             "Supabase session changed unexpectedly."
         }
-        val encrypted = crypto.encrypt(message.text)
+        val plaintext = wireJson.encodeToString(
+            ChatMessageWirePayload(
+                text = message.text,
+                replyTo = message.replyTo
+            )
+        )
+        val encrypted = crypto.encrypt(plaintext)
         supabase.postgrest.rpc(
             "sigma_send_message",
             SendMessageRpcParams(
@@ -49,7 +57,7 @@ class SupabaseChatRepository @Inject constructor(
                 senderDeviceId = cachedDeviceId ?: error("Supabase device is not registered."),
                 ciphertext = encrypted,
                 nonce = crypto.nonceFromEncrypted(encrypted),
-                messageVersion = 1
+                messageVersion = 2
             )
         ).decodeAs<SupabaseMessageRow>()
     }
@@ -125,16 +133,18 @@ class SupabaseChatRepository @Inject constructor(
                     if (!knownMessageIds.add(row.id)) return@forEach
                     if (row.senderUserId == userId) return@forEach
 
-                    val text = runCatching { crypto.decrypt(row.ciphertext) }.getOrNull()
+                    val decrypted = runCatching { crypto.decrypt(row.ciphertext) }.getOrNull()
                         ?: return@forEach
+                    val payload = decodeMessagePayload(decrypted)
                     send(
                         ChatEvent.Message(
                             ChatMessage(
                                 id = row.clientMessageId,
                                 senderId = normalizedPartnerId,
-                                text = text,
+                                text = payload.text,
                                 createdAt = parseTimestamp(row.createdAt),
-                                deliveryStatus = MessageDeliveryStatus.DELIVERED
+                                deliveryStatus = MessageDeliveryStatus.DELIVERED,
+                                replyTo = payload.replyTo
                             )
                         )
                     )
@@ -174,7 +184,9 @@ class SupabaseChatRepository @Inject constructor(
                     if (!isActive || row.conversationId != conversationId) return@forEach
                     lastSequence = maxOf(lastSequence, row.sequenceNumber)
                     if (!knownMessageIds.add(row.id)) return@forEach
-                    val text = runCatching { crypto.decrypt(row.ciphertext) }.getOrNull() ?: return@forEach
+                    val decrypted = runCatching { crypto.decrypt(row.ciphertext) }.getOrNull()
+                        ?: return@forEach
+                    val payload = decodeMessagePayload(decrypted)
                     val senderId = if (row.senderUserId == preparedUserId) identity.myId else identity.partnerId
                     val status = if (row.senderUserId == preparedUserId) MessageDeliveryStatus.SENT else MessageDeliveryStatus.DELIVERED
                     send(
@@ -182,9 +194,10 @@ class SupabaseChatRepository @Inject constructor(
                             ChatMessage(
                                 id = row.clientMessageId,
                                 senderId = senderId,
-                                text = text,
+                                text = payload.text,
                                 createdAt = parseTimestamp(row.createdAt),
-                                deliveryStatus = status
+                                deliveryStatus = status,
+                                replyTo = payload.replyTo
                             )
                         )
                     )
@@ -242,6 +255,16 @@ class SupabaseChatRepository @Inject constructor(
                     fetchReceipts()
                 }
             }
+        }
+    }
+
+    private fun decodeMessagePayload(value: String): ChatMessageWirePayload {
+        return runCatching {
+            val payload = wireJson.decodeFromString<ChatMessageWirePayload>(value)
+            if (payload.type == ChatMessageWirePayload.TYPE) payload
+            else ChatMessageWirePayload(text = value, replyTo = null)
+        }.getOrElse {
+            ChatMessageWirePayload(text = value, replyTo = null)
         }
     }
 
