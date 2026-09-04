@@ -86,26 +86,25 @@ fun ChatScreen(
         }
     }
 
-    // Mark this exact conversation as foreground-visible so the background
-    // notification worker does not re-add its messages to unread while the
-    // user is already reading them.
+    // Keep exactly one Private Chat transport owner for the active conversation.
+    // While this screen is open, ChatViewModel owns message/receipt synchronization.
+    // The background service is resumed only after leaving the screen, preventing
+    // competing collectors from overwriting messages or receipt state in local history.
     DisposableEffect(partnerId, connected) {
         if (partnerId.isNotBlank() && connected) {
             ChatForegroundState.openPartnerId = partnerId
+            context.stopService(ChatNotificationService.stopIntent(context))
         }
         onDispose {
             if (ChatForegroundState.openPartnerId == partnerId) {
                 ChatForegroundState.openPartnerId = null
             }
-        }
-    }
-
-    LaunchedEffect(partnerId, connected) {
-        if (partnerId.isNotBlank() && connected) {
-            ContextCompat.startForegroundService(
-                context,
-                ChatNotificationService.startIntent(context)
-            )
+            if (partnerId.isNotBlank()) {
+                ContextCompat.startForegroundService(
+                    context,
+                    ChatNotificationService.startIntent(context)
+                )
+            }
         }
     }
 
