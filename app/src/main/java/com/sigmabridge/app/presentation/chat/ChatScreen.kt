@@ -49,7 +49,6 @@ import com.sigmabridge.app.data.chat.ChatForegroundState
 import com.sigmabridge.app.domain.chat.MessageDeliveryStatus
 import com.sigmabridge.app.domain.language.LanguageCatalog
 import com.sigmabridge.app.domain.model.Language
-import com.sigmabridge.app.service.ChatNotificationService
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -86,24 +85,17 @@ fun ChatScreen(
         }
     }
 
-    // Keep exactly one Private Chat transport owner for the active conversation.
-    // While this screen is open, ChatViewModel owns message/receipt synchronization.
-    // The background service is resumed only after leaving the screen, preventing
-    // competing collectors from overwriting messages or receipt state in local history.
+    // The foreground screen marks this conversation as active. The background
+    // worker remains alive for service-level work (including primary-device
+    // translation jobs), but ignores this conversation while it is open so it
+    // cannot compete with ChatViewModel for message/receipt state.
     DisposableEffect(partnerId, connected) {
         if (partnerId.isNotBlank() && connected) {
             ChatForegroundState.openPartnerId = partnerId
-            context.stopService(ChatNotificationService.stopIntent(context))
         }
         onDispose {
             if (ChatForegroundState.openPartnerId == partnerId) {
                 ChatForegroundState.openPartnerId = null
-            }
-            if (partnerId.isNotBlank()) {
-                ContextCompat.startForegroundService(
-                    context,
-                    ChatNotificationService.startIntent(context)
-                )
             }
         }
     }
