@@ -21,6 +21,12 @@ data class GetReactionsRpcParams(
 )
 
 @Serializable
+data class GetReactionContextRpcParams(
+    @SerialName("p_message_id") val messageId: String,
+    @SerialName("p_user_id") val userId: String
+)
+
+@Serializable
 data class SupabaseReactionRow(
     @SerialName("client_message_id") val clientMessageId: String,
     @SerialName("user_public_id") val userPublicId: String,
@@ -46,4 +52,10 @@ data class ReactionMessageContextRow(
 data class ReactionUserContextRow(
     @SerialName("id") val id: String,
     @SerialName("public_id") val publicId: String
+)
+
+@Serializable
+data class ReactionRealtimeContextRow(
+    @SerialName("client_message_id") val clientMessageId: String,
+    @SerialName("user_public_id") val userPublicId: String
 )
