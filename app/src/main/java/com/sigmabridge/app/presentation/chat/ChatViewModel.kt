@@ -7,6 +7,7 @@ import com.sigmabridge.app.data.chat.ChatHistoryStore
 import com.sigmabridge.app.data.chat.ChatIdentity
 import com.sigmabridge.app.data.chat.ChatLanguagePreferences
 import com.sigmabridge.app.data.chat.ChatOutboxStore
+import com.sigmabridge.app.data.chat.ChatProfileRepository
 import com.sigmabridge.app.data.chat.ChatUnreadStore
 import com.sigmabridge.app.domain.chat.ChatConversation
 import com.sigmabridge.app.domain.chat.ChatEvent
@@ -36,6 +37,7 @@ class ChatViewModel @Inject constructor(
     private val outboxStore: ChatOutboxStore,
     private val unreadStore: ChatUnreadStore,
     private val conversationStore: ChatConversationStore,
+    private val profileRepository: ChatProfileRepository,
     private val identity: ChatIdentity
 ) : ViewModel() {
     val myId: String = identity.myId
@@ -43,6 +45,8 @@ class ChatViewModel @Inject constructor(
     val partnerId: StateFlow<String> = _partnerId.asStateFlow()
     private val _conversationName = MutableStateFlow(identity.partnerId.ifBlank { "Private Chat" })
     val conversationName: StateFlow<String> = _conversationName.asStateFlow()
+    private val _partnerAvatarPath = MutableStateFlow<String?>(null)
+    val partnerAvatarPath: StateFlow<String?> = _partnerAvatarPath.asStateFlow()
     private val _messages = MutableStateFlow<List<ChatMessage>>(emptyList())
     val messages: StateFlow<List<ChatMessage>> = _messages.asStateFlow()
     private val _connected = MutableStateFlow(false)
@@ -95,16 +99,30 @@ class ChatViewModel @Inject constructor(
         }
         _messages.value = history
         _conversationName.value = existingConversation?.displayName ?: partner
+        _partnerAvatarPath.value = existingConversation?.avatarPath
         conversationStore.upsert(
             ChatConversation(
                 partnerId = partner,
                 displayName = existingConversation?.displayName ?: partner,
                 lastMessage = history.lastOrNull()?.text.orEmpty(),
-                lastMessageAt = history.lastOrNull()?.createdAt ?: existingConversation?.lastMessageAt ?: 0L
+                lastMessageAt = history.lastOrNull()?.createdAt ?: existingConversation?.lastMessageAt ?: 0L,
+                avatarPath = existingConversation?.avatarPath
             )
         )
         _error.value = null
         _connected.value = true
+
+        viewModelScope.launch {
+            profileRepository.getProfileByPublicId(partner)
+                .getOrNull()
+                ?.let { profile ->
+                    _partnerAvatarPath.value = profile.avatarPath
+                    conversationStore.upsert(
+                        conversationStore.load().firstOrNull { it.partnerId == partner }?.copy(avatarPath = profile.avatarPath)
+                            ?: ChatConversation(partnerId = partner, displayName = profile.displayName, avatarPath = profile.avatarPath)
+                    )
+                }
+        }
 
         markVisibleMessagesRead()
 
@@ -218,7 +236,8 @@ class ChatViewModel @Inject constructor(
                 partnerId = partnerId,
                 displayName = current?.displayName ?: partnerId,
                 lastMessage = lastMessage,
-                lastMessageAt = lastMessageAt
+                lastMessageAt = lastMessageAt,
+                avatarPath = current?.avatarPath
             )
         )
     }
