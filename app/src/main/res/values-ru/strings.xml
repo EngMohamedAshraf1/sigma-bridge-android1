@@ -45,4 +45,13 @@
     <string name="settings_error_bot_token_invalid">Токен бота не выглядит действительным.</string>
     <string name="settings_error_gemini_key_required">Требуется хотя бы один ключ Gemini API.</string>
     <string name="settings_error_gemini_key_invalid">Один из ключей Gemini API не выглядит действительным.</string>
+
+    <!-- Private Chat -->
+    <string name="chat_private_chat">Личный чат</string>
+    <string name="chat_back">Назад</string>
+    <string name="chat_online">В сети</string>
+    <string name="chat_connecting">Подключение…</string>
+    <string name="chat_message">Сообщение</string>
+    <string name="chat_send_message">Отправить сообщение</string>
+    <string name="chat_avatar_preview">Предпросмотр аватара</string>
 </resources>
