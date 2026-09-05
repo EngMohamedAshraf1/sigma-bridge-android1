@@ -18,6 +18,7 @@ import com.sigmabridge.app.data.chat.ChatHistoryStore
 import com.sigmabridge.app.data.chat.ChatIdentity
 import com.sigmabridge.app.data.chat.ChatNetworkState
 import com.sigmabridge.app.data.chat.ChatOutboxStore
+import com.sigmabridge.app.data.chat.ChatProfileRepository
 import com.sigmabridge.app.data.chat.ChatUnreadStore
 import com.sigmabridge.app.data.chat.SupabaseChatRepository
 import com.sigmabridge.app.domain.chat.ChatConversation
@@ -44,6 +45,7 @@ class ChatNotificationService : Service() {
     @Inject lateinit var chatRepository: ChatRepository
     @Inject lateinit var supabaseChatRepository: SupabaseChatRepository
     @Inject lateinit var chatTranslationService: ChatTranslationService
+    @Inject lateinit var chatProfileRepository: ChatProfileRepository
     @Inject lateinit var identity: ChatIdentity
     @Inject lateinit var conversationStore: ChatConversationStore
     @Inject lateinit var outboxStore: ChatOutboxStore
@@ -71,12 +73,38 @@ class ChatNotificationService : Service() {
             }
             ACTION_START -> {
                 serviceScope.coroutineContext.cancelChildren()
+                registerIdentityOnStartup()
                 observeAllChatEvents()
                 retryPendingMessages()
                 processTranslationJobs()
                 return START_STICKY
             }
             else -> return START_NOT_STICKY
+        }
+    }
+
+    /** Register the current installation independently of having a conversation/search result. */
+    private fun registerIdentityOnStartup() {
+        serviceScope.launch {
+            while (isActive) {
+                if (!networkState.isOnline()) {
+                    delay(RECONNECT_DELAY_MS)
+                    continue
+                }
+
+                val result = runCatching {
+                    chatProfileRepository.ensureIdentityRegistered()
+                }
+
+                if (result.isSuccess) return@launch
+
+                android.util.Log.e(
+                    TAG,
+                    "Private chat identity registration failed; retrying",
+                    result.exceptionOrNull()
+                )
+                delay(RECONNECT_DELAY_MS)
+            }
         }
     }
 
