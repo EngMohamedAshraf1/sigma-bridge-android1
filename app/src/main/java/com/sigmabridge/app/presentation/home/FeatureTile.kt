@@ -1,5 +1,7 @@
 package com.sigmabridge.app.presentation.home
 
+import androidx.annotation.StringRes
+import com.sigmabridge.app.R
 import com.sigmabridge.app.domain.model.TranslationMode
 
 /**
@@ -9,34 +11,34 @@ import com.sigmabridge.app.domain.model.TranslationMode
  */
 data class FeatureTile(
     val mode: TranslationMode,
-    val title: String,
-    val subtitle: String,
+    @StringRes val titleRes: Int,
+    @StringRes val subtitleRes: Int,
     val isEnabled: Boolean
 )
 
 val FEATURE_TILES: List<FeatureTile> = listOf(
     FeatureTile(
         mode = TranslationMode.VOICE,
-        title = "Voice Bridge",
-        subtitle = "Russian voice \u2192 Arabic text via Telegram",
+        titleRes = R.string.feature_voice_bridge,
+        subtitleRes = R.string.feature_voice_bridge_subtitle,
         isEnabled = true
     ),
     FeatureTile(
         mode = TranslationMode.OCR,
-        title = "OCR",
-        subtitle = "Coming soon",
+        titleRes = R.string.feature_ocr,
+        subtitleRes = R.string.feature_coming_soon,
         isEnabled = false
     ),
     FeatureTile(
         mode = TranslationMode.PHOTO,
-        title = "Photos",
-        subtitle = "Coming soon",
+        titleRes = R.string.feature_photos,
+        subtitleRes = R.string.feature_coming_soon,
         isEnabled = false
     ),
     FeatureTile(
         mode = TranslationMode.PDF,
-        title = "PDF",
-        subtitle = "Coming soon",
+        titleRes = R.string.feature_pdf,
+        subtitleRes = R.string.feature_coming_soon,
         isEnabled = false
     )
 )
