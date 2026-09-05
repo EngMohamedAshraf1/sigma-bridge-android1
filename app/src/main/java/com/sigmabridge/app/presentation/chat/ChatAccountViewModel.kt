@@ -46,8 +46,8 @@ class ChatAccountViewModel @Inject constructor(
             _state.value = _state.value.copy(busy = true, error = null, message = null)
 
             googleSignInManager.signIn(activity)
-                .onSuccess { idToken ->
-                    accountRepository.signInWithGoogleIdToken(idToken)
+                .onSuccess { credentials ->
+                    accountRepository.signInWithGoogleIdToken(credentials)
                         .onSuccess {
                             _state.value = _state.value.copy(
                                 loading = false,
@@ -97,6 +97,8 @@ class ChatAccountViewModel @Inject constructor(
     private fun friendlyError(error: Throwable): String = when {
         error.message?.contains("GOOGLE_ID_TOKEN_REQUIRED", true) == true ->
             "لم يصل رمز Google. حاول مرة أخرى."
+        error.message?.contains("GOOGLE_NONCE_REQUIRED", true) == true ->
+            "فشل التحقق الأمني لتسجيل Google. حاول مرة أخرى."
         else -> error.message ?: "تعذر تسجيل الدخول باستخدام Google."
     }
 }
