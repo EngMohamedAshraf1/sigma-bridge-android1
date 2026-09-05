@@ -68,6 +68,7 @@ import com.sigmabridge.app.domain.chat.ChatConversation
 import com.sigmabridge.app.service.ChatNotificationService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.net.URL
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -293,8 +294,8 @@ private fun ProfileDialog(
         if (uri == null) return@rememberLauncherForActivityResult
         val bytes = runCatching {
             context.contentResolver.openInputStream(uri)?.use { input -> input.readBytes() }
-        }.getOrNull()
-        if (bytes.isNullOrEmpty()) return@rememberLauncherForActivityResult
+        }.getOrNull() ?: return@rememberLauncherForActivityResult
+        if (bytes.isEmpty()) return@rememberLauncherForActivityResult
         val extension = when (context.contentResolver.getType(uri)?.lowercase(Locale.ROOT)) {
             "image/png" -> "png"
             "image/webp" -> "webp"
@@ -508,7 +509,11 @@ private fun ConversationRow(
 }
 
 @Composable
-private fun RemoteChatAvatar(name: String, avatarPath: String?, modifier: Modifier = Modifier.size(52.dp)) {
+private fun RemoteChatAvatar(
+    name: String,
+    avatarPath: String?,
+    modifier: Modifier
+) {
     val bitmap by produceState<android.graphics.Bitmap?>(initialValue = null, avatarPath) {
         value = if (avatarPath.isNullOrBlank()) {
             null
@@ -516,19 +521,21 @@ private fun RemoteChatAvatar(name: String, avatarPath: String?, modifier: Modifi
             withContext(Dispatchers.IO) {
                 runCatching {
                     val url = BuildConfig.SUPABASE_URL.trimEnd('/') + "/storage/v1/object/public/chat_avatars/" + avatarPath
-                    java.net.URL(url).openStream().use { BitmapFactory.decodeStream(it) }
+                    URL(url).openStream().use { BitmapFactory.decodeStream(it) }
                 }.getOrNull()
             }
         }
     }
 
     if (bitmap != null) {
-        Image(
-            bitmap = bitmap!!.asImageBitmap(),
-            contentDescription = name,
-            modifier = modifier,
-            contentScale = androidx.compose.ui.layout.ContentScale.Crop
-        )
+        Surface(modifier = modifier, shape = CircleShape) {
+            Image(
+                bitmap = bitmap!!.asImageBitmap(),
+                contentDescription = name,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = androidx.compose.ui.layout.ContentScale.Crop
+            )
+        }
     } else {
         Surface(
             modifier = modifier,
