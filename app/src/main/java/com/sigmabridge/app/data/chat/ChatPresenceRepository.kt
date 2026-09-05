@@ -2,7 +2,9 @@ package com.sigmabridge.app.data.chat
 
 import io.github.jan.supabase.SupabaseClient
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.flow
 import kotlinx.serialization.Serializable
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -13,6 +15,12 @@ data class ChatPresencePayload(
     val onlineAt: Long
 )
 
+data class ChatPresenceUpdate(
+    val publicId: String,
+    val online: Boolean,
+    val timestamp: Long
+)
+
 @Singleton
 class ChatPresenceRepository @Inject constructor(
     private val supabase: SupabaseClient
@@ -21,7 +29,7 @@ class ChatPresenceRepository @Inject constructor(
         channelName: String,
         ownPublicId: String,
         blockUntilJoined: Boolean = true
-    ): Flow<ChatPresencePayload> {
+    ): Flow<ChatPresenceUpdate> {
         val topic = channelName.trim()
         if (topic.isBlank() || ownPublicId.isBlank()) return emptyFlow()
 
@@ -32,7 +40,7 @@ class ChatPresenceRepository @Inject constructor(
         }
         val changes = channel.presenceChangeFlow()
 
-        return kotlinx.coroutines.flow.flow {
+        return flow {
             try {
                 supabase.realtime.connect()
                 if (blockUntilJoined) {
@@ -50,7 +58,27 @@ class ChatPresenceRepository @Inject constructor(
                 changes.collect { action ->
                     action.decodeJoinsAs<ChatPresencePayload>()
                         .filter { it.publicId != ownPublicId }
-                        .forEach { emit(it) }
+                        .forEach { payload ->
+                            emit(
+                                ChatPresenceUpdate(
+                                    publicId = payload.publicId,
+                                    online = true,
+                                    timestamp = payload.onlineAt
+                                )
+                            )
+                        }
+
+                    action.decodeLeavesAs<ChatPresencePayload>()
+                        .filter { it.publicId != ownPublicId }
+                        .forEach { payload ->
+                            emit(
+                                ChatPresenceUpdate(
+                                    publicId = payload.publicId,
+                                    online = false,
+                                    timestamp = System.currentTimeMillis()
+                                )
+                            )
+                        }
                 }
             } finally {
                 runCatching { channel.untrack() }
