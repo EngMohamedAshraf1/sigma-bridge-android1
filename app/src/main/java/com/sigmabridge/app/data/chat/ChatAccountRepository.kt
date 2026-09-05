@@ -16,18 +16,18 @@ class ChatAccountRepository @Inject constructor(
     private val supabase: SupabaseClient
 ) {
     fun isAuthenticated(): Boolean {
-        val user = supabase.auth.currentUserOrNull() ?: return false
+        val user = supabase.gotrue.currentUserOrNull() ?: return false
         return !user.isAnonymous
     }
 
     fun isAnonymousSession(): Boolean =
-        supabase.auth.currentUserOrNull()?.isAnonymous == true
+        supabase.gotrue.currentUserOrNull()?.isAnonymous == true
 
-    fun currentEmail(): String? = supabase.auth.currentUserOrNull()?.email
+    fun currentEmail(): String? = supabase.gotrue.currentUserOrNull()?.email
 
     suspend fun startAnonymousAccount(): Result<Unit> = runCatching {
-        if (supabase.auth.currentUserOrNull() == null) {
-            supabase.auth.signInAnonymously()
+        if (supabase.gotrue.currentUserOrNull() == null) {
+            supabase.gotrue.signInAnonymously()
         }
     }
 
@@ -35,7 +35,7 @@ class ChatAccountRepository @Inject constructor(
         require(isAnonymousSession()) { "ANONYMOUS_ACCOUNT_REQUIRED" }
         val normalized = email.trim().lowercase()
         require(normalized.isNotBlank()) { "EMAIL_REQUIRED" }
-        supabase.auth.updateUser {
+        supabase.gotrue.updateUser {
             this.email = normalized
         }
     }
@@ -44,7 +44,7 @@ class ChatAccountRepository @Inject constructor(
         val normalized = email.trim().lowercase()
         require(normalized.isNotBlank()) { "EMAIL_REQUIRED" }
         require(password.isNotBlank()) { "PASSWORD_REQUIRED" }
-        supabase.auth.signInWith(Email) {
+        supabase.gotrue.loginWith(Email) {
             this.email = normalized
             this.password = password
         }
@@ -54,17 +54,17 @@ class ChatAccountRepository @Inject constructor(
     suspend fun setPassword(password: String): Result<Unit> = runCatching {
         require(isAuthenticated()) { "ACCOUNT_NOT_VERIFIED" }
         require(password.length >= 8) { "PASSWORD_TOO_SHORT" }
-        supabase.auth.updateUser {
+        supabase.gotrue.updateUser {
             this.password = password
         }
     }
 
     suspend fun refreshAccountState(): Result<Boolean> = runCatching {
-        val user = supabase.auth.retrieveUserForCurrentSession(updateSession = true)
+        val user = supabase.gotrue.retrieveUserForCurrentSession(updateSession = true)
         !user.isAnonymous
     }
 
     suspend fun signOut() {
-        supabase.auth.signOut()
+        supabase.gotrue.logout()
     }
 }
