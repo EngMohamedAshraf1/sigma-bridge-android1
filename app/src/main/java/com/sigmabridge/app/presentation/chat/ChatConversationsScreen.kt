@@ -1,8 +1,5 @@
 package com.sigmabridge.app.presentation.chat
 
-import android.content.ClipData
-import android.content.ClipboardManager
-import android.content.Context
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -24,6 +21,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -33,7 +31,6 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -44,10 +41,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.sigmabridge.app.data.chat.ChatProfile
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -60,9 +57,15 @@ fun ChatConversationsScreen(
     viewModel: ChatConversationsViewModel = hiltViewModel()
 ) {
     val conversations by viewModel.conversations.collectAsState()
-    val context = LocalContext.current
-    var showAdd by remember { mutableStateOf(false) }
-    var showMyId by remember { mutableStateOf(false) }
+    val profile by viewModel.profile.collectAsState()
+    val profileBusy by viewModel.profileBusy.collectAsState()
+    val profileError by viewModel.profileError.collectAsState()
+    val searchResults by viewModel.searchResults.collectAsState()
+    val searchBusy by viewModel.searchBusy.collectAsState()
+    val searchError by viewModel.searchError.collectAsState()
+
+    var showProfile by remember { mutableStateOf(false) }
+    var showNewChat by remember { mutableStateOf(false) }
     var search by remember { mutableStateOf("") }
 
     LaunchedEffect(Unit) { viewModel.refresh() }
@@ -86,19 +89,20 @@ fun ChatConversationsScreen(
                     }
                 },
                 actions = {
-                    IconButton(onClick = { showMyId = true }) {
-                        Icon(Icons.Filled.Person, contentDescription = "My Sigma Bridge ID")
+                    IconButton(onClick = { showProfile = true }) {
+                        Icon(Icons.Filled.Person, contentDescription = "My profile")
                     }
-                    IconButton(onClick = { showAdd = true }) {
+                    IconButton(onClick = {
+                        viewModel.clearSearch()
+                        showNewChat = true
+                    }) {
                         Icon(Icons.Filled.Add, contentDescription = "New chat")
                     }
                 }
             )
         }
     ) { padding ->
-        Column(
-            modifier = Modifier.fillMaxSize().padding(padding)
-        ) {
+        Column(modifier = Modifier.fillMaxSize().padding(padding)) {
             OutlinedTextField(
                 value = search,
                 onValueChange = { search = it },
@@ -117,12 +121,12 @@ fun ChatConversationsScreen(
                         )
                         if (conversations.isEmpty()) {
                             Text(
-                                text = "Add a partner ID to start your first chat.",
+                                text = "Search for someone by username to start a chat.",
                                 modifier = Modifier.padding(top = 6.dp),
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
-                            Button(onClick = { showAdd = true }, modifier = Modifier.padding(top = 16.dp)) {
-                                Text("Start a chat")
+                            Button(onClick = { showNewChat = true }, modifier = Modifier.padding(top = 16.dp)) {
+                                Text("Find a person")
                             }
                         }
                     }
@@ -148,59 +152,148 @@ fun ChatConversationsScreen(
         }
     }
 
-    if (showAdd) {
-        AddConversationDialog(
-            onDismiss = { showAdd = false },
-            onAdd = { id, name ->
-                val added = viewModel.addConversation(id, name)
-                if (added) {
-                    showAdd = false
+    if (showProfile) {
+        ProfileDialog(
+            profile = profile,
+            busy = profileBusy,
+            error = profileError,
+            onDismiss = { showProfile = false },
+            onSave = { first, last, username ->
+                viewModel.saveProfile(first, last, username) { showProfile = false }
+            }
+        )
+    }
+
+    if (showNewChat) {
+        NewChatDialog(
+            results = searchResults,
+            busy = searchBusy,
+            error = searchError,
+            onDismiss = { showNewChat = false },
+            onSearch = viewModel::searchUsers,
+            onSelect = { person ->
+                if (viewModel.addProfileToConversation(person)) {
+                    showNewChat = false
                     onOpenChat()
                 }
             }
         )
     }
-
-    if (showMyId) {
-        MyIdDialog(
-            myId = viewModel.myId,
-            context = context,
-            onDismiss = { showMyId = false }
-        )
-    }
 }
 
 @Composable
-private fun MyIdDialog(
-    myId: String,
-    context: Context,
-    onDismiss: () -> Unit
+private fun ProfileDialog(
+    profile: ChatProfile?,
+    busy: Boolean,
+    error: String?,
+    onDismiss: () -> Unit,
+    onSave: (String, String, String) -> Unit
 ) {
+    var firstName by remember(profile) { mutableStateOf(profile?.firstName.orEmpty()) }
+    var lastName by remember(profile) { mutableStateOf(profile?.lastName.orEmpty()) }
+    var username by remember(profile) { mutableStateOf(profile?.username.orEmpty()) }
+
     AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Your Sigma Bridge ID") },
+        onDismissRequest = { if (!busy) onDismiss() },
+        title = { Text("My profile") },
         text = {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(
-                    text = myId,
-                    style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.padding(vertical = 8.dp)
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedTextField(
+                    value = firstName,
+                    onValueChange = { firstName = it },
+                    label = { Text("First name") },
+                    singleLine = true
                 )
-                Text(
-                    text = "Give this ID to someone who wants to start a private chat with you.",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                OutlinedTextField(
+                    value = lastName,
+                    onValueChange = { lastName = it },
+                    label = { Text("Last name") },
+                    singleLine = true
                 )
+                OutlinedTextField(
+                    value = username,
+                    onValueChange = { username = it.lowercase(Locale.ROOT).replace(" ", "_") },
+                    label = { Text("Username") },
+                    placeholder = { Text("example_name") },
+                    prefix = { Text("@") },
+                    singleLine = true,
+                    supportingText = { Text("3–24: lowercase English letters, numbers and _") }
+                )
+                error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             }
         },
         confirmButton = {
-            TextButton(onClick = {
-                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                clipboard.setPrimaryClip(ClipData.newPlainText("Sigma Bridge ID", myId))
-                onDismiss()
-            }) {
-                Text("Copy")
+            Button(
+                onClick = { onSave(firstName, lastName, username) },
+                enabled = !busy && username.length >= 3
+            ) {
+                if (busy) CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                else Text("Save")
             }
         },
+        dismissButton = {
+            OutlinedButton(onClick = onDismiss, enabled = !busy) { Text("Close") }
+        }
+    )
+}
+
+@Composable
+private fun NewChatDialog(
+    results: List<ChatProfile>,
+    busy: Boolean,
+    error: String?,
+    onDismiss: () -> Unit,
+    onSearch: (String) -> Unit,
+    onSelect: (ChatProfile) -> Unit
+) {
+    var query by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Find someone") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = {
+                        query = it.removePrefix("@").lowercase(Locale.ROOT)
+                        onSearch(query)
+                    },
+                    label = { Text("Username") },
+                    placeholder = { Text("@username") },
+                    prefix = { Text("@") },
+                    singleLine = true
+                )
+
+                if (busy) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+                    }
+                }
+
+                error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+
+                results.forEach { person ->
+                    Card(
+                        modifier = Modifier.fillMaxWidth().clickable { onSelect(person) },
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                    ) {
+                        Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
+                            Text(person.displayName, style = MaterialTheme.typography.titleMedium)
+                            person.username?.let { Text("@$it", color = MaterialTheme.colorScheme.primary) }
+                        }
+                    }
+                }
+
+                if (!busy && query.length >= 2 && results.isEmpty() && error == null) {
+                    Text("No users found.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        },
+        confirmButton = {},
         dismissButton = {
             OutlinedButton(onClick = onDismiss) { Text("Close") }
         }
@@ -227,10 +320,7 @@ private fun ConversationRow(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Box(
-                modifier = Modifier.size(52.dp),
-                contentAlignment = Alignment.Center
-            ) {
+            Box(modifier = Modifier.size(52.dp), contentAlignment = Alignment.Center) {
                 Card(
                     modifier = Modifier.size(52.dp),
                     shape = MaterialTheme.shapes.extraLarge,
@@ -265,7 +355,7 @@ private fun ConversationRow(
                 }
                 Row(modifier = Modifier.padding(top = 3.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        text = conversation.lastMessage.ifBlank { conversation.partnerId },
+                        text = conversation.lastMessage.ifBlank { "Private chat" },
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.weight(1f),
@@ -336,47 +426,6 @@ private fun ConversationRow(
             }
         )
     }
-}
-
-@Composable
-private fun AddConversationDialog(
-    onDismiss: () -> Unit,
-    onAdd: (String, String) -> Unit
-) {
-    var partnerId by remember { mutableStateOf("") }
-    var name by remember { mutableStateOf("") }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("New private chat") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedTextField(
-                    value = partnerId,
-                    onValueChange = { partnerId = it },
-                    label = { Text("Partner ID") },
-                    placeholder = { Text("SB-XXXXXX-XXXXXX-XXXXXX") },
-                    singleLine = true
-                )
-                OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it },
-                    label = { Text("Name (optional)") },
-                    placeholder = { Text("Lidia") },
-                    singleLine = true
-                )
-            }
-        },
-        confirmButton = {
-            Button(
-                onClick = { onAdd(partnerId, name) },
-                enabled = partnerId.isNotBlank()
-            ) { Text("Start chat") }
-        },
-        dismissButton = {
-            OutlinedButton(onClick = onDismiss) { Text("Cancel") }
-        }
-    )
 }
 
 private fun formatConversationTime(timeMillis: Long): String {
