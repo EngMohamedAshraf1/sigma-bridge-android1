@@ -7,8 +7,6 @@ import com.sigmabridge.app.data.chat.ChatHistoryStore
 import com.sigmabridge.app.data.chat.ChatIdentity
 import com.sigmabridge.app.data.chat.ChatLanguagePreferences
 import com.sigmabridge.app.data.chat.ChatOutboxStore
-import com.sigmabridge.app.data.chat.ChatPresenceRepository
-import com.sigmabridge.app.data.chat.ChatPresenceStore
 import com.sigmabridge.app.data.chat.ChatProfileRepository
 import com.sigmabridge.app.data.chat.ChatUnreadStore
 import com.sigmabridge.app.domain.chat.ChatConversation
@@ -40,9 +38,7 @@ class ChatViewModel @Inject constructor(
     private val unreadStore: ChatUnreadStore,
     private val conversationStore: ChatConversationStore,
     private val profileRepository: ChatProfileRepository,
-    private val identity: ChatIdentity,
-    private val presenceRepository: ChatPresenceRepository,
-    private val presenceStore: ChatPresenceStore
+    private val identity: ChatIdentity
 ) : ViewModel() {
     val myId: String = identity.myId
     private val _partnerId = MutableStateFlow(identity.partnerId)
@@ -55,10 +51,6 @@ class ChatViewModel @Inject constructor(
     val messages: StateFlow<List<ChatMessage>> = _messages.asStateFlow()
     private val _connected = MutableStateFlow(false)
     val connected: StateFlow<Boolean> = _connected.asStateFlow()
-    private val _partnerOnline = MutableStateFlow(false)
-    val partnerOnline: StateFlow<Boolean> = _partnerOnline.asStateFlow()
-    private val _partnerLastSeen = MutableStateFlow(0L)
-    val partnerLastSeen: StateFlow<Long> = _partnerLastSeen.asStateFlow()
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error.asStateFlow()
     private val _translationTargetLanguage = MutableStateFlow(chatLanguagePreferences.getTargetLanguage())
@@ -67,7 +59,6 @@ class ChatViewModel @Inject constructor(
     private var currentTopic: String? = null
     private var currentHistoryKey: String? = null
     private var statusSyncJob: Job? = null
-    private var presenceJob: Job? = null
     private val readReceiptSentIds = mutableSetOf<String>()
 
     init { if (_partnerId.value.isNotBlank()) connect() }
@@ -95,7 +86,6 @@ class ChatViewModel @Inject constructor(
         }
         if (currentTopic == topic && _connected.value) return
         statusSyncJob?.cancel()
-        presenceJob?.cancel()
         readReceiptSentIds.clear()
         currentTopic = topic
         currentHistoryKey = identity.conversationKey().joinToString("") { "%02x".format(it) }
@@ -110,8 +100,6 @@ class ChatViewModel @Inject constructor(
         _messages.value = history
         _conversationName.value = existingConversation?.displayName ?: partner
         _partnerAvatarPath.value = existingConversation?.avatarPath
-        _partnerOnline.value = false
-        _partnerLastSeen.value = presenceStore.getLastSeen(partner)
         conversationStore.upsert(
             ChatConversation(
                 partnerId = partner,
@@ -134,25 +122,6 @@ class ChatViewModel @Inject constructor(
                             ?: ChatConversation(partnerId = partner, displayName = profile.displayName, avatarPath = profile.avatarPath)
                     )
                 }
-        }
-
-        presenceJob = viewModelScope.launch {
-            runCatching {
-                presenceRepository.observe(
-                    channelName = "sigma_presence_$historyKey",
-                    ownPublicId = myId
-                ).collect { update ->
-                    if (update.publicId != partner) return@collect
-                    _partnerOnline.value = update.online
-                    if (!update.online) {
-                        val seenAt = update.timestamp
-                        if (seenAt > 0L) {
-                            presenceStore.setLastSeen(partner, seenAt)
-                            _partnerLastSeen.value = seenAt
-                        }
-                    }
-                }
-            }
         }
 
         markVisibleMessagesRead()
@@ -292,12 +261,9 @@ class ChatViewModel @Inject constructor(
     fun disconnect() {
         statusSyncJob?.cancel()
         statusSyncJob = null
-        presenceJob?.cancel()
-        presenceJob = null
         currentTopic = null
         currentHistoryKey = null
         _connected.value = false
-        _partnerOnline.value = false
         readReceiptSentIds.clear()
     }
 
