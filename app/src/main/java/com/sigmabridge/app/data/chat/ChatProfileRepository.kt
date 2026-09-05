@@ -13,7 +13,7 @@ class ChatProfileRepository @Inject constructor(
     private val identity: ChatIdentity
 ) {
     suspend fun getMyProfile(): Result<ChatProfile?> = runCatching {
-        sessionManager.ensureAnonymousSession().getOrThrow()
+        ensureIdentityRegistered()
         supabase.postgrest.rpc("sigma_get_my_profile")
             .decodeList<ChatProfile>()
             .firstOrNull()
@@ -24,7 +24,7 @@ class ChatProfileRepository @Inject constructor(
         lastName: String,
         username: String
     ): Result<ChatProfile> = runCatching {
-        sessionManager.ensureAnonymousSession().getOrThrow()
+        ensureIdentityRegistered()
         supabase.postgrest.rpc(
             "sigma_update_profile",
             UpdateChatProfileRpcParams(
@@ -38,10 +38,39 @@ class ChatProfileRepository @Inject constructor(
     }
 
     suspend fun searchUsers(query: String): Result<List<ChatProfile>> = runCatching {
-        sessionManager.ensureAnonymousSession().getOrThrow()
+        ensureIdentityRegistered()
         supabase.postgrest.rpc(
             "sigma_search_users",
             SearchChatUsersRpcParams(query.trim().lowercase())
         ).decodeList<ChatProfile>()
+    }
+
+    private suspend fun ensureIdentityRegistered() {
+        sessionManager.ensureAnonymousSession().getOrThrow()
+
+        for (attempt in 0 until 2) {
+            try {
+                supabase.postgrest.rpc(
+                    "sigma_register_device",
+                    RegisterDeviceRpcParams(
+                        publicId = identity.myId,
+                        devicePublicId = identity.devicePublicId,
+                        identityPublicKey = identity.legacyIdentityKey
+                    )
+                ).decodeList<RegisterDeviceRpcResult>().firstOrNull()
+                    ?: error("Supabase device registration returned no device.")
+                return
+            } catch (error: Throwable) {
+                val isPublicIdConflict = error.message
+                    ?.contains("PUBLIC_ID_ALREADY_IN_USE", ignoreCase = true) == true
+                if (attempt == 0 && isPublicIdConflict) {
+                    identity.regenerateMyId()
+                    continue
+                }
+                throw error
+            }
+        }
+
+        error("Supabase identity registration failed after recovery.")
     }
 }
