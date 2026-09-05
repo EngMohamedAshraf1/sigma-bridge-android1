@@ -3,6 +3,7 @@ package com.sigmabridge.app.data.chat
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.rpc
+import io.github.jan.supabase.storage.storage
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -17,6 +18,14 @@ class ChatProfileRepository @Inject constructor(
         supabase.postgrest.rpc("sigma_get_my_profile")
             .decodeList<ChatProfile>()
             .firstOrNull()
+    }
+
+    suspend fun getProfileByPublicId(publicId: String): Result<ChatProfile?> = runCatching {
+        ensureIdentityRegistered()
+        supabase.postgrest.rpc(
+            "sigma_get_profile_by_public_id",
+            GetChatProfileByPublicIdRpcParams(publicId)
+        ).decodeList<ChatProfile>().firstOrNull()
     }
 
     suspend fun updateProfile(
@@ -35,6 +44,24 @@ class ChatProfileRepository @Inject constructor(
             )
         ).decodeList<ChatProfile>().firstOrNull()
             ?: error("Profile update returned no profile.")
+    }
+
+    suspend fun uploadAvatar(bytes: ByteArray, extension: String): Result<ChatProfile> = runCatching {
+        ensureIdentityRegistered()
+        require(bytes.isNotEmpty()) { "AVATAR_EMPTY" }
+        require(bytes.size <= 5 * 1024 * 1024) { "AVATAR_TOO_LARGE" }
+
+        val safeExtension = extension.lowercase().let {
+            if (it in setOf("jpg", "jpeg", "png", "webp")) it else "jpg"
+        }
+        val path = "${supabase.auth.currentUserOrNull()?.id ?: error("AUTH_REQUIRED")}/avatar.$safeExtension"
+        supabase.storage["chat_avatars"].upload(path, bytes, upsert = true)
+
+        supabase.postgrest.rpc(
+            "sigma_update_avatar",
+            UpdateChatAvatarRpcParams(path)
+        ).decodeList<ChatProfile>().firstOrNull()
+            ?: error("Avatar update returned no profile.")
     }
 
     suspend fun searchUsers(query: String): Result<List<ChatProfile>> = runCatching {
