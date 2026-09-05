@@ -38,13 +38,6 @@ import com.sigmabridge.app.domain.model.GeminiKeyStatus
 import com.sigmabridge.app.domain.usecase.SettingsValidationError
 import kotlinx.coroutines.launch
 
-/**
- * Still deliberately plain (Phase 2 note applies): fields + buttons + error
- * text, no cards, no animation. The colored status indicators are emoji
- * glyphs rendered as plain Text - no icon library beyond what the project
- * already depends on (material-icons-core, used here only for the trash
- * icon, same as Icons.Filled.Settings already used on Home).
- */
 @Composable
 fun SettingsScreen(viewModel: SettingsViewModel = androidx.hilt.navigation.compose.hiltViewModel()) {
     val uiState by viewModel.uiState.collectAsState()
@@ -169,7 +162,6 @@ fun SettingsScreen(viewModel: SettingsViewModel = androidx.hilt.navigation.compo
     }
 }
 
-/** Not yet saved / no live status observed for the current text -> a neutral indicator, never a fabricated real status. */
 private fun GeminiKeyStatus?.toIndicator(): String = when (this) {
     GeminiKeyStatus.ACTIVE -> "\uD83D\uDFE2"
     GeminiKeyStatus.READY -> "\uD83D\uDFE1"
@@ -177,6 +169,10 @@ private fun GeminiKeyStatus?.toIndicator(): String = when (this) {
     GeminiKeyStatus.INVALID -> "\u26AB"
     null -> "\u26AA"
 }
+
+private fun SettingsValidationError.isBotTokenError(): Boolean =
+    this == SettingsValidationError.BOT_TOKEN_EMPTY ||
+        this == SettingsValidationError.BOT_TOKEN_INVALID_FORMAT
 
 @Composable
 private fun SettingsValidationError.toMessage(): String = when (this) {
