@@ -2,6 +2,7 @@ package com.sigmabridge.app.data.chat
 
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.gotrue.Auth
+import io.github.jan.supabase.gotrue.OtpType
 import io.github.jan.supabase.gotrue.providers.builtin.OTP
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -24,7 +25,7 @@ class ChatAccountRepository @Inject constructor(
         auth.awaitInitialization()
     }
 
-    fun isAuthenticated(): Boolean = auth.currentUserOrNull() != null
+    fun isAuthenticated(): Boolean = auth.currentUserOrNull()?.email != null
 
     fun currentUserId(): String? = auth.currentUserOrNull()?.id
 
@@ -36,11 +37,17 @@ class ChatAccountRepository @Inject constructor(
         require(normalized.isNotBlank()) { "EMAIL_REQUIRED" }
         require(normalized.contains("@") && normalized.length >= 5) { "INVALID_EMAIL" }
 
-        // Supabase sends a passwordless email. With the default template this is
-        // a magic link; once a custom OTP template is enabled, the same API can
-        // deliver a 6-digit code without changing the rest of the chat flow.
+        // Drop a legacy anonymous session from older app builds so the new
+        // passwordless account flow always starts from a clean Auth session.
+        if (auth.currentUserOrNull()?.email == null) {
+            auth.signOut()
+        }
+
+        // With the default Supabase email template this sends a magic link.
+        // When the template is later changed to {{ .Token }}, this same API
+        // becomes a six-digit email OTP flow without changing the chat model.
         auth.signInWith(OTP) {
-            email = normalized
+            this.email = normalized
         }
     }
 
@@ -51,7 +58,7 @@ class ChatAccountRepository @Inject constructor(
         require(token.isNotBlank()) { "OTP_REQUIRED" }
 
         auth.verifyEmailOtp(
-            type = io.github.jan.supabase.gotrue.OtpType.Email.EMAIL,
+            type = OtpType.Email.EMAIL,
             email = normalized,
             token = token.trim()
         )
