@@ -22,4 +22,27 @@
     <string name="feature_photos">الصور</string>
     <string name="feature_pdf">PDF</string>
     <string name="feature_coming_soon">قريبًا</string>
+
+    <!-- Settings -->
+    <string name="settings_telegram_bot_token">رمز بوت تيليجرام</string>
+    <string name="settings_gemini_api_keys">مفاتيح Gemini API</string>
+    <string name="settings_key_number">المفتاح %1$d</string>
+    <string name="settings_delete_key_number">حذف المفتاح %1$d</string>
+    <string name="settings_add_key">➕ إضافة مفتاح</string>
+    <string name="settings_configured_keys">المفاتيح المُعدّة: %1$d</string>
+    <string name="settings_active">🟢 نشط: %1$d</string>
+    <string name="settings_ready">🟡 جاهز: %1$d</string>
+    <string name="settings_quota_exceeded">🔴 تجاوز الحصة: %1$d</string>
+    <string name="settings_invalid">⚫ غير صالح: %1$d</string>
+    <string name="settings_saved">تم الحفظ</string>
+    <string name="settings_save">حفظ</string>
+    <string name="settings_checking">جارٍ التحقق...</string>
+    <string name="settings_check_for_updates">التحقق من التحديثات</string>
+    <string name="settings_update_available">يتوفر تحديث: v%1$s</string>
+    <string name="settings_latest_version">أنت تستخدم أحدث إصدار (v%1$s).</string>
+    <string name="settings_update_check_failed">تعذر التحقق من التحديثات. حاول مرة أخرى.</string>
+    <string name="settings_error_bot_token_required">رمز البوت مطلوب.</string>
+    <string name="settings_error_bot_token_invalid">رمز البوت لا يبدو صالحًا.</string>
+    <string name="settings_error_gemini_key_required">مطلوب مفتاح Gemini API واحد على الأقل.</string>
+    <string name="settings_error_gemini_key_invalid">أحد مفاتيح Gemini API لا يبدو صالحًا.</string>
 </resources>
