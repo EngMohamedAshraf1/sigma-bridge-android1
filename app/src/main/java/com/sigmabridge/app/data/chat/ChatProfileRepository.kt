@@ -59,8 +59,11 @@ class ChatProfileRepository @Inject constructor(
             if (it in setOf("jpg", "jpeg", "png", "webp")) it else "jpg"
         }
         val userId = auth.currentUserOrNull()?.id ?: error("AUTH_REQUIRED")
-        val path = "$userId/avatar.$safeExtension"
-        supabase.storage["chat_avatars"].upload(path, bytes, upsert = true)
+        val path = "$userId/avatar_${System.currentTimeMillis()}.$safeExtension"
+
+        // Use a fresh object path so an avatar change is always an INSERT.
+        // This avoids an UPDATE request that can hit Storage RLS during upsert.
+        supabase.storage["chat_avatars"].upload(path, bytes, upsert = false)
 
         supabase.postgrest.rpc(
             "sigma_update_avatar",
