@@ -5,7 +5,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.background
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -33,7 +33,6 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -46,8 +45,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
@@ -56,6 +56,7 @@ import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.sigmabridge.app.R
 import com.sigmabridge.app.data.chat.ChatForegroundState
 import com.sigmabridge.app.domain.chat.MessageDeliveryStatus
 import com.sigmabridge.app.domain.language.LanguageCatalog
@@ -75,7 +76,6 @@ fun ChatScreen(
     val conversationName by viewModel.conversationName.collectAsState()
     val partnerId by viewModel.partnerId.collectAsState()
     val error by viewModel.error.collectAsState()
-    val translationTarget by viewModel.translationTargetLanguage.collectAsState()
     val context = androidx.compose.ui.platform.LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val listState = rememberLazyListState()
@@ -153,8 +153,8 @@ fun ChatScreen(
                 },
                 actions = {
                     Box {
-                        TextButton(onClick = { languageMenuExpanded = true }) {
-                            Text("A/文")
+                        IconButton(onClick = { languageMenuExpanded = true }) {
+                            Text("A/文", color = MaterialTheme.colorScheme.onSurface)
                         }
                         DropdownMenu(
                             expanded = languageMenuExpanded,
@@ -180,130 +180,137 @@ fun ChatScreen(
             )
         }
     ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        listOf(
-                            MaterialTheme.colorScheme.surface,
-                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.38f)
-                        )
-                    )
-                )
-                .padding(padding)
-                .imePadding()
-        ) {
-            error?.let {
-                Surface(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
-                    shape = RoundedCornerShape(14.dp),
-                    color = MaterialTheme.colorScheme.errorContainer
-                ) {
-                    Text(
-                        text = it,
-                        color = MaterialTheme.colorScheme.onErrorContainer,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp)
-                    )
-                }
-            }
+        Box(modifier = Modifier.fillMaxSize()) {
+            Image(
+                painter = painterResource(id = R.drawable.sigma_chat_background),
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop,
+                alpha = 0.30f
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.White.copy(alpha = 0.52f))
+            )
 
-            LazyColumn(
-                state = listState,
-                modifier = Modifier.fillMaxWidth().weight(1f).padding(horizontal = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+                    .imePadding()
             ) {
-                items(messages, key = { it.id }) { message ->
-                    val mine = message.senderId == viewModel.ownSenderId
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start
+                error?.let {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        color = MaterialTheme.colorScheme.errorContainer
                     ) {
-                        Surface(
-                            modifier = Modifier.widthIn(max = 300.dp),
-                            shape = if (mine) RoundedCornerShape(18.dp, 18.dp, 5.dp, 18.dp) else RoundedCornerShape(18.dp, 18.dp, 18.dp, 5.dp),
-                            color = if (mine) Color(0xFFE1F2FF) else Color.White,
-                            tonalElevation = 1.dp,
-                            shadowElevation = 1.dp
+                        Text(
+                            text = it,
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp)
+                        )
+                    }
+                }
+
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxWidth().weight(1f).padding(horizontal = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    items(messages, key = { it.id }) { message ->
+                        val mine = message.senderId == viewModel.ownSenderId
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start
                         ) {
-                            Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
-                                Text(
-                                    text = message.text,
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    color = Color(0xFF202124)
-                                )
-                                Row(
-                                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                                    horizontalArrangement = Arrangement.End,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
+                            Surface(
+                                modifier = Modifier.widthIn(max = 300.dp),
+                                shape = if (mine) RoundedCornerShape(18.dp, 18.dp, 5.dp, 18.dp) else RoundedCornerShape(18.dp, 18.dp, 18.dp, 5.dp),
+                                color = if (mine) Color(0xFFE1F2FF) else Color.White.copy(alpha = 0.94f),
+                                tonalElevation = 1.dp,
+                                shadowElevation = 1.dp
+                            ) {
+                                Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
                                     Text(
-                                        text = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(message.createdAt)),
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = Color(0xFF7A8793)
+                                        text = message.text,
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        color = Color(0xFF202124)
                                     )
-                                    if (mine) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                                        horizontalArrangement = Arrangement.End,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
                                         Text(
-                                            text = when (message.deliveryStatus) {
-                                                MessageDeliveryStatus.PENDING -> " · …"
-                                                MessageDeliveryStatus.SENT -> " · ✓"
-                                                MessageDeliveryStatus.DELIVERED -> " · ✓✓"
-                                                MessageDeliveryStatus.READ -> " · ✓✓"
-                                            },
+                                            text = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(message.createdAt)),
                                             style = MaterialTheme.typography.labelSmall,
-                                            color = if (message.deliveryStatus == MessageDeliveryStatus.READ) Color(0xFF2196F3) else Color(0xFF7A8793)
+                                            color = Color(0xFF7A8793)
                                         )
+                                        if (mine) {
+                                            Text(
+                                                text = when (message.deliveryStatus) {
+                                                    MessageDeliveryStatus.PENDING -> " · …"
+                                                    MessageDeliveryStatus.SENT -> " · ✓"
+                                                    MessageDeliveryStatus.DELIVERED -> " · ✓✓"
+                                                    MessageDeliveryStatus.READ -> " · ✓✓"
+                                                },
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = if (message.deliveryStatus == MessageDeliveryStatus.READ) Color(0xFF2196F3) else Color(0xFF7A8793)
+                                            )
+                                        }
                                     }
                                 }
                             }
                         }
                     }
                 }
-            }
 
-            Surface(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
-                shape = RoundedCornerShape(26.dp),
-                color = MaterialTheme.colorScheme.surface,
-                tonalElevation = 3.dp,
-                shadowElevation = 2.dp
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(start = 4.dp, end = 5.dp, top = 4.dp, bottom = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                Surface(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
+                    shape = RoundedCornerShape(26.dp),
+                    color = Color.White.copy(alpha = 0.96f),
+                    tonalElevation = 3.dp,
+                    shadowElevation = 2.dp
                 ) {
-                    OutlinedTextField(
-                        value = input,
-                        onValueChange = { input = it },
-                        modifier = Modifier.weight(1f),
-                        placeholder = { Text("Message") },
-                        singleLine = true,
-                        enabled = connected,
-                        shape = RoundedCornerShape(22.dp)
-                    )
-                    IconButton(
-                        onClick = {
-                            val text = input.trim()
-                            if (text.isNotEmpty()) {
-                                viewModel.send(text)
-                                input = ""
-                            }
-                        },
-                        enabled = connected && input.isNotBlank(),
-                        modifier = Modifier.padding(start = 2.dp).size(48.dp)
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(start = 4.dp, end = 5.dp, top = 4.dp, bottom = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Surface(
-                            modifier = Modifier.size(42.dp),
-                            shape = CircleShape,
-                            color = if (connected && input.isNotBlank()) Color(0xFF229ED9) else MaterialTheme.colorScheme.surfaceVariant
+                        OutlinedTextField(
+                            value = input,
+                            onValueChange = { input = it },
+                            modifier = Modifier.weight(1f),
+                            placeholder = { Text("Message") },
+                            singleLine = true,
+                            enabled = connected,
+                            shape = RoundedCornerShape(22.dp)
+                        )
+                        IconButton(
+                            onClick = {
+                                val text = input.trim()
+                                if (text.isNotEmpty()) {
+                                    viewModel.send(text)
+                                    input = ""
+                                }
+                            },
+                            enabled = connected && input.isNotBlank(),
+                            modifier = Modifier.padding(start = 2.dp).size(48.dp)
                         ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    Icons.Filled.Send,
-                                    contentDescription = "Send message",
-                                    tint = if (connected && input.isNotBlank()) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(21.dp)
-                                )
+                            Surface(
+                                modifier = Modifier.size(42.dp),
+                                shape = CircleShape,
+                                color = if (connected && input.isNotBlank()) Color(0xFF229ED9) else MaterialTheme.colorScheme.surfaceVariant
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        Icons.Filled.Send,
+                                        contentDescription = "Send message",
+                                        tint = if (connected && input.isNotBlank()) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(21.dp)
+                                    )
+                                }
                             }
                         }
                     }
