@@ -2,17 +2,17 @@ package com.sigmabridge.app.data.chat
 
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.gotrue.Auth
-import io.github.jan.supabase.gotrue.OtpType
-import io.github.jan.supabase.gotrue.providers.builtin.OTP
+import io.github.jan.supabase.gotrue.providers.Google
+import io.github.jan.supabase.gotrue.providers.builtin.IDToken
 import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Simple passwordless authentication for Private Chat.
+ * Simple Private Chat authentication backed by Supabase Auth.
  *
- * The chat no longer creates anonymous accounts or performs email linking.
- * Supabase Auth owns the account identity; email is only used to start a
- * passwordless sign-in flow. The same call creates a new user when needed.
+ * Google is the only sign-in method for now. The provider can be extended later
+ * without changing the conversation/message model because chat ownership uses
+ * Supabase auth.uid().
  */
 @Singleton
 class ChatAccountRepository @Inject constructor(
@@ -25,43 +25,19 @@ class ChatAccountRepository @Inject constructor(
         auth.awaitInitialization()
     }
 
-    fun isAuthenticated(): Boolean = auth.currentUserOrNull()?.email != null
+    fun isAuthenticated(): Boolean = auth.currentUserOrNull() != null
 
     fun currentUserId(): String? = auth.currentUserOrNull()?.id
 
     fun currentEmail(): String? = auth.currentUserOrNull()?.email
 
-    suspend fun requestEmailLogin(email: String): Result<Unit> = runCatching {
+    suspend fun signInWithGoogleIdToken(idToken: String): Result<Unit> = runCatching {
         auth.awaitInitialization()
-        val normalized = email.trim().lowercase()
-        require(normalized.isNotBlank()) { "EMAIL_REQUIRED" }
-        require(normalized.contains("@") && normalized.length >= 5) { "INVALID_EMAIL" }
-
-        // Drop a legacy anonymous session from older app builds so the new
-        // passwordless account flow always starts from a clean Auth session.
-        if (auth.currentUserOrNull()?.email == null) {
-            auth.signOut()
+        require(idToken.isNotBlank()) { "GOOGLE_ID_TOKEN_REQUIRED" }
+        auth.signInWith(IDToken) {
+            this.idToken = idToken
+            provider = Google
         }
-
-        // With the default Supabase email template this sends a magic link.
-        // When the template is later changed to {{ .Token }}, this same API
-        // becomes a six-digit email OTP flow without changing the chat model.
-        auth.signInWith(OTP) {
-            this.email = normalized
-        }
-    }
-
-    suspend fun verifyEmailOtp(email: String, token: String): Result<Unit> = runCatching {
-        auth.awaitInitialization()
-        val normalized = email.trim().lowercase()
-        require(normalized.isNotBlank()) { "EMAIL_REQUIRED" }
-        require(token.isNotBlank()) { "OTP_REQUIRED" }
-
-        auth.verifyEmailOtp(
-            type = OtpType.Email.EMAIL,
-            email = normalized,
-            token = token.trim()
-        )
     }
 
     suspend fun signOut() {
