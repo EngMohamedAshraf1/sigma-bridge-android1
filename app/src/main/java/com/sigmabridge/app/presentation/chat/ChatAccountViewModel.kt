@@ -114,7 +114,7 @@ class ChatAccountViewModel @Inject constructor(
                         _state.value = _state.value.copy(
                             loading = false,
                             busy = false,
-                            authenticated = false,
+                            authenticated = true,
                             step = ChatAccountStep.PASSWORD,
                             message = "تم توثيق الحساب. ضع كلمة مرور لاسترداد الحساب لاحقًا.",
                             error = null
