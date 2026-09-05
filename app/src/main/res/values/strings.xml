@@ -45,4 +45,13 @@
     <string name="settings_error_bot_token_invalid">The bot token does not look valid.</string>
     <string name="settings_error_gemini_key_required">At least one Gemini API key is required.</string>
     <string name="settings_error_gemini_key_invalid">One of the Gemini API keys does not look valid.</string>
+
+    <!-- Private Chat -->
+    <string name="chat_private_chat">Private Chat</string>
+    <string name="chat_back">Back</string>
+    <string name="chat_online">Online</string>
+    <string name="chat_connecting">Connecting…</string>
+    <string name="chat_message">Message</string>
+    <string name="chat_send_message">Send message</string>
+    <string name="chat_avatar_preview">Avatar preview</string>
 </resources>
