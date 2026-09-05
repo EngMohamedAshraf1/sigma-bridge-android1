@@ -45,7 +45,8 @@ class ChatProfileRepository @Inject constructor(
         ).decodeList<ChatProfile>()
     }
 
-    private suspend fun ensureIdentityRegistered() {
+    /** Register this installation/device independently of searching for someone. */
+    suspend fun ensureIdentityRegistered() {
         sessionManager.ensureAnonymousSession().getOrThrow()
 
         for (attempt in 0 until 2) {
