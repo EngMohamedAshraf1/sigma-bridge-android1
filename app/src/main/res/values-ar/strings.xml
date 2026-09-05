@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Sigma Bridge</string>
+
+    <!-- Home -->
+    <string name="home_title">سيجما بريدج</string>
+    <string name="settings">الإعدادات</string>
+    <string name="home_status">الحالة</string>
+    <string name="home_bridge">الجسر</string>
+    <string name="home_telegram">تيليجرام</string>
+    <string name="home_gemini">جيميني</string>
+    <string name="home_internet">الإنترنت</string>
+    <string name="home_features">الميزات</string>
+    <string name="home_private_chat">المحادثة الخاصة</string>
+    <string name="home_gemini_test">اختبار جيميني (داخلي)</string>
+    <string name="home_bridge_control">التحكم بالجسر</string>
+
+    <!-- Feature tiles -->
+    <string name="feature_voice_bridge">جسر الصوت</string>
+    <string name="feature_voice_bridge_subtitle">صوت روسي ← نص عربي عبر تيليجرام</string>
+    <string name="feature_ocr">OCR</string>
+    <string name="feature_photos">الصور</string>
+    <string name="feature_pdf">PDF</string>
+    <string name="feature_coming_soon">قريبًا</string>
+</resources>
