@@ -51,6 +51,10 @@ class ChatViewModel @Inject constructor(
     val messages: StateFlow<List<ChatMessage>> = _messages.asStateFlow()
     private val _connected = MutableStateFlow(false)
     val connected: StateFlow<Boolean> = _connected.asStateFlow()
+    private val _partnerOnline = MutableStateFlow(false)
+    val partnerOnline: StateFlow<Boolean> = _partnerOnline.asStateFlow()
+    private val _partnerLastSeen = MutableStateFlow(0L)
+    val partnerLastSeen: StateFlow<Long> = _partnerLastSeen.asStateFlow()
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error.asStateFlow()
     private val _translationTargetLanguage = MutableStateFlow(chatLanguagePreferences.getTargetLanguage())
@@ -59,6 +63,7 @@ class ChatViewModel @Inject constructor(
     private var currentTopic: String? = null
     private var currentHistoryKey: String? = null
     private var statusSyncJob: Job? = null
+    private var presenceSyncJob: Job? = null
     private val readReceiptSentIds = mutableSetOf<String>()
 
     init { if (_partnerId.value.isNotBlank()) connect() }
@@ -86,6 +91,7 @@ class ChatViewModel @Inject constructor(
         }
         if (currentTopic == topic && _connected.value) return
         statusSyncJob?.cancel()
+        presenceSyncJob?.cancel()
         readReceiptSentIds.clear()
         currentTopic = topic
         currentHistoryKey = identity.conversationKey().joinToString("") { "%02x".format(it) }
@@ -100,6 +106,8 @@ class ChatViewModel @Inject constructor(
         _messages.value = history
         _conversationName.value = existingConversation?.displayName ?: partner
         _partnerAvatarPath.value = existingConversation?.avatarPath
+        _partnerLastSeen.value = 0L
+        _partnerOnline.value = false
         conversationStore.upsert(
             ChatConversation(
                 partnerId = partner,
@@ -124,6 +132,23 @@ class ChatViewModel @Inject constructor(
                 }
         }
 
+        presenceSyncJob = viewModelScope.launch {
+            while (isActive && currentHistoryKey == historyKey) {
+                profileRepository.touchMyLastSeen()
+                profileRepository.getLastSeenByPublicId(partner)
+                    .getOrNull()
+                    ?.let { seenAt ->
+                        _partnerLastSeen.value = seenAt
+                        _partnerOnline.value = seenAt > 0L && System.currentTimeMillis() - seenAt <= ONLINE_WINDOW_MS
+                    }
+                    ?: run {
+                        _partnerLastSeen.value = 0L
+                        _partnerOnline.value = false
+                    }
+                delay(LAST_SEEN_REFRESH_MS)
+            }
+        }
+
         markVisibleMessagesRead()
 
         viewModelScope.launch {
@@ -131,10 +156,6 @@ class ChatViewModel @Inject constructor(
                 chatRepository.observeEvents(topic, ownSenderId).collect { event ->
                     when (event) {
                         is ChatEvent.Message -> {
-                            // SupabaseChatRepository already excludes our own messages and
-                            // labels all remaining message events as coming from the partner.
-                            // Do not apply a second partner-ID filter here; that could drop
-                            // valid incoming messages on one side of the conversation.
                             if (_messages.value.any { it.id == event.message.id }) return@collect
 
                             val translated = chatTranslationService.translateIncoming(
@@ -209,12 +230,6 @@ class ChatViewModel @Inject constructor(
         incomingIds.forEach { messageId -> sendReadReceiptForMessage(topic, historyKey, messageId) }
     }
 
-    private fun sendPendingReadReceipts(topic: String, historyKey: String) {
-        unreadStore.load(historyKey).forEach { messageId ->
-            sendReadReceiptForMessage(topic, historyKey, messageId)
-        }
-    }
-
     private fun sendReadReceiptForMessage(topic: String, historyKey: String, messageId: String) {
         if (!readReceiptSentIds.add(messageId)) return
         viewModelScope.launch {
@@ -261,9 +276,13 @@ class ChatViewModel @Inject constructor(
     fun disconnect() {
         statusSyncJob?.cancel()
         statusSyncJob = null
+        presenceSyncJob?.cancel()
+        presenceSyncJob = null
         currentTopic = null
         currentHistoryKey = null
         _connected.value = false
+        _partnerOnline.value = false
+        _partnerLastSeen.value = 0L
         readReceiptSentIds.clear()
     }
 
@@ -333,5 +352,10 @@ class ChatViewModel @Inject constructor(
                 "حدث خطأ أثناء الاتصال بالمحادثة. حاول مرة أخرى."
             else -> raw.ifBlank { "حدث خطأ أثناء الاتصال بالمحادثة." }
         }
+    }
+
+    private companion object {
+        const val LAST_SEEN_REFRESH_MS = 15_000L
+        const val ONLINE_WINDOW_MS = 45_000L
     }
 }
