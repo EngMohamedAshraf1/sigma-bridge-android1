@@ -56,7 +56,7 @@ class ChatConversationsViewModel @Inject constructor(
     }
 
     fun refresh() {
-        _conversations.value = conversationStore.load().map { conversation ->
+        val rows = conversationStore.load().map { conversation ->
             val historyKey = historyKeyFor(conversation.partnerId)
             val lastMessage = historyStore.load(historyKey).lastOrNull()
             ChatConversationRow(
@@ -67,6 +67,34 @@ class ChatConversationsViewModel @Inject constructor(
                 unreadCount = unreadStore.load(historyKey).size
             )
         }.sortedByDescending { it.conversation.lastMessageAt }
+
+        _conversations.value = rows
+
+        if (rows.isNotEmpty()) {
+            viewModelScope.launch {
+                rows.forEach { row ->
+                    profileRepository.getProfileByPublicId(row.conversation.partnerId)
+                        .getOrNull()
+                        ?.let { profile ->
+                            val updated = row.conversation.copy(
+                                avatarPath = profile.avatarPath
+                            )
+                            conversationStore.upsert(updated)
+                        }
+                }
+                _conversations.value = conversationStore.load().map { conversation ->
+                    val historyKey = historyKeyFor(conversation.partnerId)
+                    val lastMessage = historyStore.load(historyKey).lastOrNull()
+                    ChatConversationRow(
+                        conversation = conversation.copy(
+                            lastMessage = lastMessage?.text ?: conversation.lastMessage,
+                            lastMessageAt = lastMessage?.createdAt ?: conversation.lastMessageAt
+                        ),
+                        unreadCount = unreadStore.load(historyKey).size
+                    )
+                }.sortedByDescending { it.conversation.lastMessageAt }
+            }
+        }
     }
 
     fun loadProfile() {
@@ -90,6 +118,17 @@ class ChatConversationsViewModel @Inject constructor(
             }.onFailure {
                 _profileError.value = friendlyError(it)
             }
+            _profileBusy.value = false
+        }
+    }
+
+    fun uploadAvatar(bytes: ByteArray, extension: String) {
+        viewModelScope.launch {
+            _profileBusy.value = true
+            _profileError.value = null
+            profileRepository.uploadAvatar(bytes, extension)
+                .onSuccess { _profile.value = it; refresh() }
+                .onFailure { _profileError.value = friendlyError(it) }
             _profileBusy.value = false
         }
     }
@@ -124,18 +163,24 @@ class ChatConversationsViewModel @Inject constructor(
         identity.partnerId = conversation.partnerId
     }
 
-    fun addConversation(partnerId: String, displayName: String): Boolean {
+    fun addConversation(partnerId: String, displayName: String, avatarPath: String? = null): Boolean {
         val normalizedId = partnerId.trim()
         if (normalizedId.isBlank() || normalizedId == identity.myId) return false
         val normalizedName = displayName.trim().ifBlank { normalizedId }
-        conversationStore.upsert(ChatConversation(partnerId = normalizedId, displayName = normalizedName))
+        conversationStore.upsert(
+            ChatConversation(
+                partnerId = normalizedId,
+                displayName = normalizedName,
+                avatarPath = avatarPath
+            )
+        )
         identity.partnerId = normalizedId
         refresh()
         return true
     }
 
     fun addProfileToConversation(profile: ChatProfile): Boolean =
-        addConversation(profile.publicId, profile.displayName)
+        addConversation(profile.publicId, profile.displayName, profile.avatarPath)
 
     fun rename(conversation: ChatConversation, newName: String) {
         conversationStore.updateName(conversation.partnerId, newName)
@@ -169,6 +214,8 @@ class ChatConversationsViewModel @Inject constructor(
             error.message?.contains("USERNAME_ALREADY_IN_USE", ignoreCase = true) == true -> "اسم المستخدم مستخدم بالفعل."
             error.message?.contains("INVALID_USERNAME", ignoreCase = true) == true -> "اسم المستخدم: أحرف إنجليزية صغيرة وأرقام و _ فقط، من 3 إلى 24 حرفًا."
             error.message?.contains("NAME_TOO_LONG", ignoreCase = true) == true -> "الاسم طويل جدًا."
+            error.message?.contains("AVATAR_EMPTY", ignoreCase = true) == true -> "اختر صورة أولًا."
+            error.message?.contains("AVATAR_TOO_LARGE", ignoreCase = true) == true -> "حجم الصورة يجب أن يكون أقل من 5 MB."
             error.message?.contains("AUTH_REQUIRED", ignoreCase = true) == true -> "تعذر فتح جلسة الحساب الآن."
             else -> error.message ?: "حدث خطأ غير متوقع."
         }
