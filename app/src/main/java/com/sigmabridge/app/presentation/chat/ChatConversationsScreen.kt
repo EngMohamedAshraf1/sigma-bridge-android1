@@ -65,19 +65,8 @@ fun ChatConversationsScreen(
     if (!accountState.authenticated) {
         ChatAccountScreen(
             state = accountState,
-            onChooseCreate = accountViewModel::chooseCreate,
-            onChooseSignIn = accountViewModel::chooseSignIn,
             onEmailChange = accountViewModel::updateEmail,
-            onCreateAccount = accountViewModel::createAccount,
-            onVerificationCodeChange = accountViewModel::updateVerificationCode,
-            onVerifyEmailOtp = accountViewModel::verifyEmailOtp,
-            onResendVerification = accountViewModel::resendVerification,
-            onSetPassword = { password, confirm ->
-                accountViewModel.setPassword(password, confirm) { }
-            },
-            onSignIn = { password ->
-                accountViewModel.signIn(password) { }
-            }
+            onContinue = accountViewModel::sendEmailLogin
         )
         return
     }
