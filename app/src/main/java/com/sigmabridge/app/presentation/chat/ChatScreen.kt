@@ -70,6 +70,8 @@ import java.util.Locale
 @Composable
 fun ChatScreen(
     onBack: () -> Unit,
+    darkTheme: Boolean,
+    onToggleTheme: () -> Unit,
     viewModel: ChatViewModel = hiltViewModel()
 ) {
     val messages by viewModel.messages.collectAsState()
@@ -125,6 +127,9 @@ fun ChatScreen(
         }
     }
 
+    val imageAlpha = if (darkTheme) 0.42f else 0.78f
+    val imageOverlay = if (darkTheme) Color.Black.copy(alpha = 0.50f) else Color.White.copy(alpha = 0.10f)
+
     Scaffold(
         containerColor = Color.Transparent,
         topBar = {
@@ -153,6 +158,13 @@ fun ChatScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = onToggleTheme) {
+                        Text(
+                            text = if (darkTheme) "☀" else "☾",
+                            color = MaterialTheme.colorScheme.onSurface,
+                            style = MaterialTheme.typography.titleLarge
+                        )
+                    }
                     Box {
                         IconButton(onClick = { languageMenuExpanded = true }) {
                             Text("A/文", color = MaterialTheme.colorScheme.onSurface)
@@ -177,7 +189,9 @@ fun ChatScreen(
                         }
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surface.copy(alpha = if (darkTheme) 0.72f else 0.42f)
+                )
             )
         }
     ) { padding ->
@@ -187,12 +201,12 @@ fun ChatScreen(
                 contentDescription = null,
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop,
-                alpha = 0.72f
+                alpha = imageAlpha
             )
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color.White.copy(alpha = 0.16f))
+                    .background(imageOverlay)
             )
 
             Column(
@@ -229,7 +243,7 @@ fun ChatScreen(
                             Surface(
                                 modifier = Modifier.widthIn(max = 300.dp),
                                 shape = if (mine) RoundedCornerShape(18.dp, 18.dp, 5.dp, 18.dp) else RoundedCornerShape(18.dp, 18.dp, 18.dp, 5.dp),
-                                color = if (mine) Color(0xFFE1F2FF) else Color.White.copy(alpha = 0.94f),
+                                color = if (mine) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
                                 tonalElevation = 1.dp,
                                 shadowElevation = 1.dp
                             ) {
@@ -237,7 +251,7 @@ fun ChatScreen(
                                     Text(
                                         text = message.text,
                                         style = MaterialTheme.typography.bodyLarge,
-                                        color = Color(0xFF202124)
+                                        color = MaterialTheme.colorScheme.onSurface
                                     )
                                     Row(
                                         modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
@@ -247,7 +261,7 @@ fun ChatScreen(
                                         Text(
                                             text = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(message.createdAt)),
                                             style = MaterialTheme.typography.labelSmall,
-                                            color = Color(0xFF7A8793)
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
                                         if (mine) {
                                             Text(
@@ -258,7 +272,7 @@ fun ChatScreen(
                                                     MessageDeliveryStatus.READ -> " · ✓✓"
                                                 },
                                                 style = MaterialTheme.typography.labelSmall,
-                                                color = if (message.deliveryStatus == MessageDeliveryStatus.READ) Color(0xFF2196F3) else Color(0xFF7A8793)
+                                                color = if (message.deliveryStatus == MessageDeliveryStatus.READ) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                                             )
                                         }
                                     }
@@ -271,7 +285,7 @@ fun ChatScreen(
                 Surface(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
                     shape = RoundedCornerShape(26.dp),
-                    color = Color.White.copy(alpha = 0.96f),
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
                     tonalElevation = 3.dp,
                     shadowElevation = 2.dp
                 ) {
@@ -302,13 +316,13 @@ fun ChatScreen(
                             Surface(
                                 modifier = Modifier.size(42.dp),
                                 shape = CircleShape,
-                                color = if (connected && input.isNotBlank()) Color(0xFF229ED9) else MaterialTheme.colorScheme.surfaceVariant
+                                color = if (connected && input.isNotBlank()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
                             ) {
                                 Box(contentAlignment = Alignment.Center) {
                                     Icon(
                                         Icons.Filled.Send,
                                         contentDescription = "Send message",
-                                        tint = if (connected && input.isNotBlank()) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        tint = if (connected && input.isNotBlank()) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
                                         modifier = Modifier.size(21.dp)
                                     )
                                 }
