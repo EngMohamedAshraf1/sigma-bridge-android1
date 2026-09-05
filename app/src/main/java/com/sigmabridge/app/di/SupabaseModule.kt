@@ -36,6 +36,9 @@ object SupabaseModule {
         ) {
             install(Auth) {
                 enableLifecycleCallbacks = false
+                // Passwordless email links return to the Android app.
+                scheme = "sigmabridge"
+                host = "auth"
             }
             install(Postgrest)
             install(Realtime) {
