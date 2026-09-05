@@ -50,6 +50,8 @@
     <string name="chat_private_chat">Личный чат</string>
     <string name="chat_back">Назад</string>
     <string name="chat_online">В сети</string>
+    <string name="chat_offline">Не в сети</string>
+    <string name="chat_last_seen">Был(а) в сети: %1$s</string>
     <string name="chat_connecting">Подключение…</string>
     <string name="chat_message">Сообщение</string>
     <string name="chat_send_message">Отправить сообщение</string>
