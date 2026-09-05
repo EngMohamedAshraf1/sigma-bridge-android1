@@ -79,8 +79,14 @@ class ChatAccountViewModel @Inject constructor(
 
         viewModelScope.launch {
             _state.value = _state.value.copy(busy = true, error = null, message = null)
+
             val result = accountRepository.startAnonymousAccount()
-                .flatMap { accountRepository.linkEmailToCurrentAnonymous(email) }
+                .fold(
+                    onSuccess = {
+                        accountRepository.linkEmailToCurrentAnonymous(email)
+                    },
+                    onFailure = { Result.failure(it) }
+                )
 
             result.onSuccess {
                 _state.value = _state.value.copy(
