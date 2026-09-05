@@ -8,7 +8,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
-data class ChatAccountUiState(
+ data class ChatAccountUiState(
     val loading: Boolean = true,
     val authenticated: Boolean = false,
     val busy: Boolean = false,
@@ -78,6 +78,12 @@ class ChatAccountViewModel @Inject constructor(
             accountRepository.signOut()
             _state.value = _state.value.copy(authenticated = false, message = null, error = null)
         }
+    }
+
+    /** Compatibility hooks for the current parent screen while it migrates to Google-only auth. */
+    fun updateEmail(@Suppress("UNUSED_PARAMETER") value: String) = Unit
+    fun sendEmailLogin() {
+        _state.value = _state.value.copy(error = "استخدم زر تسجيل الدخول عبر Google.")
     }
 
     private fun friendlyGoogleError(error: Throwable): String = when {
