@@ -50,6 +50,8 @@
     <string name="chat_private_chat">Private Chat</string>
     <string name="chat_back">Back</string>
     <string name="chat_online">Online</string>
+    <string name="chat_offline">Offline</string>
+    <string name="chat_last_seen">Last seen %1$s</string>
     <string name="chat_connecting">Connecting…</string>
     <string name="chat_message">Message</string>
     <string name="chat_send_message">Send message</string>
