@@ -10,7 +10,7 @@ import io.github.jan.supabase.createSupabaseClient
 import io.github.jan.supabase.gotrue.Auth
 import io.github.jan.supabase.postgrest.Postgrest
 import io.github.jan.supabase.realtime.Realtime
-import javax.inject.Inject
+import io.github.jan.supabase.storage.Storage
 import javax.inject.Singleton
 import kotlin.time.Duration.Companion.seconds
 
@@ -42,6 +42,7 @@ object SupabaseModule {
             install(Realtime) {
                 reconnectDelay = 5.seconds
             }
+            install(Storage)
         }
     }
 }
