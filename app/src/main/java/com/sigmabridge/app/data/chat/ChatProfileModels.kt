@@ -8,7 +8,8 @@ data class ChatProfile(
     @SerialName("public_id") val publicId: String,
     @SerialName("first_name") val firstName: String = "",
     @SerialName("last_name") val lastName: String = "",
-    val username: String? = null
+    val username: String? = null,
+    @SerialName("avatar_path") val avatarPath: String? = null
 ) {
     val displayName: String
         get() = listOf(firstName.trim(), lastName.trim())
@@ -28,4 +29,14 @@ data class UpdateChatProfileRpcParams(
 @Serializable
 data class SearchChatUsersRpcParams(
     @SerialName("p_query") val query: String
+)
+
+@Serializable
+data class UpdateChatAvatarRpcParams(
+    @SerialName("p_avatar_path") val avatarPath: String
+)
+
+@Serializable
+data class GetChatProfileByPublicIdRpcParams(
+    @SerialName("p_public_id") val publicId: String
 )
