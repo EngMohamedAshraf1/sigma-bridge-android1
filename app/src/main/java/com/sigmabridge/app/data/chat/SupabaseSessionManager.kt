@@ -31,5 +31,8 @@ class SupabaseSessionManager @Inject constructor(
         }
     }
 
+    /** Temporary compatibility name for the existing chat transport. */
+    suspend fun ensureAnonymousSession(): Result<String> = ensureAuthenticatedSession()
+
     fun currentUserId(): String? = auth.currentUserOrNull()?.id
 }
