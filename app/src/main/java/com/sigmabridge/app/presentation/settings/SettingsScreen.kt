@@ -26,10 +26,12 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.sigmabridge.app.BuildConfig
+import com.sigmabridge.app.R
 import com.sigmabridge.app.data.update.GitHubUpdateChecker
 import com.sigmabridge.app.domain.model.GeminiKeyStatus
 import com.sigmabridge.app.domain.usecase.SettingsValidationError
@@ -56,7 +58,7 @@ fun SettingsScreen(viewModel: SettingsViewModel = androidx.hilt.navigation.compo
             .verticalScroll(rememberScrollState())
             .padding(16.dp)
     ) {
-        Text(text = "Telegram Bot Token")
+        Text(text = stringResource(R.string.settings_telegram_bot_token))
         OutlinedTextField(
             value = uiState.botToken,
             onValueChange = viewModel::onBotTokenChanged,
@@ -68,7 +70,10 @@ fun SettingsScreen(viewModel: SettingsViewModel = androidx.hilt.navigation.compo
             Text(text = error.toMessage(), color = MaterialTheme.colorScheme.error)
         }
 
-        Text(text = "Gemini API Keys", modifier = Modifier.padding(top = 16.dp))
+        Text(
+            text = stringResource(R.string.settings_gemini_api_keys),
+            modifier = Modifier.padding(top = 16.dp)
+        )
 
         uiState.geminiKeySlots.forEachIndexed { index, slot ->
             Row(
@@ -83,11 +88,14 @@ fun SettingsScreen(viewModel: SettingsViewModel = androidx.hilt.navigation.compo
                     onValueChange = { viewModel.onKeySlotChanged(slot.id, it) },
                     visualTransformation = PasswordVisualTransformation(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                    label = { Text("Key ${index + 1}") },
+                    label = { Text(stringResource(R.string.settings_key_number, index + 1)) },
                     modifier = Modifier.weight(1f)
                 )
                 IconButton(onClick = { viewModel.onDeleteKeySlot(slot.id) }) {
-                    Icon(Icons.Filled.Delete, contentDescription = "Delete Key ${index + 1}")
+                    Icon(
+                        Icons.Filled.Delete,
+                        contentDescription = stringResource(R.string.settings_delete_key_number, index + 1)
+                    )
                 }
             }
         }
@@ -96,23 +104,23 @@ fun SettingsScreen(viewModel: SettingsViewModel = androidx.hilt.navigation.compo
         }
 
         TextButton(onClick = viewModel::onAddKeySlot, modifier = Modifier.padding(top = 4.dp)) {
-            Text("\u2795 Add Key")
+            Text(stringResource(R.string.settings_add_key))
         }
 
         val summary = uiState.geminiKeySummary
         Column(modifier = Modifier.padding(top = 16.dp)) {
-            Text(text = "Configured keys: ${summary.total}")
-            Text("\uD83D\uDFE2 Active: ${summary.active}")
-            Text("\uD83D\uDFE1 Ready: ${summary.ready}")
-            Text("\uD83D\uDD34 Quota exceeded: ${summary.quotaExceeded}")
-            Text("\u26AB Invalid: ${summary.invalid}")
+            Text(text = stringResource(R.string.settings_configured_keys, summary.total))
+            Text(stringResource(R.string.settings_active, summary.active))
+            Text(stringResource(R.string.settings_ready, summary.ready))
+            Text(stringResource(R.string.settings_quota_exceeded, summary.quotaExceeded))
+            Text(stringResource(R.string.settings_invalid, summary.invalid))
         }
 
         Button(
             onClick = viewModel::save,
             modifier = Modifier.padding(top = 16.dp)
         ) {
-            Text(if (uiState.isSaved) "Saved" else "Save")
+            Text(stringResource(if (uiState.isSaved) R.string.settings_saved else R.string.settings_save))
         }
 
         Button(
@@ -124,12 +132,12 @@ fun SettingsScreen(viewModel: SettingsViewModel = androidx.hilt.navigation.compo
                     try {
                         val result = updateChecker.check(BuildConfig.VERSION_NAME)
                         updateMessage = if (result.updateAvailable) {
-                            "Update available: v${result.latestVersion}"
+                            stringResource(R.string.settings_update_available, result.latestVersion)
                         } else {
-                            "You are using the latest version (v${result.currentVersion})."
+                            stringResource(R.string.settings_latest_version, result.currentVersion)
                         }
                     } catch (error: Exception) {
-                        updateMessage = "Could not check for updates. Please try again."
+                        updateMessage = stringResource(R.string.settings_update_check_failed)
                     } finally {
                         checkingForUpdate = false
                     }
@@ -146,7 +154,7 @@ fun SettingsScreen(viewModel: SettingsViewModel = androidx.hilt.navigation.compo
                     strokeWidth = 2.dp
                 )
             }
-            Text(if (checkingForUpdate) "Checking..." else "Check for updates")
+            Text(stringResource(if (checkingForUpdate) R.string.settings_checking else R.string.settings_check_for_updates))
         }
 
         updateMessage?.let { message ->
@@ -168,12 +176,10 @@ private fun GeminiKeyStatus?.toIndicator(): String = when (this) {
     null -> "\u26AA"
 }
 
-private fun SettingsValidationError.isBotTokenError() =
-    this == SettingsValidationError.BOT_TOKEN_EMPTY || this == SettingsValidationError.BOT_TOKEN_INVALID_FORMAT
-
+@Composable
 private fun SettingsValidationError.toMessage(): String = when (this) {
-    SettingsValidationError.BOT_TOKEN_EMPTY -> "Bot token is required."
-    SettingsValidationError.BOT_TOKEN_INVALID_FORMAT -> "That doesn't look like a valid bot token."
-    SettingsValidationError.GEMINI_KEY_EMPTY -> "At least one Gemini API key is required."
-    SettingsValidationError.GEMINI_KEY_INVALID_FORMAT -> "One of the Gemini API keys doesn't look valid."
+    SettingsValidationError.BOT_TOKEN_EMPTY -> stringResource(R.string.settings_error_bot_token_required)
+    SettingsValidationError.BOT_TOKEN_INVALID_FORMAT -> stringResource(R.string.settings_error_bot_token_invalid)
+    SettingsValidationError.GEMINI_KEY_EMPTY -> stringResource(R.string.settings_error_gemini_key_required)
+    SettingsValidationError.GEMINI_KEY_INVALID_FORMAT -> stringResource(R.string.settings_error_gemini_key_invalid)
 }
