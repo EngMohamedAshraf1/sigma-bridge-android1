@@ -2,12 +2,19 @@ package com.sigmabridge.app.presentation.chat
 
 import android.app.Activity
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Canvas
+import android.graphics.Paint
+import java.io.ByteArrayOutputStream
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,6 +25,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -30,6 +38,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Dialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -39,8 +48,10 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -53,8 +64,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -71,6 +86,7 @@ import java.net.URL
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.math.max
 
 @Composable
 fun ChatConversationsScreen(
@@ -287,6 +303,7 @@ private fun ProfileDialog(
     var firstName by remember(profile) { mutableStateOf(profile?.firstName.orEmpty()) }
     var lastName by remember(profile) { mutableStateOf(profile?.lastName.orEmpty()) }
     var username by remember(profile) { mutableStateOf(profile?.username.orEmpty()) }
+    var editingBitmap by remember { mutableStateOf<Bitmap?>(null) }
     val context = LocalContext.current
 
     val avatarPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
@@ -295,16 +312,12 @@ private fun ProfileDialog(
             context.contentResolver.openInputStream(uri)?.use { input -> input.readBytes() }
         }.getOrNull() ?: return@rememberLauncherForActivityResult
         if (bytes.isEmpty()) return@rememberLauncherForActivityResult
-        val extension = when (context.contentResolver.getType(uri)?.lowercase(Locale.ROOT)) {
-            "image/png" -> "png"
-            "image/webp" -> "webp"
-            else -> "jpg"
-        }
-        onUploadAvatar(bytes, extension)
+        val bitmap = decodeAvatarBitmap(bytes)
+        if (bitmap != null) editingBitmap = bitmap
     }
 
     AlertDialog(
-        onDismissRequest = { if (!busy) onDismiss() },
+        onDismissRequest = { if (!busy && editingBitmap == null) onDismiss() },
         title = { Text("My profile") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -313,15 +326,12 @@ private fun ProfileDialog(
                     avatarPath = profile?.avatarPath,
                     modifier = Modifier.size(96.dp)
                 )
-                OutlinedButton(
-                    onClick = {
-                        avatarPicker.launch(
-                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                        )
-                    },
-                    enabled = !busy
-                ) {
-                    Text("Change photo")
+                OutlinedButton(onClick = {
+                    avatarPicker.launch(
+                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                    )
+                }, enabled = !busy) {
+                    Text("Choose photo")
                 }
                 OutlinedTextField(value = firstName, onValueChange = { firstName = it }, label = { Text("First name") }, singleLine = true)
                 OutlinedTextField(value = lastName, onValueChange = { lastName = it }, label = { Text("Last name") }, singleLine = true)
@@ -344,6 +354,182 @@ private fun ProfileDialog(
         },
         dismissButton = { OutlinedButton(onClick = onDismiss, enabled = !busy) { Text("Close") } }
     )
+
+    editingBitmap?.let { bitmap ->
+        AvatarEditorDialog(
+            source = bitmap,
+            onDismiss = { editingBitmap = null },
+            onApply = { editedBitmap ->
+                val output = ByteArrayOutputStream()
+                val compressed = editedBitmap.compress(Bitmap.CompressFormat.JPEG, 92, output)
+                if (compressed) {
+                    onUploadAvatar(output.toByteArray(), "jpg")
+                    editingBitmap = null
+                }
+                editedBitmap.recycle()
+            }
+        )
+    }
+}
+
+@Composable
+private fun AvatarEditorDialog(
+    source: Bitmap,
+    onDismiss: () -> Unit,
+    onApply: (Bitmap) -> Unit
+) {
+    var zoom by remember(source) { mutableStateOf(1f) }
+    var rotation by remember(source) { mutableStateOf(0f) }
+    var panX by remember(source) { mutableStateOf(0f) }
+    var panY by remember(source) { mutableStateOf(0f) }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            modifier = Modifier.widthIn(max = 360.dp),
+            shape = RoundedCornerShape(26.dp),
+            color = MaterialTheme.colorScheme.surface
+        ) {
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(18.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text("Adjust photo", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                Text(
+                    "Move, zoom and rotate before setting your profile photo.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+
+                Box(
+                    modifier = Modifier
+                        .padding(top = 16.dp)
+                        .size(290.dp)
+                        .clip(CircleShape)
+                        .background(Color.Black)
+                        .border(2.dp, MaterialTheme.colorScheme.primary, CircleShape)
+                        .pointerInput(Unit) {
+                            detectTransformGestures { _, pan, gestureZoom, _ ->
+                                zoom = (zoom * gestureZoom).coerceIn(1f, 4f)
+                                panX += pan.x
+                                panY += pan.y
+                            }
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Image(
+                        bitmap = source.asImageBitmap(),
+                        contentDescription = "Avatar preview",
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer {
+                                scaleX = zoom
+                                scaleY = zoom
+                                translationX = panX
+                                translationY = panY
+                                rotationZ = rotation
+                            },
+                        contentScale = ContentScale.Crop
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Zoom", modifier = Modifier.padding(end = 8.dp), fontWeight = FontWeight.Medium)
+                    Slider(
+                        value = zoom,
+                        onValueChange = { zoom = it },
+                        valueRange = 1f..4f,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedButton(onClick = { rotation = (rotation + 270f) % 360f }) {
+                        Text("↶ 90°")
+                    }
+                    Spacer(modifier = Modifier.size(10.dp))
+                    OutlinedButton(onClick = { rotation = (rotation + 90f) % 360f }) {
+                        Text("90° ↷")
+                    }
+                    Spacer(modifier = Modifier.size(10.dp))
+                    TextButton(onClick = {
+                        zoom = 1f
+                        rotation = 0f
+                        panX = 0f
+                        panY = 0f
+                    }) {
+                        Text("Reset")
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    TextButton(onClick = onDismiss) { Text("Cancel") }
+                    Spacer(modifier = Modifier.size(6.dp))
+                    Button(onClick = {
+                        val edited = renderAvatar(source, zoom, rotation, panX, panY, 290f)
+                        onApply(edited)
+                    }) {
+                        Text("Set photo")
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun decodeAvatarBitmap(bytes: ByteArray): Bitmap? {
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+    val maxDimension = max(bounds.outWidth, bounds.outHeight)
+    val sample = when {
+        maxDimension <= 1600 -> 1
+        maxDimension <= 3200 -> 2
+        maxDimension <= 6400 -> 4
+        else -> 8
+    }
+    val options = BitmapFactory.Options().apply {
+        inSampleSize = sample
+        inPreferredConfig = Bitmap.Config.ARGB_8888
+    }
+    return runCatching { BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options) }.getOrNull()
+}
+
+private fun renderAvatar(
+    source: Bitmap,
+    zoom: Float,
+    rotation: Float,
+    panX: Float,
+    panY: Float,
+    previewSizePx: Float
+): Bitmap {
+    val outputSize = 512
+    val output = Bitmap.createBitmap(outputSize, outputSize, Bitmap.Config.ARGB_8888)
+    val canvas = Canvas(output)
+    val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+    val baseScale = max(outputSize.toFloat() / source.width, outputSize.toFloat() / source.height)
+    val panScale = outputSize / previewSizePx
+
+    canvas.save()
+    canvas.translate(
+        outputSize / 2f + panX * panScale,
+        outputSize / 2f + panY * panScale
+    )
+    canvas.rotate(rotation)
+    canvas.scale(baseScale * zoom, baseScale * zoom)
+    canvas.drawBitmap(source, -source.width / 2f, -source.height / 2f, paint)
+    canvas.restore()
+    return output
 }
 
 @Composable
@@ -539,7 +725,7 @@ private fun RemoteChatAvatar(
                 bitmap = bitmap!!.asImageBitmap(),
                 contentDescription = name,
                 modifier = Modifier.fillMaxSize(),
-                contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                contentScale = ContentScale.Crop
             )
         }
     } else {
