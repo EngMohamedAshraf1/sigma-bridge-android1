@@ -23,7 +23,7 @@ android {
         minSdk = 26
         targetSdk = 35
         versionCode = 1
-        versionName = "0.7.1-phase7-fix-resources"
+        versionName = "0.7.2-google-auth"
 
         buildConfigField(
             "String",
@@ -86,8 +86,9 @@ dependencies {
     implementation("io.ktor:ktor-client-android:2.3.12")
     implementation("io.ktor:ktor-client-websockets:2.3.12")
 
-    implementation("androidx.credentials:credentials:1.7.0-alpha03")
-    implementation("androidx.credentials:credentials-play-services-auth:1.7.0-alpha03")
+    // Stable native Google sign-in stack.
+    implementation("androidx.credentials:credentials:1.6.0")
+    implementation("androidx.credentials:credentials-play-services-auth:1.6.0")
     implementation("com.google.android.libraries.identity.googleid:googleid:1.2.0")
 
     implementation(platform("androidx.compose:compose-bom:2024.09.02"))
