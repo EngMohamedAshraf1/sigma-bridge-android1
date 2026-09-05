@@ -49,6 +49,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
@@ -144,13 +145,13 @@ fun ChatScreen(
                         )
                         Column(modifier = Modifier.padding(start = 10.dp)) {
                             Text(
-                                text = conversationName.ifBlank { "Private Chat" },
+                                text = conversationName.ifBlank { stringResource(R.string.chat_private_chat) },
                                 style = MaterialTheme.typography.titleMedium,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
                             Text(
-                                text = if (connected) "Online" else "Connecting…",
+                                text = if (connected) stringResource(R.string.chat_online) else stringResource(R.string.chat_connecting),
                                 style = MaterialTheme.typography.labelSmall,
                                 color = if (connected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -159,7 +160,7 @@ fun ChatScreen(
                 },
                 navigationIcon = {
                     IconButton(onClick = { viewModel.disconnect(); onBack() }) {
-                        Icon(Icons.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.Filled.ArrowBack, contentDescription = stringResource(R.string.chat_back))
                     }
                 },
                 actions = {
@@ -302,7 +303,7 @@ fun ChatScreen(
                             value = input,
                             onValueChange = { input = it },
                             modifier = Modifier.weight(1f),
-                            placeholder = { Text("Message") },
+                            placeholder = { Text(stringResource(R.string.chat_message)) },
                             singleLine = true,
                             enabled = connected,
                             shape = RoundedCornerShape(22.dp)
@@ -326,7 +327,7 @@ fun ChatScreen(
                                 Box(contentAlignment = Alignment.Center) {
                                     Icon(
                                         Icons.Filled.Send,
-                                        contentDescription = "Send message",
+                                        contentDescription = stringResource(R.string.chat_send_message),
                                         tint = if (connected && input.isNotBlank()) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
                                         modifier = Modifier.size(21.dp)
                                     )
