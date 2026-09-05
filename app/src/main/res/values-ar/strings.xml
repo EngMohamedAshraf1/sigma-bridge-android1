@@ -50,6 +50,8 @@
     <string name="chat_private_chat">المحادثة الخاصة</string>
     <string name="chat_back">رجوع</string>
     <string name="chat_online">متصل الآن</string>
+    <string name="chat_offline">غير متصل</string>
+    <string name="chat_last_seen">آخر ظهور %1$s</string>
     <string name="chat_connecting">جارٍ الاتصال…</string>
     <string name="chat_message">رسالة</string>
     <string name="chat_send_message">إرسال رسالة</string>
