@@ -1,5 +1,6 @@
 package com.sigmabridge.app.presentation.chat
 
+import android.content.Context
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -41,17 +42,60 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.sigmabridge.app.data.chat.ChatProfile
+import com.sigmabridge.app.service.ChatNotificationService
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 fun ChatConversationsScreen(
+    onBack: () -> Unit,
+    onOpenChat: () -> Unit
+) {
+    val accountViewModel: ChatAccountViewModel = hiltViewModel()
+    val accountState by accountViewModel.state.collectAsState()
+    val context = LocalContext.current
+
+    if (!accountState.authenticated) {
+        ChatAccountScreen(
+            state = accountState,
+            onChooseCreate = accountViewModel::chooseCreate,
+            onChooseSignIn = accountViewModel::chooseSignIn,
+            onEmailChange = accountViewModel::updateEmail,
+            onCreateAccount = accountViewModel::createAccount,
+            onCheckVerification = accountViewModel::checkVerification,
+            onSetPassword = { password, confirm ->
+                accountViewModel.setPassword(password, confirm) { }
+            },
+            onSignIn = { password ->
+                accountViewModel.signIn(password) { }
+            }
+        )
+        return
+    }
+
+    LaunchedEffect(accountState.authenticated) {
+        ContextCompat.startForegroundService(
+            context,
+            ChatNotificationService.startIntent(context)
+        )
+    }
+
+    ChatConversationsContent(
+        onBack = onBack,
+        onOpenChat = onOpenChat
+    )
+}
+
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@Composable
+private fun ChatConversationsContent(
     onBack: () -> Unit,
     onOpenChat: () -> Unit,
     viewModel: ChatConversationsViewModel = hiltViewModel()
