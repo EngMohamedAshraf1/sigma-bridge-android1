@@ -448,7 +448,7 @@ class ChatNotificationService : Service() {
 
         val preview = messageText.replace(Regex("\\s+"), " ").trim().take(120)
         val notification = NotificationCompat.Builder(this, CHAT_CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.ic_dialog_email)
+            .setSmallIcon(com.sigmabridge.app.R.drawable.ic_stat_sigma_bridge)
             .setContentTitle("Sigma Bridge • $partnerId")
             .setContentText(preview.ifBlank { "New message" })
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
@@ -465,7 +465,7 @@ class ChatNotificationService : Service() {
 
     private fun buildServiceNotification(): Notification =
         NotificationCompat.Builder(this, SERVICE_CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.stat_sys_download_done)
+            .setSmallIcon(com.sigmabridge.app.R.drawable.ic_stat_sigma_bridge)
             .setContentTitle("Sigma Bridge")
             .setContentText("Chat notifications are active")
             .setOngoing(true)
