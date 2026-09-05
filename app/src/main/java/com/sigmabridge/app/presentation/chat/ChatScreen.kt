@@ -23,7 +23,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -34,6 +33,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -82,9 +82,7 @@ fun ChatScreen(
     var input by remember { mutableStateOf("") }
     var languageMenuExpanded by remember { mutableStateOf(false) }
 
-    val notificationPermissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { }
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
     LaunchedEffect(Unit) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
@@ -155,8 +153,8 @@ fun ChatScreen(
                 },
                 actions = {
                     Box {
-                        IconButton(onClick = { languageMenuExpanded = true }) {
-                            Icon(Icons.Filled.Language, contentDescription = "Translation language")
+                        TextButton(onClick = { languageMenuExpanded = true }) {
+                            Text("A/文")
                         }
                         DropdownMenu(
                             expanded = languageMenuExpanded,
@@ -223,11 +221,7 @@ fun ChatScreen(
                     ) {
                         Surface(
                             modifier = Modifier.widthIn(max = 300.dp),
-                            shape = if (mine) {
-                                RoundedCornerShape(18.dp, 18.dp, 5.dp, 18.dp)
-                            } else {
-                                RoundedCornerShape(18.dp, 18.dp, 18.dp, 5.dp)
-                            },
+                            shape = if (mine) RoundedCornerShape(18.dp, 18.dp, 5.dp, 18.dp) else RoundedCornerShape(18.dp, 18.dp, 18.dp, 5.dp),
                             color = if (mine) Color(0xFFE1F2FF) else Color.White,
                             tonalElevation = 1.dp,
                             shadowElevation = 1.dp
