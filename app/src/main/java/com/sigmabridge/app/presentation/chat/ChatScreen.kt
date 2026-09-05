@@ -77,6 +77,8 @@ fun ChatScreen(
 ) {
     val messages by viewModel.messages.collectAsState()
     val connected by viewModel.connected.collectAsState()
+    val partnerOnline by viewModel.partnerOnline.collectAsState()
+    val partnerLastSeen by viewModel.partnerLastSeen.collectAsState()
     val conversationName by viewModel.conversationName.collectAsState()
     val partnerId by viewModel.partnerId.collectAsState()
     val partnerAvatarPath by viewModel.partnerAvatarPath.collectAsState()
@@ -150,10 +152,23 @@ fun ChatScreen(
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
+                            val statusText = when {
+                                !connected -> stringResource(R.string.chat_connecting)
+                                partnerOnline -> stringResource(R.string.chat_online)
+                                partnerLastSeen > 0L -> stringResource(
+                                    R.string.chat_last_seen,
+                                    formatLastSeen(partnerLastSeen)
+                                )
+                                else -> stringResource(R.string.chat_offline)
+                            }
                             Text(
-                                text = if (connected) stringResource(R.string.chat_online) else stringResource(R.string.chat_connecting),
+                                text = statusText,
                                 style = MaterialTheme.typography.labelSmall,
-                                color = if (connected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                color = if (connected && partnerOnline) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                }
                             )
                         }
                     }
@@ -339,4 +354,9 @@ fun ChatScreen(
             }
         }
     }
+}
+
+private fun formatLastSeen(timestamp: Long): String {
+    if (timestamp <= 0L) return ""
+    return SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(timestamp))
 }
