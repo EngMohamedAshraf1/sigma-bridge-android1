@@ -8,5 +8,6 @@ data class ChatConversation(
     val partnerId: String,
     val displayName: String,
     val lastMessage: String = "",
-    val lastMessageAt: Long = 0L
+    val lastMessageAt: Long = 0L,
+    val avatarPath: String? = null
 )
