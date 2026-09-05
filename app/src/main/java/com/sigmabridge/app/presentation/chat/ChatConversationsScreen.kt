@@ -38,7 +38,6 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Dialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -75,6 +74,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.sigmabridge.app.BuildConfig
@@ -475,7 +475,7 @@ private fun AvatarEditorDialog(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     TextButton(onClick = onDismiss) { Text("Cancel") }
-                    Spacer(modifier = Modifier.size(6.dp))
+                    Spacer(modifier = Modifier.size(8.dp))
                     Button(onClick = {
                         val edited = renderAvatar(source, zoom, rotation, panX, panY, 290f)
                         onApply(edited)
@@ -489,20 +489,7 @@ private fun AvatarEditorDialog(
 }
 
 private fun decodeAvatarBitmap(bytes: ByteArray): Bitmap? {
-    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-    BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
-    val maxDimension = max(bounds.outWidth, bounds.outHeight)
-    val sample = when {
-        maxDimension <= 1600 -> 1
-        maxDimension <= 3200 -> 2
-        maxDimension <= 6400 -> 4
-        else -> 8
-    }
-    val options = BitmapFactory.Options().apply {
-        inSampleSize = sample
-        inPreferredConfig = Bitmap.Config.ARGB_8888
-    }
-    return runCatching { BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options) }.getOrNull()
+    return runCatching { BitmapFactory.decodeByteArray(bytes, 0, bytes.size) }.getOrNull()
 }
 
 private fun renderAvatar(
@@ -514,22 +501,178 @@ private fun renderAvatar(
     previewSizePx: Float
 ): Bitmap {
     val outputSize = 512
-    val output = Bitmap.createBitmap(outputSize, outputSize, Bitmap.Config.ARGB_8888)
-    val canvas = Canvas(output)
+    val result = Bitmap.createBitmap(outputSize, outputSize, Bitmap.Config.ARGB_8888)
+    val canvas = Canvas(result)
+    canvas.drawColor(android.graphics.Color.TRANSPARENT)
+
     val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
-    val baseScale = max(outputSize.toFloat() / source.width, outputSize.toFloat() / source.height)
-    val panScale = outputSize / previewSizePx
+    val baseScale = max(previewSizePx / source.width.toFloat(), previewSizePx / source.height.toFloat())
+    val scale = baseScale * zoom * (outputSize / previewSizePx)
+    val tx = outputSize / 2f + panX * (outputSize / previewSizePx)
+    val ty = outputSize / 2f + panY * (outputSize / previewSizePx)
 
     canvas.save()
-    canvas.translate(
-        outputSize / 2f + panX * panScale,
-        outputSize / 2f + panY * panScale
-    )
+    canvas.translate(tx, ty)
     canvas.rotate(rotation)
-    canvas.scale(baseScale * zoom, baseScale * zoom)
+    canvas.scale(scale, scale)
     canvas.drawBitmap(source, -source.width / 2f, -source.height / 2f, paint)
     canvas.restore()
-    return output
+
+    return result
+}
+
+@Composable
+private fun RemoteChatAvatar(
+    name: String,
+    avatarPath: String?,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val url by produceState<String?>(initialValue = null, avatarPath) {
+        value = withContext(Dispatchers.IO) {
+            avatarPath?.let { path ->
+                runCatching {
+                    "${BuildConfig.SUPABASE_URL}/storage/v1/object/public/chat_avatars/$path"
+                }.getOrNull()
+            }
+        }
+    }
+    val bitmap by produceState<android.graphics.Bitmap?>(initialValue = null, url) {
+        value = withContext(Dispatchers.IO) {
+            url?.let {
+                runCatching { URL(it).openStream().use(BitmapFactory::decodeStream) }.getOrNull()
+            }
+        }
+    }
+
+    Box(
+        modifier = modifier.clip(CircleShape).background(MaterialTheme.colorScheme.surfaceVariant),
+        contentAlignment = Alignment.Center
+    ) {
+        if (bitmap != null) {
+            Image(
+                bitmap = bitmap!!.asImageBitmap(),
+                contentDescription = name,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop
+            )
+        } else {
+            Text(
+                text = name.trim().firstOrNull()?.uppercase() ?: "?",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+        }
+    }
+}
+
+@Composable
+private fun ConversationRow(
+    row: ChatConversationRow,
+    onClick: () -> Unit,
+    onRename: (String) -> Unit,
+    onDelete: () -> Unit
+) {
+    var menuOpen by remember { mutableStateOf(false) }
+    var renameOpen by remember { mutableStateOf(false) }
+    var rename by remember(row.conversation.partnerId) { mutableStateOf(row.conversation.displayName) }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        RemoteChatAvatar(
+            name = row.conversation.displayName,
+            avatarPath = row.conversation.avatarPath,
+            modifier = Modifier.size(52.dp)
+        )
+        Column(
+            modifier = Modifier.weight(1f).padding(start = 12.dp),
+            verticalArrangement = Arrangement.Center
+        ) {
+            Text(
+                text = row.conversation.displayName,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = row.lastMessage.ifBlank { "No messages yet" },
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        Column(horizontalAlignment = Alignment.End) {
+            Text(
+                text = formatConversationTime(row.lastMessageAt),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            if (row.unreadCount > 0) {
+                Text(
+                    text = row.unreadCount.toString(),
+                    modifier = Modifier.padding(top = 6.dp),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onPrimary,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+        Box {
+            IconButton(onClick = { menuOpen = true }) {
+                Icon(Icons.Filled.MoreVert, contentDescription = "More")
+            }
+            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                DropdownMenuItem(
+                    text = { Text("Rename") },
+                    onClick = {
+                        menuOpen = false
+                        renameOpen = true
+                    }
+                )
+                DropdownMenuItem(
+                    text = { Text("Delete") },
+                    onClick = {
+                        menuOpen = false
+                        onDelete()
+                    }
+                )
+            }
+        }
+    }
+
+    if (renameOpen) {
+        AlertDialog(
+            onDismissRequest = { renameOpen = false },
+            title = { Text("Rename conversation") },
+            text = {
+                OutlinedTextField(
+                    value = rename,
+                    onValueChange = { rename = it },
+                    singleLine = true,
+                    label = { Text("Name") }
+                )
+            },
+            confirmButton = {
+                Button(onClick = {
+                    onRename(rename.trim().ifBlank { row.conversation.displayName })
+                    renameOpen = false
+                }) { Text("Save") }
+            },
+            dismissButton = { TextButton(onClick = { renameOpen = false }) { Text("Cancel") } }
+        )
+    }
+}
+
+private fun formatConversationTime(timestamp: Long): String {
+    if (timestamp <= 0L) return ""
+    return SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(timestamp))
 }
 
 @Composable
@@ -545,214 +688,58 @@ private fun NewChatDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("New chat") },
+        title = { Text("New private chat") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column {
                 OutlinedTextField(
                     value = query,
                     onValueChange = {
-                        query = it.removePrefix("@").lowercase(Locale.ROOT)
-                        onSearch(query)
+                        query = it
+                        onSearch(it)
                     },
-                    label = { Text("Username") },
-                    placeholder = { Text("@username") },
+                    singleLine = true,
+                    label = { Text("Search username") },
                     prefix = { Text("@") },
-                    singleLine = true
+                    modifier = Modifier.fillMaxWidth()
                 )
-                if (busy) Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
-                    CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+                if (busy) {
+                    CircularProgressIndicator(modifier = Modifier.padding(18.dp))
                 }
-                error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-                results.forEach { person ->
-                    Surface(
-                        modifier = Modifier.fillMaxWidth().clickable { onSelect(person) },
-                        shape = RoundedCornerShape(16.dp),
-                        color = MaterialTheme.colorScheme.surfaceVariant
-                    ) {
-                        Row(modifier = Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                            RemoteChatAvatar(person.displayName, person.avatarPath, Modifier.size(48.dp))
+                error?.let {
+                    Text(
+                        text = it,
+                        modifier = Modifier.padding(top = 10.dp),
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+                Column(modifier = Modifier.padding(top = 8.dp)) {
+                    results.take(8).forEach { person ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onSelect(person) }
+                                .padding(vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RemoteChatAvatar(
+                                name = person.displayName.ifBlank { person.username },
+                                avatarPath = person.avatarPath,
+                                modifier = Modifier.size(42.dp)
+                            )
                             Column(modifier = Modifier.padding(start = 10.dp)) {
-                                Text(person.displayName, style = MaterialTheme.typography.titleMedium)
-                                person.username?.let { Text("@$it", color = MaterialTheme.colorScheme.primary) }
+                                Text(person.displayName.ifBlank { person.username }, fontWeight = FontWeight.SemiBold)
+                                Text(
+                                    text = "@${person.username}",
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    style = MaterialTheme.typography.bodySmall
+                                )
                             }
                         }
                     }
                 }
-                if (!busy && query.length >= 2 && results.isEmpty() && error == null) {
-                    Text("No users found.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
             }
         },
         confirmButton = {},
-        dismissButton = { OutlinedButton(onClick = onDismiss) { Text("Close") } }
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Close") } }
     )
-}
-
-@Composable
-private fun ConversationRow(
-    row: ChatConversationRow,
-    onClick: () -> Unit,
-    onRename: (String) -> Unit,
-    onDelete: () -> Unit
-) {
-    var menuExpanded by remember { mutableStateOf(false) }
-    var showRename by remember { mutableStateOf(false) }
-    var renameText by remember { mutableStateOf(row.conversation.displayName) }
-    val conversation = row.conversation
-
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        RemoteChatAvatar(
-            name = conversation.displayName,
-            avatarPath = conversation.avatarPath,
-            modifier = Modifier.size(56.dp)
-        )
-
-        Column(
-            modifier = Modifier
-                .weight(1f)
-                .padding(start = 12.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = conversation.displayName,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.weight(1f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                if (conversation.lastMessageAt > 0L) {
-                    Text(
-                        text = formatConversationTime(conversation.lastMessageAt),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 3.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = conversation.lastMessage.ifBlank { "Private chat" },
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.weight(1f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                if (row.unreadCount > 0) {
-                    Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primary) {
-                        Text(
-                            text = row.unreadCount.coerceAtMost(99).toString(),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onPrimary,
-                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
-                        )
-                    }
-                }
-            }
-        }
-
-        Box {
-            IconButton(onClick = { menuExpanded = true }) {
-                Icon(Icons.Filled.MoreVert, contentDescription = "Conversation menu")
-            }
-            DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
-                DropdownMenuItem(
-                    text = { Text("Rename") },
-                    onClick = {
-                        menuExpanded = false
-                        renameText = conversation.displayName
-                        showRename = true
-                    }
-                )
-                DropdownMenuItem(
-                    text = { Text("Delete") },
-                    onClick = { menuExpanded = false; onDelete() }
-                )
-            }
-        }
-    }
-
-    if (showRename) {
-        AlertDialog(
-            onDismissRequest = { showRename = false },
-            title = { Text("Rename conversation") },
-            text = { OutlinedTextField(value = renameText, onValueChange = { renameText = it }, label = { Text("Name") }, singleLine = true) },
-            confirmButton = {
-                Button(onClick = { onRename(renameText); showRename = false }) { Text("Save") }
-            },
-            dismissButton = { OutlinedButton(onClick = { showRename = false }) { Text("Cancel") } }
-        )
-    }
-}
-
-@Composable
-private fun RemoteChatAvatar(
-    name: String,
-    avatarPath: String?,
-    modifier: Modifier
-) {
-    val bitmap by produceState<android.graphics.Bitmap?>(initialValue = null, avatarPath) {
-        value = if (avatarPath.isNullOrBlank()) {
-            null
-        } else {
-            withContext(Dispatchers.IO) {
-                runCatching {
-                    val url = BuildConfig.SUPABASE_URL.trimEnd('/') + "/storage/v1/object/public/chat_avatars/" + avatarPath
-                    URL(url).openStream().use { BitmapFactory.decodeStream(it) }
-                }.getOrNull()
-            }
-        }
-    }
-
-    if (bitmap != null) {
-        Surface(modifier = modifier, shape = CircleShape) {
-            Image(
-                bitmap = bitmap!!.asImageBitmap(),
-                contentDescription = name,
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop
-            )
-        }
-    } else {
-        Surface(
-            modifier = modifier,
-            shape = CircleShape,
-            color = MaterialTheme.colorScheme.primaryContainer
-        ) {
-            Box(contentAlignment = Alignment.Center) {
-                Text(
-                    text = name.trim().firstOrNull()?.uppercase(Locale.getDefault()) ?: "S",
-                    style = MaterialTheme.typography.titleLarge,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer
-                )
-            }
-        }
-    }
-}
-
-private fun formatConversationTime(timeMillis: Long): String {
-    val date = Date(timeMillis)
-    val now = Date()
-    val sameDay = SimpleDateFormat("yyyyMMdd", Locale.getDefault()).format(date) ==
-        SimpleDateFormat("yyyyMMdd", Locale.getDefault()).format(now)
-    return if (sameDay) {
-        SimpleDateFormat("HH:mm", Locale.getDefault()).format(date)
-    } else {
-        SimpleDateFormat("dd/MM", Locale.getDefault()).format(date)
-    }
 }
