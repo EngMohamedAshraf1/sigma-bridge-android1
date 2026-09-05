@@ -1,5 +1,6 @@
 package com.sigmabridge.app.presentation.chat
 
+import android.app.Activity
 import android.content.Context
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -65,8 +66,14 @@ fun ChatConversationsScreen(
     if (!accountState.authenticated) {
         ChatAccountScreen(
             state = accountState,
-            onEmailChange = accountViewModel::updateEmail,
-            onContinue = accountViewModel::sendEmailLogin
+            onContinueWithGoogle = {
+                val activity = context.findActivity()
+                if (activity != null) {
+                    accountViewModel.signInWithGoogle(activity)
+                } else {
+                    accountViewModel.reportError("تعذر فتح شاشة تسجيل الدخول. حاول مرة أخرى.")
+                }
+            }
         )
         return
     }
@@ -82,6 +89,12 @@ fun ChatConversationsScreen(
         onBack = onBack,
         onOpenChat = onOpenChat
     )
+}
+
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is android.content.ContextWrapper -> baseContext.findActivity()
+    else -> null
 }
 
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
