@@ -40,3 +40,8 @@ data class UpdateChatAvatarRpcParams(
 data class GetChatProfileByPublicIdRpcParams(
     @SerialName("p_public_id") val publicId: String
 )
+
+@Serializable
+data class ChatLastSeenRpcResponse(
+    @SerialName("last_seen_at") val lastSeenAt: Long? = null
+)
