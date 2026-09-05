@@ -1,7 +1,11 @@
 package com.sigmabridge.app.data.chat
 
 import io.github.jan.supabase.SupabaseClient
-import io.github.jan.supabase.realtime.realtime
+import io.github.jan.supabase.realtime.channel
+import io.github.jan.supabase.realtime.decodeJoinsAs
+import io.github.jan.supabase.realtime.decodeLeavesAs
+import io.github.jan.supabase.realtime.presenceChangeFlow
+import io.github.jan.supabase.realtime.track
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
@@ -36,7 +40,7 @@ class ChatPresenceRepository @Inject constructor(
         val topic = channelName.trim()
         if (topic.isBlank() || ownPublicId.isBlank()) return emptyFlow()
 
-        val channel = supabase.realtime.createChannel(topic) {
+        val channel = supabase.channel(topic) {
             presence {
                 key = ownPublicId
             }
@@ -73,12 +77,7 @@ class ChatPresenceRepository @Inject constructor(
             }
 
             try {
-                supabase.realtime.connect()
-                if (blockUntilJoined) {
-                    channel.join(blockUntilJoined = true)
-                } else {
-                    channel.join()
-                }
+                channel.subscribe(blockUntilSubscribed = blockUntilJoined)
                 channel.track(
                     ChatPresencePayload(
                         publicId = ownPublicId,
@@ -89,7 +88,7 @@ class ChatPresenceRepository @Inject constructor(
             } finally {
                 collector.cancel()
                 runCatching { channel.untrack() }
-                runCatching { channel.leave() }
+                runCatching { channel.unsubscribe() }
             }
         }
     }
