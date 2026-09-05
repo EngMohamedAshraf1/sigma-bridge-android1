@@ -32,12 +32,30 @@ class ChatCrypto @Inject constructor(
             Base64.decode(value, Base64.URL_SAFE or Base64.NO_WRAP)
     }
 
-    fun encrypt(text: String): String {
+    fun encrypt(text: String): String = encryptWithKey(text, identity.conversationKey())
+
+    /** Encrypt using an explicitly selected partner conversation. */
+    fun encryptForPartner(text: String, partnerId: String): String =
+        encryptWithKey(text, identity.conversationKeyFor(partnerId))
+
+    /** Returns the Base64URL representation of the IV stored in the encrypted payload. */
+    fun nonceFromEncrypted(value: String): String {
+        val payload = decodePayload(value)
+        return encode(payload.copyOfRange(1, 1 + IV_BYTES))
+    }
+
+    fun decrypt(value: String): String = decryptWithKey(value, identity.conversationKey())
+
+    /** Decrypt an incoming message without mutating the currently selected partner. */
+    fun decryptForPartner(value: String, partnerId: String): String =
+        decryptWithKey(value, identity.conversationKeyFor(partnerId))
+
+    private fun encryptWithKey(text: String, key: ByteArray): String {
         val iv = ByteArray(IV_BYTES).also(RANDOM::nextBytes)
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(
             Cipher.ENCRYPT_MODE,
-            SecretKeySpec(identity.conversationKey(), "AES"),
+            SecretKeySpec(key, "AES"),
             GCMParameterSpec(TAG_BITS, iv)
         )
         val ciphertext = cipher.doFinal(text.toByteArray(Charsets.UTF_8))
@@ -49,20 +67,14 @@ class ChatCrypto @Inject constructor(
         return PREFIX + encode(payload)
     }
 
-    /** Returns the Base64URL representation of the IV stored in the encrypted payload. */
-    fun nonceFromEncrypted(value: String): String {
-        val payload = decodePayload(value)
-        return encode(payload.copyOfRange(1, 1 + IV_BYTES))
-    }
-
-    fun decrypt(value: String): String {
+    private fun decryptWithKey(value: String, key: ByteArray): String {
         val payload = decodePayload(value)
         val iv = payload.copyOfRange(1, 1 + IV_BYTES)
         val ciphertext = payload.copyOfRange(1 + IV_BYTES, payload.size)
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(
             Cipher.DECRYPT_MODE,
-            SecretKeySpec(identity.conversationKey(), "AES"),
+            SecretKeySpec(key, "AES"),
             GCMParameterSpec(TAG_BITS, iv)
         )
         return cipher.doFinal(ciphertext).toString(Charsets.UTF_8)
