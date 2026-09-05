@@ -43,6 +43,7 @@ class ChatAccountViewModel @Inject constructor(
 
     fun refresh() {
         viewModelScope.launch {
+            accountRepository.awaitAuthInitialization()
             val authenticated = accountRepository.isAuthenticated()
             val anonymous = accountRepository.isAnonymousSession()
             _state.value = _state.value.copy(
