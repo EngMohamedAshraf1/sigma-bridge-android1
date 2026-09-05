@@ -85,6 +85,7 @@ class ChatAccountViewModel @Inject constructor(
             result.onSuccess {
                 _state.value = _state.value.copy(
                     busy = false,
+                    email = email,
                     step = ChatAccountStep.VERIFICATION,
                     message = "أرسلنا رسالة تحقق إلى $email. افتحها ثم اضغط «تم التحقق» هنا.",
                     error = null
@@ -102,12 +103,12 @@ class ChatAccountViewModel @Inject constructor(
         viewModelScope.launch {
             _state.value = _state.value.copy(busy = true, error = null, message = null)
             accountRepository.refreshAccountState()
-                .onSuccess { authenticated ->
-                    if (authenticated) {
+                .onSuccess { verified ->
+                    if (verified) {
                         _state.value = _state.value.copy(
                             loading = false,
                             busy = false,
-                            authenticated = true,
+                            authenticated = false,
                             step = ChatAccountStep.PASSWORD,
                             message = "تم توثيق الحساب. ضع كلمة مرور لاسترداد الحساب لاحقًا.",
                             error = null
