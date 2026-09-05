@@ -10,6 +10,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -19,14 +20,20 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
-import androidx.hilt.navigation.compose.hiltViewModel
+import com.sigmabridge.app.BuildConfig
+import com.sigmabridge.app.data.update.GitHubUpdateChecker
 import com.sigmabridge.app.domain.model.GeminiKeyStatus
 import com.sigmabridge.app.domain.usecase.SettingsValidationError
+import kotlinx.coroutines.launch
 
 /**
  * Still deliberately plain (Phase 2 note applies): fields + buttons + error
@@ -36,8 +43,12 @@ import com.sigmabridge.app.domain.usecase.SettingsValidationError
  * icon, same as Icons.Filled.Settings already used on Home).
  */
 @Composable
-fun SettingsScreen(viewModel: SettingsViewModel = hiltViewModel()) {
+fun SettingsScreen(viewModel: SettingsViewModel = androidx.hilt.navigation.compose.hiltViewModel()) {
     val uiState by viewModel.uiState.collectAsState()
+    val scope = rememberCoroutineScope()
+    val updateChecker = remember { GitHubUpdateChecker() }
+    var checkingForUpdate by remember { mutableStateOf(false) }
+    var updateMessage by remember { mutableStateOf<String?>(null) }
 
     Column(
         modifier = Modifier
@@ -102,6 +113,48 @@ fun SettingsScreen(viewModel: SettingsViewModel = hiltViewModel()) {
             modifier = Modifier.padding(top = 16.dp)
         ) {
             Text(if (uiState.isSaved) "Saved" else "Save")
+        }
+
+        Button(
+            onClick = {
+                if (checkingForUpdate) return@Button
+                checkingForUpdate = true
+                updateMessage = null
+                scope.launch {
+                    try {
+                        val result = updateChecker.check(BuildConfig.VERSION_NAME)
+                        updateMessage = if (result.updateAvailable) {
+                            "Update available: v${result.latestVersion}"
+                        } else {
+                            "You are using the latest version (v${result.currentVersion})."
+                        }
+                    } catch (error: Exception) {
+                        updateMessage = "Could not check for updates. Please try again."
+                    } finally {
+                        checkingForUpdate = false
+                    }
+                }
+            },
+            enabled = !checkingForUpdate,
+            modifier = Modifier.padding(top = 24.dp)
+        ) {
+            if (checkingForUpdate) {
+                CircularProgressIndicator(
+                    modifier = Modifier
+                        .padding(end = 8.dp)
+                        .align(Alignment.CenterVertically),
+                    strokeWidth = 2.dp
+                )
+            }
+            Text(if (checkingForUpdate) "Checking..." else "Check for updates")
+        }
+
+        updateMessage?.let { message ->
+            Text(
+                text = message,
+                modifier = Modifier.padding(top = 8.dp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
 }
