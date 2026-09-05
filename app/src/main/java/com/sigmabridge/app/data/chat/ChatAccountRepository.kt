@@ -14,6 +14,10 @@ class ChatAccountRepository @Inject constructor(
     private val auth: Auth
         get() = supabase.pluginManager.getPlugin(Auth)
 
+    suspend fun awaitAuthInitialization() {
+        auth.awaitInitialization()
+    }
+
     fun isAuthenticated(): Boolean {
         val user = auth.currentUserOrNull() ?: return false
         return !isAnonymousUser(user)
@@ -25,12 +29,14 @@ class ChatAccountRepository @Inject constructor(
     fun currentEmail(): String? = auth.currentUserOrNull()?.email
 
     suspend fun startAnonymousAccount(): Result<Unit> = runCatching {
+        auth.awaitInitialization()
         if (auth.currentUserOrNull() == null) {
             auth.signInAnonymously()
         }
     }
 
     suspend fun linkEmailToCurrentAnonymous(email: String): Result<Unit> = runCatching {
+        auth.awaitInitialization()
         require(isAnonymousSession()) { "ANONYMOUS_ACCOUNT_REQUIRED" }
         val normalized = email.trim().lowercase()
         require(normalized.isNotBlank()) { "EMAIL_REQUIRED" }
@@ -40,6 +46,7 @@ class ChatAccountRepository @Inject constructor(
     }
 
     suspend fun verifyEmailChangeOtp(email: String, token: String): Result<Unit> = runCatching {
+        auth.awaitInitialization()
         val normalized = email.trim().lowercase()
         require(normalized.isNotBlank()) { "EMAIL_REQUIRED" }
         require(token.isNotBlank()) { "OTP_REQUIRED" }
@@ -55,12 +62,14 @@ class ChatAccountRepository @Inject constructor(
     }
 
     suspend fun resendEmailVerification(email: String): Result<Unit> = runCatching {
+        auth.awaitInitialization()
         val normalized = email.trim().lowercase()
         require(normalized.isNotBlank()) { "EMAIL_REQUIRED" }
         auth.resendEmail(OtpType.Email.EMAIL_CHANGE, normalized)
     }
 
     suspend fun signInWithEmail(email: String, password: String): Result<Unit> = runCatching {
+        auth.awaitInitialization()
         val normalized = email.trim().lowercase()
         require(normalized.isNotBlank()) { "EMAIL_REQUIRED" }
         require(password.isNotBlank()) { "PASSWORD_REQUIRED" }
@@ -72,6 +81,7 @@ class ChatAccountRepository @Inject constructor(
     }
 
     suspend fun setPassword(password: String): Result<Unit> = runCatching {
+        auth.awaitInitialization()
         require(isAuthenticated()) { "ACCOUNT_NOT_VERIFIED" }
         require(password.length >= 8) { "PASSWORD_TOO_SHORT" }
         auth.updateUser {
@@ -80,6 +90,7 @@ class ChatAccountRepository @Inject constructor(
     }
 
     suspend fun refreshAccountState(): Result<Boolean> = runCatching {
+        auth.awaitInitialization()
         val user = auth.retrieveUserForCurrentSession(updateSession = true)
         !isAnonymousUser(user)
     }
