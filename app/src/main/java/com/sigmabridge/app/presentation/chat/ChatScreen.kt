@@ -78,6 +78,7 @@ fun ChatScreen(
     val connected by viewModel.connected.collectAsState()
     val conversationName by viewModel.conversationName.collectAsState()
     val partnerId by viewModel.partnerId.collectAsState()
+    val partnerAvatarPath by viewModel.partnerAvatarPath.collectAsState()
     val error by viewModel.error.collectAsState()
     val context = androidx.compose.ui.platform.LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -136,7 +137,11 @@ fun ChatScreen(
             TopAppBar(
                 title = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        ChatAvatar(name = conversationName, size = 42.dp)
+                        ChatProfileAvatar(
+                            name = conversationName,
+                            avatarPath = partnerAvatarPath,
+                            modifier = Modifier.size(42.dp)
+                        )
                         Column(modifier = Modifier.padding(start = 10.dp)) {
                             Text(
                                 text = conversationName.ifBlank { "Private Chat" },
@@ -331,23 +336,6 @@ fun ChatScreen(
                     }
                 }
             }
-        }
-    }
-}
-
-@Composable
-private fun ChatAvatar(name: String, size: androidx.compose.ui.unit.Dp) {
-    Surface(
-        modifier = Modifier.size(size),
-        shape = CircleShape,
-        color = MaterialTheme.colorScheme.primaryContainer
-    ) {
-        Box(contentAlignment = Alignment.Center) {
-            Text(
-                text = name.trim().firstOrNull()?.uppercase() ?: "S",
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onPrimaryContainer
-            )
         }
     }
 }
