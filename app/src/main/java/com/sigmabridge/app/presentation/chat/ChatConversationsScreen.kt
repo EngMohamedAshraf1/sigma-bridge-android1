@@ -8,6 +8,7 @@ import android.graphics.Canvas
 import android.graphics.Paint
 import java.io.ByteArrayOutputStream
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
@@ -70,14 +71,15 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.sigmabridge.app.BuildConfig
+import com.sigmabridge.app.R
 import com.sigmabridge.app.data.chat.ChatProfile
 import com.sigmabridge.app.service.ChatNotificationService
 import kotlinx.coroutines.Dispatchers
@@ -102,7 +104,7 @@ fun ChatConversationsScreen(
             state = accountState,
             onContinueWithGoogle = {
                 context.findActivity()?.let(accountViewModel::signInWithGoogle)
-                    ?: accountViewModel.reportError("تعذر فتح شاشة تسجيل الدخول. حاول مرة أخرى.")
+                    ?: accountViewModel.reportError(context.getString(R.string.chat_error_open_sign_in))
             }
         )
         return
@@ -156,14 +158,14 @@ private fun ChatConversationsContent(
             TopAppBar(
                 title = {
                     Text(
-                        text = "Private Chat",
+                        text = stringResource(R.string.chat_private_chat),
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.SemiBold
                     )
                 },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.Filled.ArrowBack, contentDescription = stringResource(R.string.chat_back))
                     }
                 },
                 actions = {
@@ -178,7 +180,7 @@ private fun ChatConversationsContent(
                         viewModel.clearSearch()
                         showNewChat = true
                     }) {
-                        Icon(Icons.Filled.Add, contentDescription = "New chat")
+                        Icon(Icons.Filled.Add, contentDescription = stringResource(R.string.chat_new_chat))
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -200,7 +202,7 @@ private fun ChatConversationsContent(
                     .fillMaxWidth()
                     .padding(horizontal = 12.dp, vertical = 8.dp)
                     .height(52.dp),
-                placeholder = { Text("Search") },
+                placeholder = { Text(stringResource(R.string.chat_search)) },
                 leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
                 singleLine = true,
                 shape = RoundedCornerShape(18.dp),
@@ -221,12 +223,12 @@ private fun ChatConversationsContent(
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(
-                            text = if (conversations.isEmpty()) "No conversations yet" else "No results",
+                            text = if (conversations.isEmpty()) stringResource(R.string.chat_no_conversations_yet) else stringResource(R.string.chat_no_results),
                             style = MaterialTheme.typography.titleMedium
                         )
                         if (conversations.isEmpty()) {
                             Text(
-                                text = "Start a private chat with a username.",
+                                text = stringResource(R.string.chat_start_private_chat),
                                 modifier = Modifier.padding(top = 6.dp),
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -235,7 +237,7 @@ private fun ChatConversationsContent(
                                 modifier = Modifier.padding(top = 16.dp),
                                 shape = RoundedCornerShape(18.dp)
                             ) {
-                                Text("New chat")
+                                Text(stringResource(R.string.chat_new_chat))
                             }
                         }
                     }
@@ -318,7 +320,7 @@ private fun ProfileDialog(
 
     AlertDialog(
         onDismissRequest = { if (!busy && editingBitmap == null) onDismiss() },
-        title = { Text("My profile") },
+        title = { Text(stringResource(R.string.chat_my_profile)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 RemoteChatAvatar(
@@ -331,28 +333,28 @@ private fun ProfileDialog(
                         PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
                     )
                 }, enabled = !busy) {
-                    Text("Choose photo")
+                    Text(stringResource(R.string.chat_choose_photo))
                 }
-                OutlinedTextField(value = firstName, onValueChange = { firstName = it }, label = { Text("First name") }, singleLine = true)
-                OutlinedTextField(value = lastName, onValueChange = { lastName = it }, label = { Text("Last name") }, singleLine = true)
+                OutlinedTextField(value = firstName, onValueChange = { firstName = it }, label = { Text(stringResource(R.string.chat_first_name)) }, singleLine = true)
+                OutlinedTextField(value = lastName, onValueChange = { lastName = it }, label = { Text(stringResource(R.string.chat_last_name)) }, singleLine = true)
                 OutlinedTextField(
                     value = username,
                     onValueChange = { username = it.lowercase(Locale.ROOT).replace(" ", "_") },
-                    label = { Text("Username") },
-                    placeholder = { Text("example_name") },
+                    label = { Text(stringResource(R.string.chat_username)) },
+                    placeholder = { Text(stringResource(R.string.chat_username_placeholder)) },
                     prefix = { Text("@") },
                     singleLine = true,
-                    supportingText = { Text("3–24: lowercase English letters, numbers and _") }
+                    supportingText = { Text(stringResource(R.string.chat_username_rules)) }
                 )
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             }
         },
         confirmButton = {
             Button(onClick = { onSave(firstName, lastName, username) }, enabled = !busy && username.length >= 3) {
-                if (busy) CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp) else Text("Save")
+                if (busy) CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp) else Text(stringResource(R.string.chat_save))
             }
         },
-        dismissButton = { OutlinedButton(onClick = onDismiss, enabled = !busy) { Text("Close") } }
+        dismissButton = { OutlinedButton(onClick = onDismiss, enabled = !busy) { Text(stringResource(R.string.chat_close)) } }
     )
 
     editingBitmap?.let { bitmap ->
@@ -393,9 +395,9 @@ private fun AvatarEditorDialog(
                 modifier = Modifier.fillMaxWidth().padding(18.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Text("Adjust photo", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                Text(stringResource(R.string.chat_adjust_photo), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
                 Text(
-                    "Move, zoom and rotate before setting your profile photo.",
+                    stringResource(R.string.chat_adjust_photo_description),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 4.dp)
@@ -419,7 +421,7 @@ private fun AvatarEditorDialog(
                 ) {
                     Image(
                         bitmap = source.asImageBitmap(),
-                        contentDescription = "Avatar preview",
+                        contentDescription = stringResource(R.string.chat_avatar_preview),
                         modifier = Modifier
                             .fillMaxSize()
                             .graphicsLayer {
@@ -437,7 +439,7 @@ private fun AvatarEditorDialog(
                     modifier = Modifier.fillMaxWidth().padding(top = 14.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("Zoom", modifier = Modifier.padding(end = 8.dp), fontWeight = FontWeight.Medium)
+                    Text(stringResource(R.string.chat_zoom), modifier = Modifier.padding(end = 8.dp), fontWeight = FontWeight.Medium)
                     Slider(
                         value = zoom,
                         onValueChange = { zoom = it },
@@ -465,7 +467,7 @@ private fun AvatarEditorDialog(
                         panX = 0f
                         panY = 0f
                     }) {
-                        Text("Reset")
+                        Text(stringResource(R.string.chat_reset))
                     }
                 }
 
@@ -474,13 +476,13 @@ private fun AvatarEditorDialog(
                     horizontalArrangement = Arrangement.End,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    TextButton(onClick = onDismiss) { Text("Cancel") }
+                    TextButton(onClick = onDismiss) { Text(stringResource(R.string.chat_cancel)) }
                     Spacer(modifier = Modifier.size(8.dp))
                     Button(onClick = {
                         val edited = renderAvatar(source, zoom, rotation, panX, panY, 290f)
                         onApply(edited)
                     }) {
-                        Text("Set photo")
+                        Text(stringResource(R.string.chat_set_photo))
                     }
                 }
             }
@@ -527,7 +529,6 @@ private fun RemoteChatAvatar(
     avatarPath: String?,
     modifier: Modifier = Modifier
 ) {
-    val context = LocalContext.current
     val url by produceState<String?>(initialValue = null, avatarPath) {
         value = withContext(Dispatchers.IO) {
             avatarPath?.let { path ->
@@ -601,7 +602,7 @@ private fun ConversationRow(
                 overflow = TextOverflow.Ellipsis
             )
             Text(
-                text = row.lastMessage.ifBlank { "No messages yet" },
+                text = row.lastMessage.ifBlank { stringResource(R.string.chat_no_messages_yet) },
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
@@ -626,18 +627,18 @@ private fun ConversationRow(
         }
         Box {
             IconButton(onClick = { menuOpen = true }) {
-                Icon(Icons.Filled.MoreVert, contentDescription = "More")
+                Icon(Icons.Filled.MoreVert, contentDescription = stringResource(R.string.chat_more))
             }
             DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                 DropdownMenuItem(
-                    text = { Text("Rename") },
+                    text = { Text(stringResource(R.string.chat_rename)) },
                     onClick = {
                         menuOpen = false
                         renameOpen = true
                     }
                 )
                 DropdownMenuItem(
-                    text = { Text("Delete") },
+                    text = { Text(stringResource(R.string.chat_delete)) },
                     onClick = {
                         menuOpen = false
                         onDelete()
@@ -650,22 +651,22 @@ private fun ConversationRow(
     if (renameOpen) {
         AlertDialog(
             onDismissRequest = { renameOpen = false },
-            title = { Text("Rename conversation") },
+            title = { Text(stringResource(R.string.chat_rename_conversation)) },
             text = {
                 OutlinedTextField(
                     value = rename,
                     onValueChange = { rename = it },
                     singleLine = true,
-                    label = { Text("Name") }
+                    label = { Text(stringResource(R.string.chat_name)) }
                 )
             },
             confirmButton = {
                 Button(onClick = {
                     onRename(rename.trim().ifBlank { row.conversation.displayName })
                     renameOpen = false
-                }) { Text("Save") }
+                }) { Text(stringResource(R.string.chat_save)) }
             },
-            dismissButton = { TextButton(onClick = { renameOpen = false }) { Text("Cancel") } }
+            dismissButton = { TextButton(onClick = { renameOpen = false }) { Text(stringResource(R.string.chat_cancel)) } }
         )
     }
 }
@@ -688,7 +689,7 @@ private fun NewChatDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("New private chat") },
+        title = { Text(stringResource(R.string.chat_new_private_chat)) },
         text = {
             Column {
                 OutlinedTextField(
@@ -698,7 +699,7 @@ private fun NewChatDialog(
                         onSearch(it)
                     },
                     singleLine = true,
-                    label = { Text("Search username") },
+                    label = { Text(stringResource(R.string.chat_search_username)) },
                     prefix = { Text("@") },
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -722,12 +723,12 @@ private fun NewChatDialog(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             RemoteChatAvatar(
-                                name = person.displayName.ifBlank { person.username },
+                                name = person.displayName.ifBlank { person.username.orEmpty() },
                                 avatarPath = person.avatarPath,
                                 modifier = Modifier.size(42.dp)
                             )
                             Column(modifier = Modifier.padding(start = 10.dp)) {
-                                Text(person.displayName.ifBlank { person.username }, fontWeight = FontWeight.SemiBold)
+                                Text(person.displayName.ifBlank { person.username.orEmpty() }, fontWeight = FontWeight.SemiBold)
                                 Text(
                                     text = "@${person.username}",
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -740,6 +741,6 @@ private fun NewChatDialog(
             }
         },
         confirmButton = {},
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Close") } }
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.chat_close)) } }
     )
 }
