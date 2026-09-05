@@ -16,7 +16,9 @@ import com.sigmabridge.app.presentation.settings.SettingsScreen
 @Composable
 fun SigmaBridgeNavGraph(
     navController: NavHostController = rememberNavController(),
-    openPrivateChat: Boolean = false
+    openPrivateChat: Boolean = false,
+    darkTheme: Boolean = false,
+    onToggleTheme: () -> Unit = {}
 ) {
     NavHost(
         navController = navController,
@@ -41,7 +43,11 @@ fun SigmaBridgeNavGraph(
             )
         }
         composable(SigmaBridgeDestination.PrivateChat.route) {
-            ChatScreen(onBack = { navController.popBackStack() })
+            ChatScreen(
+                onBack = { navController.popBackStack() },
+                darkTheme = darkTheme,
+                onToggleTheme = onToggleTheme
+            )
         }
         composable(SigmaBridgeDestination.Settings.route) {
             SettingsScreen()
