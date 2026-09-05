@@ -2,6 +2,10 @@ package com.sigmabridge.app.presentation.chat
 
 import android.app.Activity
 import android.content.Context
+import android.graphics.BitmapFactory
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -44,19 +48,26 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.sigmabridge.app.BuildConfig
 import com.sigmabridge.app.data.chat.ChatProfile
+import com.sigmabridge.app.domain.chat.ChatConversation
 import com.sigmabridge.app.service.ChatNotificationService
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -141,8 +152,9 @@ private fun ChatConversationsContent(
                 },
                 actions = {
                     IconButton(onClick = { showProfile = true }) {
-                        SmallAvatar(
+                        RemoteChatAvatar(
                             name = profile?.displayName?.ifBlank { profile?.username.orEmpty() }.orEmpty(),
+                            avatarPath = profile?.avatarPath,
                             modifier = Modifier.size(36.dp)
                         )
                     }
@@ -241,7 +253,8 @@ private fun ChatConversationsContent(
             onDismiss = { showProfile = false },
             onSave = { first, last, username ->
                 viewModel.saveProfile(first, last, username) { showProfile = false }
-            }
+            },
+            onUploadAvatar = { bytes, extension -> viewModel.uploadAvatar(bytes, extension) }
         )
     }
 
@@ -268,17 +281,41 @@ private fun ProfileDialog(
     busy: Boolean,
     error: String?,
     onDismiss: () -> Unit,
-    onSave: (String, String, String) -> Unit
+    onSave: (String, String, String) -> Unit,
+    onUploadAvatar: (ByteArray, String) -> Unit
 ) {
     var firstName by remember(profile) { mutableStateOf(profile?.firstName.orEmpty()) }
     var lastName by remember(profile) { mutableStateOf(profile?.lastName.orEmpty()) }
     var username by remember(profile) { mutableStateOf(profile?.username.orEmpty()) }
+    val context = LocalContext.current
+
+    val avatarPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        val bytes = runCatching {
+            context.contentResolver.openInputStream(uri)?.use { input -> input.readBytes() }
+        }.getOrNull()
+        if (bytes.isNullOrEmpty()) return@rememberLauncherForActivityResult
+        val extension = when (context.contentResolver.getType(uri)?.lowercase(Locale.ROOT)) {
+            "image/png" -> "png"
+            "image/webp" -> "webp"
+            else -> "jpg"
+        }
+        onUploadAvatar(bytes, extension)
+    }
 
     AlertDialog(
         onDismissRequest = { if (!busy) onDismiss() },
         title = { Text("My profile") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                RemoteChatAvatar(
+                    name = profile?.displayName?.ifBlank { profile?.username.orEmpty() }.orEmpty(),
+                    avatarPath = profile?.avatarPath,
+                    modifier = Modifier.size(96.dp)
+                )
+                OutlinedButton(onClick = { avatarPicker.launch("image/*") }, enabled = !busy) {
+                    Text("Change photo")
+                }
                 OutlinedTextField(value = firstName, onValueChange = { firstName = it }, label = { Text("First name") }, singleLine = true)
                 OutlinedTextField(value = lastName, onValueChange = { lastName = it }, label = { Text("Last name") }, singleLine = true)
                 OutlinedTextField(
@@ -340,7 +377,7 @@ private fun NewChatDialog(
                         color = MaterialTheme.colorScheme.surfaceVariant
                     ) {
                         Row(modifier = Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                            SmallAvatar(person.displayName)
+                            RemoteChatAvatar(person.displayName, person.avatarPath, Modifier.size(48.dp))
                             Column(modifier = Modifier.padding(start = 10.dp)) {
                                 Text(person.displayName, style = MaterialTheme.typography.titleMedium)
                                 person.username?.let { Text("@$it", color = MaterialTheme.colorScheme.primary) }
@@ -377,7 +414,11 @@ private fun ConversationRow(
             .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        SmallAvatar(conversation.displayName, modifier = Modifier.size(56.dp))
+        RemoteChatAvatar(
+            name = conversation.displayName,
+            avatarPath = conversation.avatarPath,
+            modifier = Modifier.size(56.dp)
+        )
 
         Column(
             modifier = Modifier
@@ -467,18 +508,40 @@ private fun ConversationRow(
 }
 
 @Composable
-private fun SmallAvatar(name: String, modifier: Modifier = Modifier.size(52.dp)) {
-    Surface(
-        modifier = modifier,
-        shape = CircleShape,
-        color = MaterialTheme.colorScheme.primaryContainer
-    ) {
-        Box(contentAlignment = Alignment.Center) {
-            Text(
-                text = name.trim().firstOrNull()?.uppercase(Locale.getDefault()) ?: "S",
-                style = MaterialTheme.typography.titleLarge,
-                color = MaterialTheme.colorScheme.onPrimaryContainer
-            )
+private fun RemoteChatAvatar(name: String, avatarPath: String?, modifier: Modifier = Modifier.size(52.dp)) {
+    val bitmap by produceState<android.graphics.Bitmap?>(initialValue = null, avatarPath) {
+        value = if (avatarPath.isNullOrBlank()) {
+            null
+        } else {
+            withContext(Dispatchers.IO) {
+                runCatching {
+                    val url = BuildConfig.SUPABASE_URL.trimEnd('/') + "/storage/v1/object/public/chat_avatars/" + avatarPath
+                    java.net.URL(url).openStream().use { BitmapFactory.decodeStream(it) }
+                }.getOrNull()
+            }
+        }
+    }
+
+    if (bitmap != null) {
+        Image(
+            bitmap = bitmap!!.asImageBitmap(),
+            contentDescription = name,
+            modifier = modifier,
+            contentScale = androidx.compose.ui.layout.ContentScale.Crop
+        )
+    } else {
+        Surface(
+            modifier = modifier,
+            shape = CircleShape,
+            color = MaterialTheme.colorScheme.primaryContainer
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Text(
+                    text = name.trim().firstOrNull()?.uppercase(Locale.getDefault()) ?: "S",
+                    style = MaterialTheme.typography.titleLarge,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+            }
         }
     }
 }
