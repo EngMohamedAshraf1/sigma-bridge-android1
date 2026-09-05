@@ -1,6 +1,7 @@
 package com.sigmabridge.app.data.chat
 
 import io.github.jan.supabase.SupabaseClient
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.collect
@@ -83,6 +84,7 @@ class ChatPresenceRepository @Inject constructor(
                         onlineAt = System.currentTimeMillis()
                     )
                 )
+                awaitCancellation()
             } finally {
                 collector.cancel()
                 runCatching { channel.untrack() }
