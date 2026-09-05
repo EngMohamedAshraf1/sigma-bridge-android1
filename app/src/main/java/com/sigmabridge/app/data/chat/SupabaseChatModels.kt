@@ -64,6 +64,20 @@ data class SupabaseMessageRow(
 )
 
 @Serializable
+data class SupabaseUndeliveredMessageRow(
+    @SerialName("message_id") val messageId: String,
+    @SerialName("conversation_id") val conversationId: String,
+    @SerialName("sender_public_id") val senderPublicId: String,
+    @SerialName("client_message_id") val clientMessageId: String,
+    @SerialName("sequence_number") val sequenceNumber: Long,
+    @SerialName("ciphertext") val ciphertext: String,
+    @SerialName("nonce") val nonce: String,
+    @SerialName("message_version") val messageVersion: Int,
+    @SerialName("created_at") val createdAt: String,
+    @SerialName("server_received_at") val serverReceivedAt: String
+)
+
+@Serializable
 data class SupabaseReceiptRow(
     @SerialName("message_id") val messageId: String,
     @SerialName("user_id") val userId: String,
