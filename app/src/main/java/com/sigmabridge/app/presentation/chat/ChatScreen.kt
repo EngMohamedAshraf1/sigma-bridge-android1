@@ -5,21 +5,26 @@ import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -27,9 +32,10 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -41,7 +47,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -81,18 +88,12 @@ fun ChatScreen(
 
     LaunchedEffect(Unit) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            ContextCompat.checkSelfPermission(
-                context,
-                Manifest.permission.POST_NOTIFICATIONS
-            ) != PackageManager.PERMISSION_GRANTED
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) {
             notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
     }
 
-    // The conversation is foreground-active only while the Activity is actually
-    // resumed. Switching to another app or locking the screen therefore releases
-    // the foreground marker, allowing the background worker to notify normally.
     DisposableEffect(lifecycleOwner, partnerId, connected) {
         val observer = object : DefaultLifecycleObserver {
             override fun onResume(owner: LifecycleOwner) {
@@ -103,25 +104,18 @@ fun ChatScreen(
             }
 
             override fun onPause(owner: LifecycleOwner) {
-                if (ChatForegroundState.openPartnerId == partnerId) {
-                    ChatForegroundState.openPartnerId = null
-                }
+                if (ChatForegroundState.openPartnerId == partnerId) ChatForegroundState.openPartnerId = null
             }
         }
 
         lifecycleOwner.lifecycle.addObserver(observer)
-
-        if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) &&
-            partnerId.isNotBlank() && connected
-        ) {
+        if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) && partnerId.isNotBlank() && connected) {
             ChatForegroundState.openPartnerId = partnerId
         }
 
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
-            if (ChatForegroundState.openPartnerId == partnerId) {
-                ChatForegroundState.openPartnerId = null
-            }
+            if (ChatForegroundState.openPartnerId == partnerId) ChatForegroundState.openPartnerId = null
         }
     }
 
@@ -133,16 +127,23 @@ fun ChatScreen(
     }
 
     Scaffold(
+        containerColor = Color.Transparent,
         topBar = {
             TopAppBar(
                 title = {
-                    Column {
-                        Text(conversationName, style = MaterialTheme.typography.titleMedium)
-                        if (connected) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        ChatAvatar(name = conversationName, size = 42.dp)
+                        Column(modifier = Modifier.padding(start = 10.dp)) {
                             Text(
-                                "Connected • encrypted",
+                                text = conversationName.ifBlank { "Private Chat" },
+                                style = MaterialTheme.typography.titleMedium,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = if (connected) "Online" else "Connecting…",
                                 style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.primary
+                                color = if (connected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }
@@ -153,90 +154,110 @@ fun ChatScreen(
                     }
                 },
                 actions = {
-                    Column(horizontalAlignment = Alignment.End) {
-                        BoxWithLanguageMenu(
-                            selected = translationTarget,
+                    Box {
+                        IconButton(onClick = { languageMenuExpanded = true }) {
+                            Icon(Icons.Filled.Translate, contentDescription = "Translation language")
+                        }
+                        DropdownMenu(
                             expanded = languageMenuExpanded,
-                            onExpand = { languageMenuExpanded = true },
-                            onDismiss = { languageMenuExpanded = false },
-                            onSelect = { language ->
-                                viewModel.setTranslationTargetLanguage(language)
-                                languageMenuExpanded = false
+                            onDismissRequest = { languageMenuExpanded = false }
+                        ) {
+                            listOf(
+                                LanguageCatalog.ARABIC,
+                                LanguageCatalog.RUSSIAN,
+                                LanguageCatalog.findByCode("en") ?: Language("en", "English")
+                            ).forEach { language ->
+                                DropdownMenuItem(
+                                    text = { Text(language.displayName) },
+                                    onClick = {
+                                        viewModel.setTranslationTargetLanguage(language)
+                                        languageMenuExpanded = false
+                                    }
+                                )
                             }
-                        )
+                        }
                     }
-                }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
             )
         }
     ) { padding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        listOf(
+                            MaterialTheme.colorScheme.surface,
+                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.38f)
+                        )
+                    )
+                )
                 .padding(padding)
                 .imePadding()
         ) {
             error?.let {
-                Text(
-                    text = it,
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                )
+                Surface(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+                    shape = RoundedCornerShape(14.dp),
+                    color = MaterialTheme.colorScheme.errorContainer
+                ) {
+                    Text(
+                        text = it,
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp)
+                    )
+                }
             }
 
             LazyColumn(
                 state = listState,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f)
-                    .padding(horizontal = 10.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
+                modifier = Modifier.fillMaxWidth().weight(1f).padding(horizontal = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 items(messages, key = { it.id }) { message ->
                     val mine = message.senderId == viewModel.ownSenderId
-                    val background = if (mine) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
-
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start
                     ) {
-                        Card(
-                            modifier = Modifier.fillMaxWidth(0.86f),
-                            colors = CardDefaults.cardColors(containerColor = background)
+                        Surface(
+                            modifier = Modifier.widthIn(max = 300.dp),
+                            shape = if (mine) {
+                                RoundedCornerShape(18.dp, 18.dp, 5.dp, 18.dp)
+                            } else {
+                                RoundedCornerShape(18.dp, 18.dp, 18.dp, 5.dp)
+                            },
+                            color = if (mine) Color(0xFFE1F2FF) else Color.White,
+                            tonalElevation = 1.dp,
+                            shadowElevation = 1.dp
                         ) {
-                            Column(
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                                horizontalAlignment = if (mine) Alignment.End else Alignment.Start
-                            ) {
+                            Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
                                 Text(
                                     text = message.text,
-                                    modifier = Modifier.fillMaxWidth(),
                                     style = MaterialTheme.typography.bodyLarge,
-                                    textAlign = if (mine) TextAlign.End else TextAlign.Start
+                                    color = Color(0xFF202124)
                                 )
                                 Row(
-                                    modifier = Modifier.padding(top = 3.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                                    horizontalArrangement = Arrangement.End,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Text(
                                         text = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(message.createdAt)),
                                         style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        color = Color(0xFF7A8793)
                                     )
                                     if (mine) {
-                                        val receiptText = when (message.deliveryStatus) {
-                                            MessageDeliveryStatus.PENDING -> "• Sending…"
-                                            MessageDeliveryStatus.SENT -> "✓"
-                                            MessageDeliveryStatus.DELIVERED -> "✓✓"
-                                            MessageDeliveryStatus.READ -> "✓✓"
-                                        }
-                                        val receiptColor = if (message.deliveryStatus == MessageDeliveryStatus.READ) {
-                                            Color(0xFF0084FF)
-                                        } else MaterialTheme.colorScheme.onSurfaceVariant
                                         Text(
-                                            text = receiptText,
+                                            text = when (message.deliveryStatus) {
+                                                MessageDeliveryStatus.PENDING -> " · …"
+                                                MessageDeliveryStatus.SENT -> " · ✓"
+                                                MessageDeliveryStatus.DELIVERED -> " · ✓✓"
+                                                MessageDeliveryStatus.READ -> " · ✓✓"
+                                            },
                                             style = MaterialTheme.typography.labelSmall,
-                                            color = receiptColor
+                                            color = if (message.deliveryStatus == MessageDeliveryStatus.READ) Color(0xFF2196F3) else Color(0xFF7A8793)
                                         )
                                     }
                                 }
@@ -246,29 +267,52 @@ fun ChatScreen(
                 }
             }
 
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 10.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
+            Surface(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
+                shape = RoundedCornerShape(26.dp),
+                color = MaterialTheme.colorScheme.surface,
+                tonalElevation = 3.dp,
+                shadowElevation = 2.dp
             ) {
-                OutlinedTextField(
-                    value = input,
-                    onValueChange = { input = it },
-                    modifier = Modifier.weight(1f),
-                    placeholder = { Text("Message") },
-                    singleLine = true,
-                    enabled = connected
-                )
-                Button(
-                    onClick = {
-                        viewModel.send(input)
-                        input = ""
-                    },
-                    enabled = connected && input.isNotBlank()
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(start = 4.dp, end = 5.dp, top = 4.dp, bottom = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("Send")
+                    OutlinedTextField(
+                        value = input,
+                        onValueChange = { input = it },
+                        modifier = Modifier.weight(1f),
+                        placeholder = { Text("Message") },
+                        singleLine = true,
+                        enabled = connected,
+                        shape = RoundedCornerShape(22.dp)
+                    )
+                    IconButton(
+                        onClick = {
+                            val text = input.trim()
+                            if (text.isNotEmpty()) {
+                                viewModel.send(text)
+                                input = ""
+                            }
+                        },
+                        enabled = connected && input.isNotBlank(),
+                        modifier = Modifier.padding(start = 2.dp).size(48.dp)
+                    ) {
+                        Surface(
+                            modifier = Modifier.size(42.dp),
+                            shape = CircleShape,
+                            color = if (connected && input.isNotBlank()) Color(0xFF229ED9) else MaterialTheme.colorScheme.surfaceVariant
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    Icons.Filled.Send,
+                                    contentDescription = "Send message",
+                                    tint = if (connected && input.isNotBlank()) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(21.dp)
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -276,31 +320,18 @@ fun ChatScreen(
 }
 
 @Composable
-private fun BoxWithLanguageMenu(
-    selected: Language,
-    expanded: Boolean,
-    onExpand: () -> Unit,
-    onDismiss: () -> Unit,
-    onSelect: (Language) -> Unit
-) {
-    androidx.compose.foundation.layout.Box {
-        TextButton(onClick = onExpand) {
-            Text("🌐 ${selected.displayName}")
-        }
-        DropdownMenu(
-            expanded = expanded,
-            onDismissRequest = onDismiss
-        ) {
-            listOf(
-                LanguageCatalog.ARABIC,
-                LanguageCatalog.RUSSIAN,
-                LanguageCatalog.findByCode("en") ?: Language("en", "English")
-            ).forEach { language ->
-                DropdownMenuItem(
-                    text = { Text(language.displayName) },
-                    onClick = { onSelect(language) }
-                )
-            }
+private fun ChatAvatar(name: String, size: androidx.compose.ui.unit.Dp) {
+    Surface(
+        modifier = Modifier.size(size),
+        shape = CircleShape,
+        color = MaterialTheme.colorScheme.primaryContainer
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Text(
+                text = name.trim().firstOrNull()?.uppercase() ?: "S",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onPrimaryContainer
+            )
         }
     }
 }
