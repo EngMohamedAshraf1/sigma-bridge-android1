@@ -8,14 +8,14 @@ data class ChatProfile(
     @SerialName("public_id") val publicId: String,
     @SerialName("first_name") val firstName: String = "",
     @SerialName("last_name") val lastName: String = "",
-    val username: String? = null,
+    val username: String = "",
     @SerialName("avatar_path") val avatarPath: String? = null
 ) {
     val displayName: String
         get() = listOf(firstName.trim(), lastName.trim())
             .filter(String::isNotBlank)
             .joinToString(" ")
-            .ifBlank { username?.let { "@$it" } ?: publicId }
+            .ifBlank { username.ifBlank { publicId }.let { "@$it" } }
 }
 
 @Serializable
