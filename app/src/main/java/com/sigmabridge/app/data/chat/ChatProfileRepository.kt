@@ -1,7 +1,6 @@
 package com.sigmabridge.app.data.chat
 
 import io.github.jan.supabase.SupabaseClient
-import io.github.jan.supabase.postgrest.decodeAs
 import io.github.jan.supabase.postgrest.decodeList
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.rpc
@@ -35,7 +34,8 @@ class ChatProfileRepository @Inject constructor(
                 lastName = lastName.trim(),
                 username = username.trim().lowercase()
             )
-        ).decodeAs<ChatProfile>()
+        ).decodeList<ChatProfile>().firstOrNull()
+            ?: error("Profile update returned no profile.")
     }
 
     suspend fun searchUsers(query: String): Result<List<ChatProfile>> = runCatching {
