@@ -20,7 +20,7 @@ android {
 
     defaultConfig {
         applicationId = "com.sigmabridge.app"
-        minSdk = 26 // Foreground Service + Doze APIs used from Phase 7 onward require this floor
+        minSdk = 26
         targetSdk = 35
         versionCode = 1
         versionName = "0.7.1-phase7-fix-resources"
@@ -39,6 +39,11 @@ android {
             "String",
             "SIGMA_CHAT_BACKEND",
             "\"${localProperties.getProperty("SIGMA_CHAT_BACKEND", "supabase")}\""
+        )
+        buildConfigField(
+            "String",
+            "GOOGLE_WEB_CLIENT_ID",
+            "\"${localProperties.getProperty("GOOGLE_WEB_CLIENT_ID", "")}\""
         )
     }
 
@@ -68,15 +73,12 @@ android {
 }
 
 dependencies {
-    // Core / Coroutines
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
 
-    // Networking (Telegram Bot API, Gemini REST in Phase 5)
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
 
-    // Supabase (Chat backend migration; Telegram path unchanged)
     implementation(platform("io.github.jan-tennert.supabase:bom:2.6.0"))
     implementation("io.github.jan-tennert.supabase:gotrue-kt")
     implementation("io.github.jan-tennert.supabase:postgrest-kt")
@@ -84,7 +86,10 @@ dependencies {
     implementation("io.ktor:ktor-client-android:2.3.12")
     implementation("io.ktor:ktor-client-websockets:2.3.12")
 
-    // Compose
+    implementation("androidx.credentials:credentials:1.7.0-alpha03")
+    implementation("androidx.credentials:credentials-play-services-auth:1.7.0-alpha03")
+    implementation("com.google.android.libraries.identity.googleid:googleid:1.2.0")
+
     implementation(platform("androidx.compose:compose-bom:2024.09.02"))
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.material3:material3")
@@ -94,13 +99,9 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.6")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.6")
 
-    // Navigation
     implementation("androidx.navigation:navigation-compose:2.8.0")
-
-    // Secure local storage (Android Keystore-backed EncryptedSharedPreferences)
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
 
-    // Dependency Injection
     implementation("com.google.dagger:hilt-android:2.52")
     ksp("com.google.dagger:hilt-android-compiler:2.52")
     implementation("androidx.hilt:hilt-navigation-compose:1.2.0")
