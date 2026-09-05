@@ -6,12 +6,6 @@ import io.github.jan.supabase.gotrue.providers.builtin.Email
 import javax.inject.Inject
 import javax.inject.Singleton
 
-/**
- * Permanent account layer for Private Chat.
- *
- * An existing anonymous Supabase user can be upgraded by linking an email identity.
- * This preserves the same auth user UUID and therefore preserves existing chat data.
- */
 @Singleton
 class ChatAccountRepository @Inject constructor(
     private val supabase: SupabaseClient
@@ -21,11 +15,11 @@ class ChatAccountRepository @Inject constructor(
 
     fun isAuthenticated(): Boolean {
         val user = auth.currentUserOrNull() ?: return false
-        return !user.isAnonymous
+        return !isAnonymousUser(user)
     }
 
     fun isAnonymousSession(): Boolean =
-        auth.currentUserOrNull()?.isAnonymous == true
+        auth.currentUserOrNull()?.let(::isAnonymousUser) == true
 
     fun currentEmail(): String? = auth.currentUserOrNull()?.email
 
@@ -48,7 +42,7 @@ class ChatAccountRepository @Inject constructor(
         val normalized = email.trim().lowercase()
         require(normalized.isNotBlank()) { "EMAIL_REQUIRED" }
         require(password.isNotBlank()) { "PASSWORD_REQUIRED" }
-        auth.loginWith(Email) {
+        auth.signInWith(Email) {
             this.email = normalized
             this.password = password
         }
@@ -65,10 +59,15 @@ class ChatAccountRepository @Inject constructor(
 
     suspend fun refreshAccountState(): Result<Boolean> = runCatching {
         val user = auth.retrieveUserForCurrentSession(updateSession = true)
-        !user.isAnonymous
+        !isAnonymousUser(user)
     }
 
     suspend fun signOut() {
         auth.signOut()
+    }
+
+    private fun isAnonymousUser(user: io.github.jan.supabase.gotrue.user.UserInfo): Boolean {
+        val identities = user.identities.orEmpty()
+        return identities.isEmpty() || identities.all { it.provider == "anonymous" }
     }
 }
