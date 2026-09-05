@@ -2,18 +2,15 @@ package com.sigmabridge.app.presentation.chat
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.sigmabridge.app.data.auth.GoogleSignInManager
 import com.sigmabridge.app.data.chat.ChatAccountRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 data class ChatAccountUiState(
     val loading: Boolean = true,
     val authenticated: Boolean = false,
-    val email: String = "",
     val busy: Boolean = false,
     val message: String? = null,
     val error: String? = null
@@ -21,10 +18,11 @@ data class ChatAccountUiState(
 
 @HiltViewModel
 class ChatAccountViewModel @Inject constructor(
-    private val accountRepository: ChatAccountRepository
+    private val accountRepository: ChatAccountRepository,
+    private val googleSignInManager: GoogleSignInManager
 ) : ViewModel() {
-    private val _state = MutableStateFlow(ChatAccountUiState())
-    val state: StateFlow<ChatAccountUiState> = _state.asStateFlow()
+    private val _state = kotlinx.coroutines.flow.MutableStateFlow(ChatAccountUiState())
+    val state: kotlinx.coroutines.flow.StateFlow<ChatAccountUiState> = _state
 
     init {
         refresh()
@@ -36,85 +34,65 @@ class ChatAccountViewModel @Inject constructor(
             _state.value = _state.value.copy(
                 loading = false,
                 authenticated = accountRepository.isAuthenticated(),
-                email = accountRepository.currentEmail().orEmpty(),
                 error = null
             )
         }
     }
 
-    fun updateEmail(value: String) {
-        _state.value = _state.value.copy(email = value, error = null, message = null)
-    }
-
-    fun sendEmailLogin() {
-        val email = _state.value.email.trim()
-        if (!email.contains("@") || email.length < 5) {
-            _state.value = _state.value.copy(error = "أدخل بريدًا إلكترونيًا صحيحًا.")
-            return
-        }
+    fun signInWithGoogle(activity: android.app.Activity) {
+        if (_state.value.busy) return
 
         viewModelScope.launch {
             _state.value = _state.value.copy(busy = true, error = null, message = null)
-            accountRepository.requestEmailLogin(email)
-                .onSuccess {
-                    _state.value = _state.value.copy(
-                        busy = false,
-                        email = email,
-                        message = "أرسلنا رابط تسجيل الدخول إلى $email. افتح الرسالة واضغط الرابط للمتابعة.",
-                        error = null
-                    )
+
+            googleSignInManager.signIn(activity)
+                .onSuccess { idToken ->
+                    accountRepository.signInWithGoogleIdToken(idToken)
+                        .onSuccess {
+                            _state.value = _state.value.copy(
+                                loading = false,
+                                authenticated = true,
+                                busy = false,
+                                message = null,
+                                error = null
+                            )
+                        }
+                        .onFailure {
+                            _state.value = _state.value.copy(
+                                busy = false,
+                                error = friendlyError(it)
+                            )
+                        }
                 }
                 .onFailure {
                     _state.value = _state.value.copy(
                         busy = false,
-                        error = friendlyError(it)
+                        error = friendlyGoogleError(it)
                     )
                 }
         }
     }
 
-    /**
-     * Kept as a compatibility entry point for the previous screen wiring.
-     * Authentication is now entirely passwordless, so this simply sends the
-     * email login link.
-     */
-    fun createAccount() = sendEmailLogin()
-    fun signIn(onAuthenticated: () -> Unit = {}) {
-        sendEmailLoginWithCallback(onAuthenticated)
-    }
-
-    private fun sendEmailLoginWithCallback(onAuthenticated: () -> Unit) {
-        val email = _state.value.email.trim()
-        if (!email.contains("@") || email.length < 5) {
-            _state.value = _state.value.copy(error = "أدخل بريدًا إلكترونيًا صحيحًا.")
-            return
-        }
+    fun signOut() {
         viewModelScope.launch {
-            _state.value = _state.value.copy(busy = true, error = null, message = null)
-            accountRepository.requestEmailLogin(email)
-                .onSuccess {
-                    _state.value = _state.value.copy(
-                        busy = false,
-                        email = email,
-                        message = "أرسلنا رابط تسجيل الدخول إلى $email. افتح الرسالة واضغط الرابط للمتابعة.",
-                        error = null
-                    )
-                    onAuthenticated()
-                }
-                .onFailure {
-                    _state.value = _state.value.copy(busy = false, error = friendlyError(it))
-                }
+            accountRepository.signOut()
+            _state.value = _state.value.copy(authenticated = false, message = null, error = null)
         }
     }
 
-    fun onAuthReturned() {
-        refresh()
+    private fun friendlyGoogleError(error: Throwable): String = when {
+        error.message?.contains("GOOGLE_WEB_CLIENT_ID_MISSING", true) == true ->
+            "Google Sign-In غير مُعد بعد في التطبيق."
+        error.message?.contains("cancel", true) == true ->
+            "تم إلغاء تسجيل الدخول."
+        error.message?.contains("GOOGLE_CREDENTIAL", true) == true ->
+            "تعذر الحصول على حساب Google."
+        else -> error.message ?: "تعذر تسجيل الدخول باستخدام Google."
     }
 
     private fun friendlyError(error: Throwable): String = when {
-        error.message?.contains("EMAIL_REQUIRED", true) == true -> "أدخل البريد الإلكتروني."
-        error.message?.contains("INVALID_EMAIL", true) == true -> "أدخل بريدًا إلكترونيًا صحيحًا."
-        error.message?.contains("rate", true) == true -> "تم الوصول إلى حد إرسال الرسائل مؤقتًا. حاول لاحقًا."
-        else -> error.message ?: "تعذر إرسال رابط تسجيل الدخول."
+        error.message?.contains("GOOGLE_ID_TOKEN_REQUIRED", true) == true ->
+            "لم يصل رمز Google. حاول مرة أخرى."
+        else -> error.message ?: "تعذر تسجيل الدخول باستخدام Google."
     }
 }
