@@ -22,4 +22,27 @@
     <string name="feature_photos">Photos</string>
     <string name="feature_pdf">PDF</string>
     <string name="feature_coming_soon">Coming soon</string>
+
+    <!-- Settings -->
+    <string name="settings_telegram_bot_token">Telegram Bot Token</string>
+    <string name="settings_gemini_api_keys">Gemini API Keys</string>
+    <string name="settings_key_number">Key %1$d</string>
+    <string name="settings_delete_key_number">Delete Key %1$d</string>
+    <string name="settings_add_key">➕ Add Key</string>
+    <string name="settings_configured_keys">Configured keys: %1$d</string>
+    <string name="settings_active">🟢 Active: %1$d</string>
+    <string name="settings_ready">🟡 Ready: %1$d</string>
+    <string name="settings_quota_exceeded">🔴 Quota exceeded: %1$d</string>
+    <string name="settings_invalid">⚫ Invalid: %1$d</string>
+    <string name="settings_saved">Saved</string>
+    <string name="settings_save">Save</string>
+    <string name="settings_checking">Checking...</string>
+    <string name="settings_check_for_updates">Check for updates</string>
+    <string name="settings_update_available">Update available: v%1$s</string>
+    <string name="settings_latest_version">You are using the latest version (v%1$s).</string>
+    <string name="settings_update_check_failed">Could not check for updates. Please try again.</string>
+    <string name="settings_error_bot_token_required">Bot token is required.</string>
+    <string name="settings_error_bot_token_invalid">That doesn't look like a valid bot token.</string>
+    <string name="settings_error_gemini_key_required">At least one Gemini API key is required.</string>
+    <string name="settings_error_gemini_key_invalid">One of the Gemini API keys doesn't look valid.</string>
 </resources>
