@@ -25,7 +25,8 @@ class ChatAccountRepository @Inject constructor(
         auth.awaitInitialization()
     }
 
-    fun isAuthenticated(): Boolean = auth.currentUserOrNull() != null
+    // Legacy anonymous sessions from older builds are not considered signed in.
+    fun isAuthenticated(): Boolean = auth.currentUserOrNull()?.email != null
 
     fun currentUserId(): String? = auth.currentUserOrNull()?.id
 
