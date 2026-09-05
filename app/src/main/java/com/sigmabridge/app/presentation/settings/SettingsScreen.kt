@@ -26,6 +26,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -48,6 +49,7 @@ import kotlinx.coroutines.launch
 fun SettingsScreen(viewModel: SettingsViewModel = androidx.hilt.navigation.compose.hiltViewModel()) {
     val uiState by viewModel.uiState.collectAsState()
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     val updateChecker = remember { GitHubUpdateChecker() }
     var checkingForUpdate by remember { mutableStateOf(false) }
     var updateMessage by remember { mutableStateOf<String?>(null) }
@@ -132,12 +134,12 @@ fun SettingsScreen(viewModel: SettingsViewModel = androidx.hilt.navigation.compo
                     try {
                         val result = updateChecker.check(BuildConfig.VERSION_NAME)
                         updateMessage = if (result.updateAvailable) {
-                            stringResource(R.string.settings_update_available, result.latestVersion)
+                            context.getString(R.string.settings_update_available, result.latestVersion)
                         } else {
-                            stringResource(R.string.settings_latest_version, result.currentVersion)
+                            context.getString(R.string.settings_latest_version, result.currentVersion)
                         }
                     } catch (error: Exception) {
-                        updateMessage = stringResource(R.string.settings_update_check_failed)
+                        updateMessage = context.getString(R.string.settings_update_check_failed)
                     } finally {
                         checkingForUpdate = false
                     }
