@@ -4,9 +4,9 @@ import android.app.Activity
 import android.content.Context
 import android.graphics.BitmapFactory
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -64,7 +64,6 @@ import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.sigmabridge.app.BuildConfig
 import com.sigmabridge.app.data.chat.ChatProfile
-import com.sigmabridge.app.domain.chat.ChatConversation
 import com.sigmabridge.app.service.ChatNotificationService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -290,7 +289,7 @@ private fun ProfileDialog(
     var username by remember(profile) { mutableStateOf(profile?.username.orEmpty()) }
     val context = LocalContext.current
 
-    val avatarPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+    val avatarPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
         val bytes = runCatching {
             context.contentResolver.openInputStream(uri)?.use { input -> input.readBytes() }
@@ -314,7 +313,14 @@ private fun ProfileDialog(
                     avatarPath = profile?.avatarPath,
                     modifier = Modifier.size(96.dp)
                 )
-                OutlinedButton(onClick = { avatarPicker.launch("image/*") }, enabled = !busy) {
+                OutlinedButton(
+                    onClick = {
+                        avatarPicker.launch(
+                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                        )
+                    },
+                    enabled = !busy
+                ) {
                     Text("Change photo")
                 }
                 OutlinedTextField(value = firstName, onValueChange = { firstName = it }, label = { Text("First name") }, singleLine = true)
