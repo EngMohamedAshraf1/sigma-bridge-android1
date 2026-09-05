@@ -187,12 +187,12 @@ fun ChatScreen(
                 contentDescription = null,
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop,
-                alpha = 0.30f
+                alpha = 0.72f
             )
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color.White.copy(alpha = 0.52f))
+                    .background(Color.White.copy(alpha = 0.16f))
             )
 
             Column(
