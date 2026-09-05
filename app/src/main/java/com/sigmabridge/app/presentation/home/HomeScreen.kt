@@ -25,8 +25,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.sigmabridge.app.R
 import com.sigmabridge.app.domain.model.HomeHealthState
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -43,10 +45,10 @@ fun HomeScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Sigma Bridge") },
+                title = { Text(stringResource(R.string.home_title)) },
                 actions = {
                     IconButton(onClick = onSettingsClick) {
-                        Icon(Icons.Filled.Settings, contentDescription = "Settings")
+                        Icon(Icons.Filled.Settings, contentDescription = stringResource(R.string.settings))
                     }
                 }
             )
@@ -61,7 +63,7 @@ fun HomeScreen(
             HealthSection(health)
 
             Text(
-                text = "Features",
+                text = stringResource(R.string.home_features),
                 style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.padding(top = 24.dp, bottom = 8.dp)
             )
@@ -80,15 +82,15 @@ fun HomeScreen(
             }
 
             TextButton(onClick = onChatClick) {
-                Text("Private Chat")
+                Text(stringResource(R.string.home_private_chat))
             }
 
             TextButton(onClick = onGeminiTestClick) {
-                Text("Gemini Test (internal)")
+                Text(stringResource(R.string.home_gemini_test))
             }
 
             TextButton(onClick = onBridgeControlClick) {
-                Text("Bridge Control")
+                Text(stringResource(R.string.home_bridge_control))
             }
         }
     }
@@ -97,11 +99,11 @@ fun HomeScreen(
 @Composable
 private fun HealthSection(health: HomeHealthState) {
     Column {
-        Text(text = "Status", style = MaterialTheme.typography.titleMedium)
-        HealthRow("Bridge", health.bridge.name)
-        HealthRow("Telegram", health.telegram.name)
-        HealthRow("Gemini", health.gemini.name)
-        HealthRow("Internet", health.internet.name)
+        Text(text = stringResource(R.string.home_status), style = MaterialTheme.typography.titleMedium)
+        HealthRow(stringResource(R.string.home_bridge), health.bridge.name)
+        HealthRow(stringResource(R.string.home_telegram), health.telegram.name)
+        HealthRow(stringResource(R.string.home_gemini), health.gemini.name)
+        HealthRow(stringResource(R.string.home_internet), health.internet.name)
     }
 }
 
@@ -113,7 +115,7 @@ private fun HealthRow(label: String, value: String) {
             .padding(vertical = 4.dp)
     ) {
         Text(text = label, modifier = Modifier.padding(end = 8.dp))
-        Text(text = "\u2014 $value")
+        Text(text = "— $value")
     }
 }
 
@@ -130,8 +132,8 @@ private fun FeatureTileCard(tile: FeatureTile) {
         )
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            Text(text = tile.title, style = MaterialTheme.typography.titleMedium)
-            Text(text = tile.subtitle, style = MaterialTheme.typography.bodySmall)
+            Text(text = stringResource(tile.titleRes), style = MaterialTheme.typography.titleMedium)
+            Text(text = stringResource(tile.subtitleRes), style = MaterialTheme.typography.bodySmall)
         }
     }
 }
