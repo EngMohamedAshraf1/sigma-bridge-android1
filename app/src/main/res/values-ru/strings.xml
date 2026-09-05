@@ -22,4 +22,27 @@
     <string name="feature_photos">Фото</string>
     <string name="feature_pdf">PDF</string>
     <string name="feature_coming_soon">Скоро</string>
+
+    <!-- Settings -->
+    <string name="settings_telegram_bot_token">Токен Telegram-бота</string>
+    <string name="settings_gemini_api_keys">Ключи Gemini API</string>
+    <string name="settings_key_number">Ключ %1$d</string>
+    <string name="settings_delete_key_number">Удалить ключ %1$d</string>
+    <string name="settings_add_key">➕ Добавить ключ</string>
+    <string name="settings_configured_keys">Настроено ключей: %1$d</string>
+    <string name="settings_active">🟢 Активных: %1$d</string>
+    <string name="settings_ready">🟡 Готовых: %1$d</string>
+    <string name="settings_quota_exceeded">🔴 Превышена квота: %1$d</string>
+    <string name="settings_invalid">⚫ Недействительных: %1$d</string>
+    <string name="settings_saved">Сохранено</string>
+    <string name="settings_save">Сохранить</string>
+    <string name="settings_checking">Проверка...</string>
+    <string name="settings_check_for_updates">Проверить обновления</string>
+    <string name="settings_update_available">Доступно обновление: v%1$s</string>
+    <string name="settings_latest_version">Вы используете последнюю версию (v%1$s).</string>
+    <string name="settings_update_check_failed">Не удалось проверить обновления. Попробуйте ещё раз.</string>
+    <string name="settings_error_bot_token_required">Требуется токен бота.</string>
+    <string name="settings_error_bot_token_invalid">Токен бота не выглядит действительным.</string>
+    <string name="settings_error_gemini_key_required">Требуется хотя бы один ключ Gemini API.</string>
+    <string name="settings_error_gemini_key_invalid">Один из ключей Gemini API не выглядит действительным.</string>
 </resources>
