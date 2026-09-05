@@ -1,7 +1,7 @@
 package com.sigmabridge.app.data.chat
 
 import io.github.jan.supabase.SupabaseClient
-import io.github.jan.supabase.gotrue.gotrue
+import io.github.jan.supabase.gotrue.Auth
 import io.github.jan.supabase.gotrue.providers.builtin.Email
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -16,19 +16,22 @@ import javax.inject.Singleton
 class ChatAccountRepository @Inject constructor(
     private val supabase: SupabaseClient
 ) {
+    private val auth: Auth
+        get() = supabase.pluginManager.getPlugin(Auth)
+
     fun isAuthenticated(): Boolean {
-        val user = supabase.gotrue.currentUserOrNull() ?: return false
+        val user = auth.currentUserOrNull() ?: return false
         return !user.isAnonymous
     }
 
     fun isAnonymousSession(): Boolean =
-        supabase.gotrue.currentUserOrNull()?.isAnonymous == true
+        auth.currentUserOrNull()?.isAnonymous == true
 
-    fun currentEmail(): String? = supabase.gotrue.currentUserOrNull()?.email
+    fun currentEmail(): String? = auth.currentUserOrNull()?.email
 
     suspend fun startAnonymousAccount(): Result<Unit> = runCatching {
-        if (supabase.gotrue.currentUserOrNull() == null) {
-            supabase.gotrue.signInAnonymously()
+        if (auth.currentUserOrNull() == null) {
+            auth.signInAnonymously()
         }
     }
 
@@ -36,7 +39,7 @@ class ChatAccountRepository @Inject constructor(
         require(isAnonymousSession()) { "ANONYMOUS_ACCOUNT_REQUIRED" }
         val normalized = email.trim().lowercase()
         require(normalized.isNotBlank()) { "EMAIL_REQUIRED" }
-        supabase.gotrue.updateUser {
+        auth.updateUser {
             this.email = normalized
         }
     }
@@ -45,7 +48,7 @@ class ChatAccountRepository @Inject constructor(
         val normalized = email.trim().lowercase()
         require(normalized.isNotBlank()) { "EMAIL_REQUIRED" }
         require(password.isNotBlank()) { "PASSWORD_REQUIRED" }
-        supabase.gotrue.loginWith(Email) {
+        auth.loginWith(Email) {
             this.email = normalized
             this.password = password
         }
@@ -55,17 +58,17 @@ class ChatAccountRepository @Inject constructor(
     suspend fun setPassword(password: String): Result<Unit> = runCatching {
         require(isAuthenticated()) { "ACCOUNT_NOT_VERIFIED" }
         require(password.length >= 8) { "PASSWORD_TOO_SHORT" }
-        supabase.gotrue.updateUser {
+        auth.updateUser {
             this.password = password
         }
     }
 
     suspend fun refreshAccountState(): Result<Boolean> = runCatching {
-        val user = supabase.gotrue.retrieveUserForCurrentSession(updateSession = true)
+        val user = auth.retrieveUserForCurrentSession(updateSession = true)
         !user.isAnonymous
     }
 
     suspend fun signOut() {
-        supabase.gotrue.logout()
+        auth.signOut()
     }
 }
