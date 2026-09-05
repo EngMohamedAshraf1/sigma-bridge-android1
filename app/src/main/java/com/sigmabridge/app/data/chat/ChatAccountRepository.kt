@@ -1,5 +1,6 @@
 package com.sigmabridge.app.data.chat
 
+import com.sigmabridge.app.data.auth.GoogleIdTokenResult
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.gotrue.Auth
 import io.github.jan.supabase.gotrue.providers.Google
@@ -32,12 +33,14 @@ class ChatAccountRepository @Inject constructor(
 
     fun currentEmail(): String? = auth.currentUserOrNull()?.email
 
-    suspend fun signInWithGoogleIdToken(idToken: String): Result<Unit> = runCatching {
+    suspend fun signInWithGoogleIdToken(credentials: GoogleIdTokenResult): Result<Unit> = runCatching {
         auth.awaitInitialization()
-        require(idToken.isNotBlank()) { "GOOGLE_ID_TOKEN_REQUIRED" }
+        require(credentials.idToken.isNotBlank()) { "GOOGLE_ID_TOKEN_REQUIRED" }
+        require(credentials.nonce.isNotBlank()) { "GOOGLE_NONCE_REQUIRED" }
         auth.signInWith(IDToken) {
-            this.idToken = idToken
+            idToken = credentials.idToken
             provider = Google
+            nonce = credentials.nonce
         }
     }
 
