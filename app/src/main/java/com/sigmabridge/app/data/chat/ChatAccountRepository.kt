@@ -2,11 +2,17 @@ package com.sigmabridge.app.data.chat
 
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.gotrue.Auth
-import io.github.jan.supabase.gotrue.OtpType
-import io.github.jan.supabase.gotrue.providers.builtin.Email
+import io.github.jan.supabase.gotrue.providers.builtin.OTP
 import javax.inject.Inject
 import javax.inject.Singleton
 
+/**
+ * Simple passwordless authentication for Private Chat.
+ *
+ * The chat no longer creates anonymous accounts or performs email linking.
+ * Supabase Auth owns the account identity; email is only used to start a
+ * passwordless sign-in flow. The same call creates a new user when needed.
+ */
 @Singleton
 class ChatAccountRepository @Inject constructor(
     private val supabase: SupabaseClient
@@ -18,89 +24,41 @@ class ChatAccountRepository @Inject constructor(
         auth.awaitInitialization()
     }
 
-    fun isAuthenticated(): Boolean {
-        val user = auth.currentUserOrNull() ?: return false
-        return !isAnonymousUser(user)
-    }
+    fun isAuthenticated(): Boolean = auth.currentUserOrNull() != null
 
-    fun isAnonymousSession(): Boolean =
-        auth.currentUserOrNull()?.let(::isAnonymousUser) == true
+    fun currentUserId(): String? = auth.currentUserOrNull()?.id
 
     fun currentEmail(): String? = auth.currentUserOrNull()?.email
 
-    suspend fun startAnonymousAccount(): Result<Unit> = runCatching {
+    suspend fun requestEmailLogin(email: String): Result<Unit> = runCatching {
         auth.awaitInitialization()
-        if (auth.currentUserOrNull() == null) {
-            auth.signInAnonymously()
-        }
-    }
-
-    suspend fun linkEmailToCurrentAnonymous(email: String): Result<Unit> = runCatching {
-        auth.awaitInitialization()
-        require(isAnonymousSession()) { "ANONYMOUS_ACCOUNT_REQUIRED" }
         val normalized = email.trim().lowercase()
         require(normalized.isNotBlank()) { "EMAIL_REQUIRED" }
-        auth.updateUser {
-            this.email = normalized
+        require(normalized.contains("@") && normalized.length >= 5) { "INVALID_EMAIL" }
+
+        // Supabase sends a passwordless email. With the default template this is
+        // a magic link; once a custom OTP template is enabled, the same API can
+        // deliver a 6-digit code without changing the rest of the chat flow.
+        auth.signInWith(OTP) {
+            email = normalized
         }
     }
 
-    suspend fun verifyEmailChangeOtp(email: String, token: String): Result<Unit> = runCatching {
+    suspend fun verifyEmailOtp(email: String, token: String): Result<Unit> = runCatching {
         auth.awaitInitialization()
         val normalized = email.trim().lowercase()
         require(normalized.isNotBlank()) { "EMAIL_REQUIRED" }
         require(token.isNotBlank()) { "OTP_REQUIRED" }
 
         auth.verifyEmailOtp(
-            type = OtpType.Email.EMAIL_CHANGE,
+            type = io.github.jan.supabase.gotrue.OtpType.Email.EMAIL,
             email = normalized,
             token = token.trim()
         )
-
-        val user = auth.retrieveUserForCurrentSession(updateSession = true)
-        check(!isAnonymousUser(user)) { "EMAIL_NOT_VERIFIED" }
-    }
-
-    suspend fun resendEmailVerification(email: String): Result<Unit> = runCatching {
-        auth.awaitInitialization()
-        val normalized = email.trim().lowercase()
-        require(normalized.isNotBlank()) { "EMAIL_REQUIRED" }
-        auth.resendEmail(OtpType.Email.EMAIL_CHANGE, normalized)
-    }
-
-    suspend fun signInWithEmail(email: String, password: String): Result<Unit> = runCatching {
-        auth.awaitInitialization()
-        val normalized = email.trim().lowercase()
-        require(normalized.isNotBlank()) { "EMAIL_REQUIRED" }
-        require(password.isNotBlank()) { "PASSWORD_REQUIRED" }
-        auth.signInWith(Email) {
-            this.email = normalized
-            this.password = password
-        }
-        check(isAuthenticated()) { "ACCOUNT_AUTH_FAILED" }
-    }
-
-    suspend fun setPassword(password: String): Result<Unit> = runCatching {
-        auth.awaitInitialization()
-        require(isAuthenticated()) { "ACCOUNT_NOT_VERIFIED" }
-        require(password.length >= 8) { "PASSWORD_TOO_SHORT" }
-        auth.updateUser {
-            this.password = password
-        }
-    }
-
-    suspend fun refreshAccountState(): Result<Boolean> = runCatching {
-        auth.awaitInitialization()
-        val user = auth.retrieveUserForCurrentSession(updateSession = true)
-        !isAnonymousUser(user)
     }
 
     suspend fun signOut() {
+        auth.awaitInitialization()
         auth.signOut()
-    }
-
-    private fun isAnonymousUser(user: io.github.jan.supabase.gotrue.user.UserInfo): Boolean {
-        val identities = user.identities.orEmpty()
-        return identities.isEmpty() || identities.all { it.provider == "anonymous" }
     }
 }
