@@ -2,9 +2,10 @@ package com.sigmabridge.app.data.chat
 
 import io.github.jan.supabase.SupabaseClient
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.emptyFlow
-import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -40,7 +41,35 @@ class ChatPresenceRepository @Inject constructor(
         }
         val changes = channel.presenceChangeFlow()
 
-        return flow {
+        return channelFlow {
+            val collector = launch {
+                changes.collect { action ->
+                    action.decodeJoinsAs<ChatPresencePayload>()
+                        .filter { it.publicId != ownPublicId }
+                        .forEach { payload ->
+                            send(
+                                ChatPresenceUpdate(
+                                    publicId = payload.publicId,
+                                    online = true,
+                                    timestamp = payload.onlineAt
+                                )
+                            )
+                        }
+
+                    action.decodeLeavesAs<ChatPresencePayload>()
+                        .filter { it.publicId != ownPublicId }
+                        .forEach { payload ->
+                            send(
+                                ChatPresenceUpdate(
+                                    publicId = payload.publicId,
+                                    online = false,
+                                    timestamp = System.currentTimeMillis()
+                                )
+                            )
+                        }
+                }
+            }
+
             try {
                 supabase.realtime.connect()
                 if (blockUntilJoined) {
@@ -54,33 +83,8 @@ class ChatPresenceRepository @Inject constructor(
                         onlineAt = System.currentTimeMillis()
                     )
                 )
-
-                changes.collect { action ->
-                    action.decodeJoinsAs<ChatPresencePayload>()
-                        .filter { it.publicId != ownPublicId }
-                        .forEach { payload ->
-                            emit(
-                                ChatPresenceUpdate(
-                                    publicId = payload.publicId,
-                                    online = true,
-                                    timestamp = payload.onlineAt
-                                )
-                            )
-                        }
-
-                    action.decodeLeavesAs<ChatPresencePayload>()
-                        .filter { it.publicId != ownPublicId }
-                        .forEach { payload ->
-                            emit(
-                                ChatPresenceUpdate(
-                                    publicId = payload.publicId,
-                                    online = false,
-                                    timestamp = System.currentTimeMillis()
-                                )
-                            )
-                        }
-                }
             } finally {
+                collector.cancel()
                 runCatching { channel.untrack() }
                 runCatching { channel.leave() }
             }
