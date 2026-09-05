@@ -1,4 +1,25 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Sigma Bridge</string>
+
+    <!-- Home -->
+    <string name="home_title">Sigma Bridge</string>
+    <string name="settings">Settings</string>
+    <string name="home_status">Status</string>
+    <string name="home_bridge">Bridge</string>
+    <string name="home_telegram">Telegram</string>
+    <string name="home_gemini">Gemini</string>
+    <string name="home_internet">Internet</string>
+    <string name="home_features">Features</string>
+    <string name="home_private_chat">Private Chat</string>
+    <string name="home_gemini_test">Gemini Test (internal)</string>
+    <string name="home_bridge_control">Bridge Control</string>
+
+    <!-- Feature tiles -->
+    <string name="feature_voice_bridge">Voice Bridge</string>
+    <string name="feature_voice_bridge_subtitle">Russian voice → Arabic text via Telegram</string>
+    <string name="feature_ocr">OCR</string>
+    <string name="feature_photos">Photos</string>
+    <string name="feature_pdf">PDF</string>
+    <string name="feature_coming_soon">Coming soon</string>
 </resources>
