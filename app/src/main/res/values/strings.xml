@@ -42,7 +42,7 @@
     <string name="settings_latest_version">You are using the latest version (v%1$s).</string>
     <string name="settings_update_check_failed">Could not check for updates. Please try again.</string>
     <string name="settings_error_bot_token_required">Bot token is required.</string>
-    <string name="settings_error_bot_token_invalid">That doesn't look like a valid bot token.</string>
+    <string name="settings_error_bot_token_invalid">That doesn&apos;t look like a valid bot token.</string>
     <string name="settings_error_gemini_key_required">At least one Gemini API key is required.</string>
-    <string name="settings_error_gemini_key_invalid">One of the Gemini API keys doesn't look valid.</string>
+    <string name="settings_error_gemini_key_invalid">One of the Gemini API keys doesn&apos;t look valid.</string>
 </resources>
