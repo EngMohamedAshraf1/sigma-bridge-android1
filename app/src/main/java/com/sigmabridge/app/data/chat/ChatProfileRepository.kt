@@ -1,6 +1,7 @@
 package com.sigmabridge.app.data.chat
 
 import io.github.jan.supabase.SupabaseClient
+import io.github.jan.supabase.gotrue.Auth
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.rpc
 import io.github.jan.supabase.storage.storage
@@ -13,6 +14,9 @@ class ChatProfileRepository @Inject constructor(
     private val sessionManager: SupabaseSessionManager,
     private val identity: ChatIdentity
 ) {
+    private val auth: Auth
+        get() = supabase.pluginManager.getPlugin(Auth)
+
     suspend fun getMyProfile(): Result<ChatProfile?> = runCatching {
         ensureIdentityRegistered()
         supabase.postgrest.rpc("sigma_get_my_profile")
@@ -54,7 +58,8 @@ class ChatProfileRepository @Inject constructor(
         val safeExtension = extension.lowercase().let {
             if (it in setOf("jpg", "jpeg", "png", "webp")) it else "jpg"
         }
-        val path = "${supabase.auth.currentUserOrNull()?.id ?: error("AUTH_REQUIRED")}/avatar.$safeExtension"
+        val userId = auth.currentUserOrNull()?.id ?: error("AUTH_REQUIRED")
+        val path = "$userId/avatar.$safeExtension"
         supabase.storage["chat_avatars"].upload(path, bytes, upsert = true)
 
         supabase.postgrest.rpc(
