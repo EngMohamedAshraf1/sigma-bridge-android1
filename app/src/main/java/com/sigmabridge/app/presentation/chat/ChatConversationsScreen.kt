@@ -69,7 +69,9 @@ fun ChatConversationsScreen(
             onChooseSignIn = accountViewModel::chooseSignIn,
             onEmailChange = accountViewModel::updateEmail,
             onCreateAccount = accountViewModel::createAccount,
-            onCheckVerification = accountViewModel::checkVerification,
+            onVerificationCodeChange = accountViewModel::updateVerificationCode,
+            onVerifyEmailOtp = accountViewModel::verifyEmailOtp,
+            onResendVerification = accountViewModel::resendVerification,
             onSetPassword = { password, confirm ->
                 accountViewModel.setPassword(password, confirm) { }
             },
