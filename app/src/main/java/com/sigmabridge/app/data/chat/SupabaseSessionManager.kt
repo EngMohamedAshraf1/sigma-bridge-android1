@@ -8,12 +8,11 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Keeps the Supabase anonymous-auth session alive for Private Chat.
+ * Provides the already-authenticated Supabase session for Private Chat.
  *
- * Anonymous sign-in is serialized so concurrent chat initialization cannot create
- * multiple Supabase users for the same persisted Sigma Bridge identity.
- *
- * This class intentionally knows nothing about Telegram or Gemini.
+ * Anonymous accounts are no longer created by the chat. Authentication happens
+ * once through the simple passwordless email flow, and every chat operation uses
+ * that persistent Supabase Auth user.
  */
 @Singleton
 class SupabaseSessionManager @Inject constructor(
@@ -24,14 +23,11 @@ class SupabaseSessionManager @Inject constructor(
 
     private val sessionMutex = Mutex()
 
-    suspend fun ensureAnonymousSession(): Result<String> = sessionMutex.withLock {
+    suspend fun ensureAuthenticatedSession(): Result<String> = sessionMutex.withLock {
         runCatching {
-            val existing = auth.currentUserOrNull()
-            if (existing != null) return@runCatching existing.id
-
-            auth.signInAnonymously()
+            auth.awaitInitialization()
             auth.currentUserOrNull()?.id
-                ?: error("Supabase anonymous sign-in succeeded but no user session was returned.")
+                ?: error("AUTH_REQUIRED")
         }
     }
 
