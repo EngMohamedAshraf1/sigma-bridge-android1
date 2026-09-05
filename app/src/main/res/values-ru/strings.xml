@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Sigma Bridge</string>
+
+    <!-- Home -->
+    <string name="home_title">Sigma Bridge</string>
+    <string name="settings">Настройки</string>
+    <string name="home_status">Состояние</string>
+    <string name="home_bridge">Мост</string>
+    <string name="home_telegram">Telegram</string>
+    <string name="home_gemini">Gemini</string>
+    <string name="home_internet">Интернет</string>
+    <string name="home_features">Возможности</string>
+    <string name="home_private_chat">Личный чат</string>
+    <string name="home_gemini_test">Тест Gemini (внутренний)</string>
+    <string name="home_bridge_control">Управление мостом</string>
+
+    <!-- Feature tiles -->
+    <string name="feature_voice_bridge">Голосовой мост</string>
+    <string name="feature_voice_bridge_subtitle">Русская речь → арабский текст через Telegram</string>
+    <string name="feature_ocr">OCR</string>
+    <string name="feature_photos">Фото</string>
+    <string name="feature_pdf">PDF</string>
+    <string name="feature_coming_soon">Скоро</string>
+</resources>
