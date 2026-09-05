@@ -2,6 +2,7 @@ package com.sigmabridge.app.presentation.chat
 
 import android.app.Activity
 import android.content.Context
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -13,6 +14,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
@@ -21,8 +24,6 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -32,8 +33,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -43,6 +46,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -67,28 +71,18 @@ fun ChatConversationsScreen(
         ChatAccountScreen(
             state = accountState,
             onContinueWithGoogle = {
-                val activity = context.findActivity()
-                if (activity != null) {
-                    accountViewModel.signInWithGoogle(activity)
-                } else {
-                    accountViewModel.reportError("تعذر فتح شاشة تسجيل الدخول. حاول مرة أخرى.")
-                }
+                context.findActivity()?.let(accountViewModel::signInWithGoogle)
+                    ?: accountViewModel.reportError("تعذر فتح شاشة تسجيل الدخول. حاول مرة أخرى.")
             }
         )
         return
     }
 
     LaunchedEffect(accountState.authenticated) {
-        ContextCompat.startForegroundService(
-            context,
-            ChatNotificationService.startIntent(context)
-        )
+        ContextCompat.startForegroundService(context, ChatNotificationService.startIntent(context))
     }
 
-    ChatConversationsContent(
-        onBack = onBack,
-        onOpenChat = onOpenChat
-    )
+    ChatConversationsContent(onBack = onBack, onOpenChat = onOpenChat)
 }
 
 private tailrec fun Context.findActivity(): Activity? = when (this) {
@@ -130,10 +124,10 @@ private fun ChatConversationsContent(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Private Chat") },
+                title = { Text("Private Chat", style = MaterialTheme.typography.titleLarge) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.Filled.ArrowBack, contentDescription = "Home")
+                        Icon(Icons.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
                 actions = {
@@ -146,35 +140,51 @@ private fun ChatConversationsContent(
                     }) {
                         Icon(Icons.Filled.Add, contentDescription = "New chat")
                     }
-                }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
             )
-        }
+        },
+        containerColor = MaterialTheme.colorScheme.background
     ) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
-            OutlinedTextField(
-                value = search,
-                onValueChange = { search = it },
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
-                placeholder = { Text("Search conversations") },
-                leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
-                singleLine = true
-            )
+            Surface(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                shape = RoundedCornerShape(18.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant
+            ) {
+                OutlinedTextField(
+                    value = search,
+                    onValueChange = { search = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = { Text("Search") },
+                    leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+                    singleLine = true,
+                    shape = RoundedCornerShape(18.dp)
+                )
+            }
 
             if (filtered.isEmpty()) {
-                Box(modifier = Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
+                Box(
+                    modifier = Modifier.fillMaxSize().padding(28.dp),
+                    contentAlignment = Alignment.Center
+                ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(
-                            text = if (conversations.isEmpty()) "No private conversations yet" else "No matching conversations",
+                            text = if (conversations.isEmpty()) "No conversations yet" else "No results",
                             style = MaterialTheme.typography.titleMedium
                         )
                         if (conversations.isEmpty()) {
                             Text(
-                                text = "Search for someone by username to start a chat.",
+                                text = "Start a private chat with a username.",
                                 modifier = Modifier.padding(top = 6.dp),
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
-                            Button(onClick = { showNewChat = true }, modifier = Modifier.padding(top = 16.dp)) {
-                                Text("Find a person")
+                            Button(
+                                onClick = { showNewChat = true },
+                                modifier = Modifier.padding(top = 16.dp),
+                                shape = RoundedCornerShape(18.dp)
+                            ) {
+                                Text("New chat")
                             }
                         }
                     }
@@ -182,7 +192,7 @@ private fun ChatConversationsContent(
             } else {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
                 ) {
                     items(filtered, key = { it.conversation.partnerId }) { row ->
                         ConversationRow(
@@ -246,18 +256,8 @@ private fun ProfileDialog(
         title = { Text("My profile") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedTextField(
-                    value = firstName,
-                    onValueChange = { firstName = it },
-                    label = { Text("First name") },
-                    singleLine = true
-                )
-                OutlinedTextField(
-                    value = lastName,
-                    onValueChange = { lastName = it },
-                    label = { Text("Last name") },
-                    singleLine = true
-                )
+                OutlinedTextField(value = firstName, onValueChange = { firstName = it }, label = { Text("First name") }, singleLine = true)
+                OutlinedTextField(value = lastName, onValueChange = { lastName = it }, label = { Text("Last name") }, singleLine = true)
                 OutlinedTextField(
                     value = username,
                     onValueChange = { username = it.lowercase(Locale.ROOT).replace(" ", "_") },
@@ -271,17 +271,11 @@ private fun ProfileDialog(
             }
         },
         confirmButton = {
-            Button(
-                onClick = { onSave(firstName, lastName, username) },
-                enabled = !busy && username.length >= 3
-            ) {
-                if (busy) CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-                else Text("Save")
+            Button(onClick = { onSave(firstName, lastName, username) }, enabled = !busy && username.length >= 3) {
+                if (busy) CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp) else Text("Save")
             }
         },
-        dismissButton = {
-            OutlinedButton(onClick = onDismiss, enabled = !busy) { Text("Close") }
-        }
+        dismissButton = { OutlinedButton(onClick = onDismiss, enabled = !busy) { Text("Close") } }
     )
 }
 
@@ -298,7 +292,7 @@ private fun NewChatDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Find someone") },
+        title = { Text("New chat") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedTextField(
@@ -312,39 +306,32 @@ private fun NewChatDialog(
                     prefix = { Text("@") },
                     singleLine = true
                 )
-
-                if (busy) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.Center
-                    ) {
-                        CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
-                    }
+                if (busy) Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+                    CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
                 }
-
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-
                 results.forEach { person ->
-                    Card(
+                    Surface(
                         modifier = Modifier.fillMaxWidth().clickable { onSelect(person) },
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                        shape = RoundedCornerShape(16.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant
                     ) {
-                        Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
-                            Text(person.displayName, style = MaterialTheme.typography.titleMedium)
-                            person.username?.let { Text("@$it", color = MaterialTheme.colorScheme.primary) }
+                        Row(modifier = Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            SmallAvatar(person.displayName)
+                            Column(modifier = Modifier.padding(start = 10.dp)) {
+                                Text(person.displayName, style = MaterialTheme.typography.titleMedium)
+                                person.username?.let { Text("@$it", color = MaterialTheme.colorScheme.primary) }
+                            }
                         }
                     }
                 }
-
                 if (!busy && query.length >= 2 && results.isEmpty() && error == null) {
                     Text("No users found.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         },
         confirmButton = {},
-        dismissButton = {
-            OutlinedButton(onClick = onDismiss) { Text("Close") }
-        }
+        dismissButton = { OutlinedButton(onClick = onDismiss) { Text("Close") } }
     )
 }
 
@@ -360,93 +347,68 @@ private fun ConversationRow(
     var renameText by remember { mutableStateOf(row.conversation.displayName) }
     val conversation = row.conversation
 
-    Card(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp).clickable(onClick = onClick),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+    Row(
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 12.dp, vertical = 9.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(modifier = Modifier.size(52.dp), contentAlignment = Alignment.Center) {
-                Card(
-                    modifier = Modifier.size(52.dp),
-                    shape = MaterialTheme.shapes.extraLarge,
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
-                ) {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text(
-                            text = conversation.displayName.take(1).uppercase(Locale.getDefault()),
-                            style = MaterialTheme.typography.titleLarge,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer
-                        )
-                    }
+        SmallAvatar(conversation.displayName, modifier = Modifier.size(54.dp))
+
+        Column(modifier = Modifier.weight(1f).padding(start = 12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = conversation.displayName,
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.weight(1f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                if (conversation.lastMessageAt > 0L) {
+                    Text(
+                        text = formatConversationTime(conversation.lastMessageAt),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
-
-            Column(modifier = Modifier.weight(1f).padding(start = 12.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = conversation.displayName,
-                        style = MaterialTheme.typography.titleMedium,
-                        modifier = Modifier.weight(1f),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    if (conversation.lastMessageAt > 0L) {
+            Row(modifier = Modifier.padding(top = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = conversation.lastMessage.ifBlank { "Private chat" },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                if (row.unreadCount > 0) {
+                    Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primary) {
                         Text(
-                            text = formatConversationTime(conversation.lastMessageAt),
+                            text = row.unreadCount.coerceAtMost(99).toString(),
                             style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onPrimary,
+                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
                         )
                     }
                 }
-                Row(modifier = Modifier.padding(top = 3.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = conversation.lastMessage.ifBlank { "Private chat" },
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.weight(1f),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    if (row.unreadCount > 0) {
-                        Card(
-                            shape = MaterialTheme.shapes.extraLarge,
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primary)
-                        ) {
-                            Text(
-                                text = row.unreadCount.coerceAtMost(99).toString(),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onPrimary,
-                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
-                            )
-                        }
-                    }
-                }
             }
+        }
 
-            Box {
-                IconButton(onClick = { menuExpanded = true }) {
-                    Icon(Icons.Filled.MoreVert, contentDescription = "Conversation menu")
-                }
-                DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
-                    DropdownMenuItem(
-                        text = { Text("Rename") },
-                        onClick = {
-                            menuExpanded = false
-                            renameText = conversation.displayName
-                            showRename = true
-                        }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Delete") },
-                        onClick = {
-                            menuExpanded = false
-                            onDelete()
-                        }
-                    )
-                }
+        Box {
+            IconButton(onClick = { menuExpanded = true }) {
+                Icon(Icons.Filled.MoreVert, contentDescription = "Conversation menu")
+            }
+            DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                DropdownMenuItem(
+                    text = { Text("Rename") },
+                    onClick = {
+                        menuExpanded = false
+                        renameText = conversation.displayName
+                        showRename = true
+                    }
+                )
+                DropdownMenuItem(
+                    text = { Text("Delete") },
+                    onClick = { menuExpanded = false; onDelete() }
+                )
             }
         }
     }
@@ -455,24 +417,29 @@ private fun ConversationRow(
         AlertDialog(
             onDismissRequest = { showRename = false },
             title = { Text("Rename conversation") },
-            text = {
-                OutlinedTextField(
-                    value = renameText,
-                    onValueChange = { renameText = it },
-                    label = { Text("Name") },
-                    singleLine = true
-                )
-            },
+            text = { OutlinedTextField(value = renameText, onValueChange = { renameText = it }, label = { Text("Name") }, singleLine = true) },
             confirmButton = {
-                Button(onClick = {
-                    onRename(renameText)
-                    showRename = false
-                }) { Text("Save") }
+                Button(onClick = { onRename(renameText); showRename = false }) { Text("Save") }
             },
-            dismissButton = {
-                OutlinedButton(onClick = { showRename = false }) { Text("Cancel") }
-            }
+            dismissButton = { OutlinedButton(onClick = { showRename = false }) { Text("Cancel") } }
         )
+    }
+}
+
+@Composable
+private fun SmallAvatar(name: String, modifier: Modifier = Modifier.size(52.dp)) {
+    Surface(
+        modifier = modifier,
+        shape = CircleShape,
+        color = MaterialTheme.colorScheme.primaryContainer
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Text(
+                text = name.trim().firstOrNull()?.uppercase(Locale.getDefault()) ?: "S",
+                style = MaterialTheme.typography.titleLarge,
+                color = MaterialTheme.colorScheme.onPrimaryContainer
+            )
+        }
     }
 }
 
