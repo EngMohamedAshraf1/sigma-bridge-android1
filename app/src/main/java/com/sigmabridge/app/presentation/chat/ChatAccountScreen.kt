@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -20,6 +21,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 
@@ -30,7 +32,9 @@ fun ChatAccountScreen(
     onChooseSignIn: () -> Unit,
     onEmailChange: (String) -> Unit,
     onCreateAccount: () -> Unit,
-    onCheckVerification: () -> Unit,
+    onVerificationCodeChange: (String) -> Unit,
+    onVerifyEmailOtp: () -> Unit,
+    onResendVerification: () -> Unit,
     onSetPassword: (String, String) -> Unit,
     onSignIn: (String) -> Unit
 ) {
@@ -94,16 +98,36 @@ fun ChatAccountScreen(
                     }
                     ChatAccountStep.VERIFICATION -> {
                         Text(
-                            state.message ?: "تحقق من بريدك الإلكتروني.",
+                            state.message ?: "أدخل رمز التحقق الذي وصلك إلى بريدك الإلكتروني.",
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                        Button(
-                            onClick = onCheckVerification,
+                        OutlinedTextField(
+                            value = state.verificationCode,
+                            onValueChange = onVerificationCodeChange,
                             modifier = Modifier.fillMaxWidth(),
-                            enabled = !state.busy
+                            label = { Text("رمز التحقق") },
+                            placeholder = { Text("123456") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            singleLine = true
+                        )
+                        Button(
+                            onClick = onVerifyEmailOtp,
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = !state.busy && state.verificationCode.length in 5..6
                         ) {
                             if (state.busy) CircularProgressIndicator(strokeWidth = 2.dp)
-                            else Text("تم التحقق من البريد")
+                            else Text("تحقق من الرمز")
+                        }
+                        OutlinedButton(
+                            onClick = onResendVerification,
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = !state.busy && state.resendCooldownSeconds == 0
+                        ) {
+                            if (state.resendCooldownSeconds > 0) {
+                                Text("إعادة إرسال الرمز بعد ${state.resendCooldownSeconds} ثانية")
+                            } else {
+                                Text("إعادة إرسال الرمز")
+                            }
                         }
                     }
                     ChatAccountStep.PASSWORD -> {

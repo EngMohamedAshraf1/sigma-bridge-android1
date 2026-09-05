@@ -4,6 +4,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.sigmabridge.app.data.chat.ChatAccountRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -19,6 +21,8 @@ data class ChatAccountUiState(
     val mode: ChatAccountMode = ChatAccountMode.CREATE,
     val step: ChatAccountStep = ChatAccountStep.FORM,
     val email: String = "",
+    val verificationCode: String = "",
+    val resendCooldownSeconds: Int = 0,
     val busy: Boolean = false,
     val message: String? = null,
     val error: String? = null
@@ -30,6 +34,8 @@ class ChatAccountViewModel @Inject constructor(
 ) : ViewModel() {
     private val _state = MutableStateFlow(ChatAccountUiState())
     val state: StateFlow<ChatAccountUiState> = _state.asStateFlow()
+
+    private var resendCountdownJob: Job? = null
 
     init {
         refresh()
@@ -52,22 +58,35 @@ class ChatAccountViewModel @Inject constructor(
         _state.value = _state.value.copy(
             mode = ChatAccountMode.CREATE,
             step = ChatAccountStep.FORM,
+            verificationCode = "",
+            resendCooldownSeconds = 0,
             message = null,
             error = null
         )
+        resendCountdownJob?.cancel()
     }
 
     fun chooseSignIn() {
         _state.value = _state.value.copy(
             mode = ChatAccountMode.SIGN_IN,
             step = ChatAccountStep.FORM,
+            verificationCode = "",
+            resendCooldownSeconds = 0,
             message = null,
             error = null
         )
+        resendCountdownJob?.cancel()
     }
 
     fun updateEmail(value: String) {
         _state.value = _state.value.copy(email = value, error = null)
+    }
+
+    fun updateVerificationCode(value: String) {
+        _state.value = _state.value.copy(
+            verificationCode = value.filter(Char::isDigit).take(6),
+            error = null
+        )
     }
 
     fun createAccount() {
@@ -92,10 +111,13 @@ class ChatAccountViewModel @Inject constructor(
                 _state.value = _state.value.copy(
                     busy = false,
                     email = email,
+                    verificationCode = "",
+                    resendCooldownSeconds = 60,
                     step = ChatAccountStep.VERIFICATION,
-                    message = "أرسلنا رسالة تحقق إلى $email. افتحها ثم اضغط «تم التحقق» هنا.",
+                    message = "أرسلنا رمز تحقق إلى $email. أدخل الرمز الموجود في رسالة Sigma Bridge.",
                     error = null
                 )
+                startResendCountdown()
             }.onFailure {
                 _state.value = _state.value.copy(
                     busy = false,
@@ -105,28 +127,62 @@ class ChatAccountViewModel @Inject constructor(
         }
     }
 
-    fun checkVerification() {
+    fun verifyEmailOtp() {
+        val email = _state.value.email.trim()
+        val code = _state.value.verificationCode.trim()
+
+        if (!email.contains("@") || email.length < 5) {
+            _state.value = _state.value.copy(error = "أدخل بريدًا إلكترونيًا صحيحًا.")
+            return
+        }
+        if (code.length !in 5..6 || !code.all(Char::isDigit)) {
+            _state.value = _state.value.copy(error = "أدخل رمز التحقق المكون من 5 أو 6 أرقام.")
+            return
+        }
+
         viewModelScope.launch {
             _state.value = _state.value.copy(busy = true, error = null, message = null)
-            accountRepository.refreshAccountState()
-                .onSuccess { verified ->
-                    if (verified) {
-                        _state.value = _state.value.copy(
-                            loading = false,
-                            busy = false,
-                            authenticated = true,
-                            step = ChatAccountStep.PASSWORD,
-                            message = "تم توثيق الحساب. ضع كلمة مرور لاسترداد الحساب لاحقًا.",
-                            error = null
-                        )
-                    } else {
-                        _state.value = _state.value.copy(
-                            busy = false,
-                            message = "لم يتم توثيق البريد بعد. افتح رسالة التحقق ثم حاول مرة أخرى.",
-                            error = null
-                        )
-                    }
-                }.onFailure {
+            accountRepository.verifyEmailChangeOtp(email, code)
+                .onSuccess {
+                    resendCountdownJob?.cancel()
+                    _state.value = _state.value.copy(
+                        loading = false,
+                        busy = false,
+                        authenticated = true,
+                        resendCooldownSeconds = 0,
+                        step = ChatAccountStep.PASSWORD,
+                        message = "تم التحقق من البريد. ضع كلمة مرور للحساب.",
+                        error = null
+                    )
+                }
+                .onFailure {
+                    _state.value = _state.value.copy(
+                        busy = false,
+                        error = friendlyError(it)
+                    )
+                }
+        }
+    }
+
+    fun resendVerification() {
+        val email = _state.value.email.trim()
+        if (_state.value.step != ChatAccountStep.VERIFICATION || _state.value.busy) return
+        if (_state.value.resendCooldownSeconds > 0) return
+
+        viewModelScope.launch {
+            _state.value = _state.value.copy(busy = true, error = null, message = null)
+            accountRepository.resendEmailVerification(email)
+                .onSuccess {
+                    _state.value = _state.value.copy(
+                        busy = false,
+                        verificationCode = "",
+                        resendCooldownSeconds = 60,
+                        message = "تم إرسال رمز تحقق جديد إلى $email.",
+                        error = null
+                    )
+                    startResendCountdown()
+                }
+                .onFailure {
                     _state.value = _state.value.copy(
                         busy = false,
                         error = friendlyError(it)
@@ -200,14 +256,34 @@ class ChatAccountViewModel @Inject constructor(
         }
     }
 
+    private fun startResendCountdown() {
+        resendCountdownJob?.cancel()
+        resendCountdownJob = viewModelScope.launch {
+            for (remaining in 60 downTo 1) {
+                _state.value = _state.value.copy(resendCooldownSeconds = remaining)
+                delay(1_000)
+            }
+            _state.value = _state.value.copy(resendCooldownSeconds = 0)
+        }
+    }
+
+    override fun onCleared() {
+        resendCountdownJob?.cancel()
+        super.onCleared()
+    }
+
     private fun friendlyError(error: Throwable): String = when {
         error.message?.contains("MANUAL_LINKING", true) == true ->
             "تفعيل ربط الحسابات مطلوب من إعدادات Supabase."
         error.message?.contains("EMAIL_REQUIRED", true) == true -> "أدخل البريد الإلكتروني."
+        error.message?.contains("OTP_REQUIRED", true) == true -> "أدخل رمز التحقق."
         error.message?.contains("PASSWORD_REQUIRED", true) == true -> "أدخل كلمة المرور."
         error.message?.contains("PASSWORD_TOO_SHORT", true) == true -> "كلمة المرور يجب أن تكون 8 أحرف على الأقل."
         error.message?.contains("INVALID_LOGIN_CREDENTIALS", true) == true -> "البريد الإلكتروني أو كلمة المرور غير صحيحة."
         error.message?.contains("Email not confirmed", true) == true -> "البريد الإلكتروني لم يتم تأكيده بعد."
+        error.message?.contains("expired", true) == true -> "انتهت صلاحية رمز التحقق. اطلب رمزًا جديدًا."
+        error.message?.contains("invalid", true) == true && error.message?.contains("token", true) == true ->
+            "رمز التحقق غير صحيح."
         else -> error.message ?: "حدث خطأ غير متوقع."
     }
 }

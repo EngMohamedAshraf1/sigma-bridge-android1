@@ -2,6 +2,7 @@ package com.sigmabridge.app.data.chat
 
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.gotrue.Auth
+import io.github.jan.supabase.gotrue.OtpType
 import io.github.jan.supabase.gotrue.providers.builtin.Email
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -36,6 +37,27 @@ class ChatAccountRepository @Inject constructor(
         auth.updateUser {
             this.email = normalized
         }
+    }
+
+    suspend fun verifyEmailChangeOtp(email: String, token: String): Result<Unit> = runCatching {
+        val normalized = email.trim().lowercase()
+        require(normalized.isNotBlank()) { "EMAIL_REQUIRED" }
+        require(token.isNotBlank()) { "OTP_REQUIRED" }
+
+        auth.verifyEmailOtp(
+            type = OtpType.Email.EMAIL_CHANGE,
+            email = normalized,
+            token = token.trim()
+        )
+
+        val user = auth.retrieveUserForCurrentSession(updateSession = true)
+        check(!isAnonymousUser(user)) { "EMAIL_NOT_VERIFIED" }
+    }
+
+    suspend fun resendEmailVerification(email: String): Result<Unit> = runCatching {
+        val normalized = email.trim().lowercase()
+        require(normalized.isNotBlank()) { "EMAIL_REQUIRED" }
+        auth.resendEmail(OtpType.Email.EMAIL_CHANGE, normalized)
     }
 
     suspend fun signInWithEmail(email: String, password: String): Result<Unit> = runCatching {
