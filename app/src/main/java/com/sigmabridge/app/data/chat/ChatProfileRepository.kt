@@ -32,6 +32,22 @@ class ChatProfileRepository @Inject constructor(
         ).decodeList<ChatProfile>().firstOrNull()
     }
 
+    suspend fun getLastSeenByPublicId(publicId: String): Result<Long?> = runCatching {
+        ensureIdentityRegistered()
+        supabase.postgrest.rpc(
+            "sigma_get_last_seen",
+            GetChatProfileByPublicIdRpcParams(publicId)
+        ).decodeList<ChatLastSeenRpcResponse>().firstOrNull()?.lastSeenAt
+    }
+
+    suspend fun touchMyLastSeen(): Result<Long?> = runCatching {
+        ensureIdentityRegistered()
+        supabase.postgrest.rpc("sigma_touch_last_seen")
+            .decodeList<ChatLastSeenRpcResponse>()
+            .firstOrNull()
+            ?.lastSeenAt
+    }
+
     suspend fun updateProfile(
         firstName: String,
         lastName: String,
