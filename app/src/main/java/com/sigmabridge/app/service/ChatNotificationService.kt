@@ -89,7 +89,6 @@ class ChatNotificationService : Service() {
         }
     }
 
-    /** Register the current installation independently of having a conversation/search result. */
     private fun registerIdentityOnStartup() {
         serviceScope.launch {
             while (isActive) {
@@ -97,24 +96,14 @@ class ChatNotificationService : Service() {
                     delay(RECONNECT_DELAY_MS)
                     continue
                 }
-
-                val result = runCatching {
-                    chatProfileRepository.ensureIdentityRegistered()
-                }
-
+                val result = runCatching { chatProfileRepository.ensureIdentityRegistered() }
                 if (result.isSuccess) return@launch
-
-                android.util.Log.e(
-                    TAG,
-                    "Private chat identity registration failed; retrying",
-                    result.exceptionOrNull()
-                )
+                android.util.Log.e(TAG, "Private chat identity registration failed; retrying", result.exceptionOrNull())
                 delay(RECONNECT_DELAY_MS)
             }
         }
     }
 
-    /** Discover first/undelivered incoming messages without requiring a local partner. */
     private fun observeUndeliveredInbox() {
         serviceScope.launch {
             while (isActive) {
@@ -122,21 +111,14 @@ class ChatNotificationService : Service() {
                     delay(RECONNECT_DELAY_MS)
                     continue
                 }
-
                 val result = chatInboxRepository.fetchUndeliveredMessages()
                 result.onFailure { error ->
-                    android.util.Log.e(
-                        TAG,
-                        "Private chat inbox discovery failed; retrying",
-                        error
-                    )
+                    android.util.Log.e(TAG, "Private chat inbox discovery failed; retrying", error)
                 }
-
                 for (row in result.getOrNull().orEmpty().sortedBy { it.sequenceNumber }) {
                     if (!isActive) break
                     processUndeliveredMessage(row)
                 }
-
                 delay(INBOX_POLL_INTERVAL_MS)
             }
         }
@@ -147,8 +129,7 @@ class ChatNotificationService : Service() {
         if (partnerId.isBlank() || partnerId == identity.myId) return
 
         val historyKey = runCatching {
-            identity.conversationKeyFor(partnerId)
-                .joinToString("") { "%02x".format(it) }
+            identity.conversationKeyFor(partnerId).joinToString("") { "%02x".format(it) }
         }.getOrNull() ?: return
 
         val existingHistory = historyStore.load(historyKey)
@@ -170,22 +151,21 @@ class ChatNotificationService : Service() {
                 )).takeLast(MAX_HISTORY_MESSAGES)
             )
 
-            val existingConversation = conversationStore.load()
-                .firstOrNull { it.partnerId == partnerId }
+            val existingConversation = conversationStore.load().firstOrNull { it.partnerId == partnerId }
             conversationStore.upsert(
-                existingConversation?.copy(
-                    lastMessage = decrypted,
-                    lastMessageAt = createdAt
-                ) ?: ChatConversation(
-                    partnerId = partnerId,
-                    displayName = partnerId,
-                    lastMessage = decrypted,
-                    lastMessageAt = createdAt
-                )
+                existingConversation?.copy(lastMessage = decrypted, lastMessageAt = createdAt)
+                    ?: ChatConversation(
+                        partnerId = partnerId,
+                        displayName = partnerId,
+                        lastMessage = decrypted,
+                        lastMessageAt = createdAt
+                    )
             )
-
             unreadStore.addUnread(historyKey, row.clientMessageId)
-            identity.partnerId = partnerId
+
+            // IMPORTANT: do not write partnerId into the global identity here.
+            // Inbox delivery can discover messages for any conversation while a
+            // different conversation is open in the UI.
         }
 
         val topic = identity.conversationTopicFor(partnerId)
@@ -198,46 +178,34 @@ class ChatNotificationService : Service() {
         val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
         val lastNotifiedKey = "$KEY_LAST_NOTIFIED_AT_PREFIX$partnerId"
         val lastNotifiedAt = prefs.getLong(lastNotifiedKey, 0L)
-
         if (createdAt > lastNotifiedAt && postMessageNotification(partnerId, row.clientMessageId, decrypted)) {
             prefs.edit().putLong(lastNotifiedKey, createdAt).apply()
         }
 
         serviceScope.launch {
-            chatTranslationService.translateIncoming(
-                decrypted,
-                row.clientMessageId
-            ).onSuccess { translated ->
-                if (translated == decrypted) return@onSuccess
-                val latestHistory = historyStore.load(historyKey)
-                if (latestHistory.any { it.id == row.clientMessageId }) {
-                    historyStore.save(
-                        historyKey,
-                        latestHistory.map { message ->
-                            if (message.id == row.clientMessageId) message.copy(text = translated) else message
+            chatTranslationService.translateIncoming(decrypted, row.clientMessageId)
+                .onSuccess { translated ->
+                    if (translated == decrypted) return@onSuccess
+                    val latestHistory = historyStore.load(historyKey)
+                    if (latestHistory.any { it.id == row.clientMessageId }) {
+                        historyStore.save(
+                            historyKey,
+                            latestHistory.map { message ->
+                                if (message.id == row.clientMessageId) message.copy(text = translated) else message
+                            }
+                        )
+                        val latestConversation = conversationStore.load().firstOrNull { it.partnerId == partnerId }
+                        if (latestConversation != null && latestConversation.lastMessage == decrypted) {
+                            conversationStore.upsert(latestConversation.copy(lastMessage = translated))
                         }
-                    )
-                    val latestConversation = conversationStore.load()
-                        .firstOrNull { it.partnerId == partnerId }
-                    if (latestConversation != null && latestConversation.lastMessage == decrypted) {
-                        conversationStore.upsert(latestConversation.copy(lastMessage = translated))
                     }
                 }
-            }.onFailure { error ->
-                android.util.Log.e(
-                    TAG,
-                    "Private chat background translation failed for $partnerId",
-                    error
-                )
-            }
+                .onFailure { error ->
+                    android.util.Log.e(TAG, "Private chat background translation failed for $partnerId", error)
+                }
         }
     }
 
-    private fun parseTimestamp(value: String): Long =
-        runCatching { java.time.Instant.parse(value).toEpochMilli() }
-            .getOrElse { System.currentTimeMillis() }
-
-    /** Background delivery for conversations that were already selected locally. */
     private fun observeAllChatEvents() {
         serviceScope.launch {
             while (isActive) {
@@ -246,12 +214,10 @@ class ChatNotificationService : Service() {
                     delay(PARTNER_CHECK_INTERVAL_MS)
                     continue
                 }
-
                 if (!networkState.isOnline()) {
                     delay(RECONNECT_DELAY_MS)
                     continue
                 }
-
                 observeOneConversation(partnerId)
                 if (isActive) delay(RECONNECT_DELAY_MS)
             }
@@ -279,20 +245,13 @@ class ChatNotificationService : Service() {
                                 historyKey,
                                 (existingHistory + event.message).takeLast(MAX_HISTORY_MESSAGES)
                             )
-                            updateConversationPreview(
-                                partnerId,
-                                event.message.text,
-                                event.message.createdAt
-                            )
-                        }
-
-                        if (!isKnownLocally) {
+                            updateConversationPreview(partnerId, event.message.text, event.message.createdAt)
                             unreadStore.addUnread(historyKey, event.message.id)
                         }
 
                         chatRepository.sendDeliveredReceipt(
                             topic,
-                            ChatReceipt(messageId = event.message.id, senderId = identity.myId)
+                            ChatReceipt(messageId = event.message.id, senderId = partnerId)
                         )
 
                         if (isKnownLocally) return@collect
@@ -304,38 +263,26 @@ class ChatNotificationService : Service() {
                         }
 
                         serviceScope.launch {
-                            chatTranslationService.translateIncoming(
-                                event.message.text,
-                                event.message.id
-                            ).onSuccess { translated ->
-                                if (translated == event.message.text) return@onSuccess
-                                val latestHistory = historyStore.load(historyKey)
-                                if (latestHistory.any { it.id == event.message.id }) {
-                                    historyStore.save(
-                                        historyKey,
-                                        latestHistory.map { message ->
-                                            if (message.id == event.message.id) {
-                                                message.copy(text = translated)
-                                            } else {
-                                                message
+                            chatTranslationService.translateIncoming(event.message.text, event.message.id)
+                                .onSuccess { translated ->
+                                    if (translated == event.message.text) return@onSuccess
+                                    val latestHistory = historyStore.load(historyKey)
+                                    if (latestHistory.any { it.id == event.message.id }) {
+                                        historyStore.save(
+                                            historyKey,
+                                            latestHistory.map { message ->
+                                                if (message.id == event.message.id) message.copy(text = translated) else message
                                             }
-                                        }
-                                    )
-                                    val latestConversation = conversationStore.load()
-                                        .firstOrNull { it.partnerId == partnerId }
-                                    if (latestConversation != null && latestConversation.lastMessage == event.message.text) {
-                                        conversationStore.upsert(
-                                            latestConversation.copy(lastMessage = translated)
                                         )
+                                        val latestConversation = conversationStore.load().firstOrNull { it.partnerId == partnerId }
+                                        if (latestConversation != null && latestConversation.lastMessage == event.message.text) {
+                                            conversationStore.upsert(latestConversation.copy(lastMessage = translated))
+                                        }
                                     }
                                 }
-                            }.onFailure { error ->
-                                android.util.Log.e(
-                                    TAG,
-                                    "Private chat background translation failed for $partnerId",
-                                    error
-                                )
-                            }
+                                .onFailure { error ->
+                                    android.util.Log.e(TAG, "Private chat background translation failed for $partnerId", error)
+                                }
                         }
                     }
                     is ChatEvent.Delivered -> {
@@ -355,11 +302,7 @@ class ChatNotificationService : Service() {
                 }
             }
         }.onFailure { error ->
-            android.util.Log.e(
-                TAG,
-                "Private chat background observation stopped for $partnerId; retrying",
-                error
-            )
+            android.util.Log.e(TAG, "Private chat background observation stopped for $partnerId; retrying", error)
         }
     }
 
@@ -442,7 +385,9 @@ class ChatNotificationService : Service() {
             putExtra(MainActivity.EXTRA_OPEN_PRIVATE_CHAT, true)
         }
         val pendingIntent = PendingIntent.getActivity(
-            this, messageId.hashCode(), openChatIntent,
+            this,
+            messageId.hashCode(),
+            openChatIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
