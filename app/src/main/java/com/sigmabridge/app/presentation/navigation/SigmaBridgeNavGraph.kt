@@ -2,6 +2,7 @@ package com.sigmabridge.app.presentation.navigation
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.Modifier
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -16,13 +17,15 @@ import com.sigmabridge.app.presentation.settings.SettingsScreen
 @Composable
 fun SigmaBridgeNavGraph(
     navController: NavHostController = rememberNavController(),
+    modifier: Modifier = Modifier,
     openPrivateChat: Boolean = false,
     darkTheme: Boolean = false,
     onToggleTheme: () -> Unit = {}
 ) {
     NavHost(
         navController = navController,
-        startDestination = SigmaBridgeDestination.PrivateChats.route
+        startDestination = SigmaBridgeDestination.PrivateChats.route,
+        modifier = modifier
     ) {
         composable(SigmaBridgeDestination.Home.route) {
             HomeScreen(
