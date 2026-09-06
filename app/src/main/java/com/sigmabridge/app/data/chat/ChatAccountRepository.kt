@@ -2,9 +2,9 @@ package com.sigmabridge.app.data.chat
 
 import com.sigmabridge.app.data.auth.GoogleIdTokenResult
 import io.github.jan.supabase.SupabaseClient
-import io.github.jan.supabase.gotrue.Auth
-import io.github.jan.supabase.gotrue.providers.Google
-import io.github.jan.supabase.gotrue.providers.builtin.IDToken
+import io.github.jan.supabase.auth.Auth
+import io.github.jan.supabase.auth.providers.Google
+import io.github.jan.supabase.auth.providers.builtin.IDToken
 import javax.inject.Inject
 import javax.inject.Singleton
 
