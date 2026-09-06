@@ -3,6 +3,7 @@ package com.sigmabridge.app.data.update
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.net.HttpURLConnection
@@ -32,6 +33,14 @@ class GitHubUpdateChecker {
                     ?: error("Latest release tag is missing")
                 val name = root["name"]?.jsonPrimitive?.content.orEmpty()
                 val url = root["html_url"]?.jsonPrimitive?.content.orEmpty()
+                val apk = root["assets"]?.jsonArray
+                    ?.firstOrNull { asset ->
+                        asset.jsonObject["name"]?.jsonPrimitive?.content
+                            ?.lowercase()
+                            ?.endsWith(".apk") == true
+                    }
+                val apkUrl = apk?.jsonObject?.get("browser_download_url")?.jsonPrimitive?.content.orEmpty()
+                val apkFileName = apk?.jsonObject?.get("name")?.jsonPrimitive?.content.orEmpty()
 
                 val latestVersion = normalizeVersion(tag)
                 val installedVersion = normalizeVersion(currentVersion)
@@ -41,6 +50,8 @@ class GitHubUpdateChecker {
                     latestVersion = latestVersion,
                     releaseName = name,
                     releaseUrl = url,
+                    apkUrl = apkUrl,
+                    apkFileName = apkFileName,
                     updateAvailable = compareVersions(latestVersion, installedVersion) > 0
                 )
             } finally {
@@ -77,6 +88,8 @@ data class UpdateCheckResult(
     val latestVersion: String,
     val releaseName: String,
     val releaseUrl: String,
+    val apkUrl: String,
+    val apkFileName: String,
     val updateAvailable: Boolean
 )
 
