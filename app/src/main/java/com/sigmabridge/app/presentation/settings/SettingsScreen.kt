@@ -42,7 +42,8 @@ fun SettingsScreen(viewModel: SettingsViewModel = androidx.hilt.navigation.compo
     val uiState by viewModel.uiState.collectAsState()
     val scope = rememberCoroutineScope()
     val updateState by UpdateManager.state.collectAsState()
-    var updateMessage by remember { mutableStateOf<String?>(null) }
+    var updateMessageKey by remember { mutableStateOf<String?>(null) }
+    var lastCheckedVersion by remember { mutableStateOf<String?>(null) }
 
     Column(
         modifier = Modifier
@@ -119,16 +120,17 @@ fun SettingsScreen(viewModel: SettingsViewModel = androidx.hilt.navigation.compo
             onClick = {
                 if (updateState.checking) return@Button
                 scope.launch {
-                    updateMessage = null
+                    updateMessageKey = null
                     try {
                         val result = UpdateManager.checkNow(BuildConfig.VERSION_NAME)
-                        updateMessage = if (result.updateAvailable) {
+                        lastCheckedVersion = result.currentVersion
+                        updateMessageKey = if (result.updateAvailable) {
                             "UPDATE_AVAILABLE"
                         } else {
-                            contextStringLatest(result.currentVersion)
+                            "LATEST"
                         }
                     } catch (error: Exception) {
-                        updateMessage = "UPDATE_CHECK_FAILED"
+                        updateMessageKey = "UPDATE_CHECK_FAILED"
                     }
                 }
             },
@@ -146,14 +148,17 @@ fun SettingsScreen(viewModel: SettingsViewModel = androidx.hilt.navigation.compo
             Text(stringResource(if (updateState.checking) R.string.settings_checking else R.string.settings_check_for_updates))
         }
 
-        updateMessage?.let { message ->
-            val resolvedMessage = when (message) {
+        updateMessageKey?.let { messageKey ->
+            val resolvedMessage = when (messageKey) {
                 "UPDATE_AVAILABLE" -> stringResource(
                     R.string.settings_update_available,
                     updateState.update?.latestVersion.orEmpty()
                 )
-                "UPDATE_CHECK_FAILED" -> stringResource(R.string.settings_update_check_failed)
-                else -> message
+                "LATEST" -> stringResource(
+                    R.string.settings_latest_version,
+                    lastCheckedVersion.orEmpty()
+                )
+                else -> stringResource(R.string.settings_update_check_failed)
             }
             Text(
                 text = resolvedMessage,
@@ -163,8 +168,6 @@ fun SettingsScreen(viewModel: SettingsViewModel = androidx.hilt.navigation.compo
         }
     }
 }
-
-private fun contextStringLatest(version: String): String = "LATEST:$version"
 
 private fun GeminiKeyStatus?.toIndicator(): String = when (this) {
     GeminiKeyStatus.ACTIVE -> "\uD83D\uDFE2"
