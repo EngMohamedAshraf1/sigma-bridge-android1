@@ -20,20 +20,19 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.sigmabridge.app.BuildConfig
 import com.sigmabridge.app.R
-import com.sigmabridge.app.data.update.GitHubUpdateChecker
+import com.sigmabridge.app.data.update.UpdateManager
 import com.sigmabridge.app.domain.model.GeminiKeyStatus
 import com.sigmabridge.app.domain.usecase.SettingsValidationError
 import kotlinx.coroutines.launch
@@ -42,9 +41,7 @@ import kotlinx.coroutines.launch
 fun SettingsScreen(viewModel: SettingsViewModel = androidx.hilt.navigation.compose.hiltViewModel()) {
     val uiState by viewModel.uiState.collectAsState()
     val scope = rememberCoroutineScope()
-    val context = LocalContext.current
-    val updateChecker = remember { GitHubUpdateChecker() }
-    var checkingForUpdate by remember { mutableStateOf(false) }
+    val updateState by UpdateManager.state.collectAsState()
     var updateMessage by remember { mutableStateOf<String?>(null) }
 
     Column(
@@ -120,28 +117,25 @@ fun SettingsScreen(viewModel: SettingsViewModel = androidx.hilt.navigation.compo
 
         Button(
             onClick = {
-                if (checkingForUpdate) return@Button
-                checkingForUpdate = true
-                updateMessage = null
+                if (updateState.checking) return@Button
                 scope.launch {
+                    updateMessage = null
                     try {
-                        val result = updateChecker.check(BuildConfig.VERSION_NAME)
+                        val result = UpdateManager.checkNow(BuildConfig.VERSION_NAME)
                         updateMessage = if (result.updateAvailable) {
-                            context.getString(R.string.settings_update_available, result.latestVersion)
+                            "UPDATE_AVAILABLE"
                         } else {
-                            context.getString(R.string.settings_latest_version, result.currentVersion)
+                            contextStringLatest(result.currentVersion)
                         }
                     } catch (error: Exception) {
-                        updateMessage = context.getString(R.string.settings_update_check_failed)
-                    } finally {
-                        checkingForUpdate = false
+                        updateMessage = "UPDATE_CHECK_FAILED"
                     }
                 }
             },
-            enabled = !checkingForUpdate,
+            enabled = !updateState.checking,
             modifier = Modifier.padding(top = 24.dp)
         ) {
-            if (checkingForUpdate) {
+            if (updateState.checking) {
                 CircularProgressIndicator(
                     modifier = Modifier
                         .padding(end = 8.dp)
@@ -149,18 +143,28 @@ fun SettingsScreen(viewModel: SettingsViewModel = androidx.hilt.navigation.compo
                     strokeWidth = 2.dp
                 )
             }
-            Text(stringResource(if (checkingForUpdate) R.string.settings_checking else R.string.settings_check_for_updates))
+            Text(stringResource(if (updateState.checking) R.string.settings_checking else R.string.settings_check_for_updates))
         }
 
         updateMessage?.let { message ->
+            val resolvedMessage = when (message) {
+                "UPDATE_AVAILABLE" -> stringResource(
+                    R.string.settings_update_available,
+                    updateState.update?.latestVersion.orEmpty()
+                )
+                "UPDATE_CHECK_FAILED" -> stringResource(R.string.settings_update_check_failed)
+                else -> message
+            }
             Text(
-                text = message,
+                text = resolvedMessage,
                 modifier = Modifier.padding(top = 8.dp),
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
     }
 }
+
+private fun contextStringLatest(version: String): String = "LATEST:$version"
 
 private fun GeminiKeyStatus?.toIndicator(): String = when (this) {
     GeminiKeyStatus.ACTIVE -> "\uD83D\uDFE2"
