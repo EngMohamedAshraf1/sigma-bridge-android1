@@ -159,12 +159,24 @@ class ChatNotificationService : Service() {
         val createdAt = parseTimestamp(row.createdAt)
 
         if (!isKnownLocally) {
+            val visibleText = chatTranslationService.translateIncoming(
+                decrypted,
+                row.clientMessageId
+            ).getOrElse { error ->
+                android.util.Log.e(
+                    TAG,
+                    "Private chat background translation failed for $partnerId",
+                    error
+                )
+                decrypted
+            }
+
             historyStore.save(
                 historyKey,
                 (existingHistory + ChatMessage(
                     id = row.clientMessageId,
                     senderId = partnerId,
-                    text = decrypted,
+                    text = visibleText,
                     createdAt = createdAt,
                     deliveryStatus = MessageDeliveryStatus.DELIVERED
                 )).takeLast(MAX_HISTORY_MESSAGES)
@@ -174,12 +186,12 @@ class ChatNotificationService : Service() {
                 .firstOrNull { it.partnerId == partnerId }
             conversationStore.upsert(
                 existingConversation?.copy(
-                    lastMessage = decrypted,
+                    lastMessage = visibleText,
                     lastMessageAt = createdAt
                 ) ?: ChatConversation(
                     partnerId = partnerId,
                     displayName = partnerId,
-                    lastMessage = decrypted,
+                    lastMessage = visibleText,
                     lastMessageAt = createdAt
                 )
             )
@@ -195,41 +207,16 @@ class ChatNotificationService : Service() {
         )
         if (receiptResult.isFailure || isKnownLocally) return
 
+        val storedMessage = historyStore.load(historyKey)
+            .firstOrNull { it.id == row.clientMessageId }
+        val notificationText = storedMessage?.text ?: decrypted
+
         val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
         val lastNotifiedKey = "$KEY_LAST_NOTIFIED_AT_PREFIX$partnerId"
         val lastNotifiedAt = prefs.getLong(lastNotifiedKey, 0L)
 
-        if (createdAt > lastNotifiedAt && postMessageNotification(partnerId, row.clientMessageId, decrypted)) {
+        if (createdAt > lastNotifiedAt && postMessageNotification(partnerId, row.clientMessageId, notificationText)) {
             prefs.edit().putLong(lastNotifiedKey, createdAt).apply()
-        }
-
-        serviceScope.launch {
-            chatTranslationService.translateIncoming(
-                decrypted,
-                row.clientMessageId
-            ).onSuccess { translated ->
-                if (translated == decrypted) return@onSuccess
-                val latestHistory = historyStore.load(historyKey)
-                if (latestHistory.any { it.id == row.clientMessageId }) {
-                    historyStore.save(
-                        historyKey,
-                        latestHistory.map { message ->
-                            if (message.id == row.clientMessageId) message.copy(text = translated) else message
-                        }
-                    )
-                    val latestConversation = conversationStore.load()
-                        .firstOrNull { it.partnerId == partnerId }
-                    if (latestConversation != null && latestConversation.lastMessage == decrypted) {
-                        conversationStore.upsert(latestConversation.copy(lastMessage = translated))
-                    }
-                }
-            }.onFailure { error ->
-                android.util.Log.e(
-                    TAG,
-                    "Private chat background translation failed for $partnerId",
-                    error
-                )
-            }
         }
     }
 
@@ -275,13 +262,26 @@ class ChatNotificationService : Service() {
                         val isKnownLocally = existingHistory.any { it.id == event.message.id }
 
                         if (!isKnownLocally) {
+                            val visibleText = chatTranslationService.translateIncoming(
+                                event.message.text,
+                                event.message.id
+                            ).getOrElse { error ->
+                                android.util.Log.e(
+                                    TAG,
+                                    "Private chat background translation failed for $partnerId",
+                                    error
+                                )
+                                event.message.text
+                            }
+
                             historyStore.save(
                                 historyKey,
-                                (existingHistory + event.message).takeLast(MAX_HISTORY_MESSAGES)
+                                (existingHistory + event.message.copy(text = visibleText))
+                                    .takeLast(MAX_HISTORY_MESSAGES)
                             )
                             updateConversationPreview(
                                 partnerId,
-                                event.message.text,
+                                visibleText,
                                 event.message.createdAt
                             )
                         }
@@ -298,44 +298,13 @@ class ChatNotificationService : Service() {
                         if (isKnownLocally) return@collect
                         if (event.message.createdAt <= lastNotifiedAt) return@collect
 
-                        if (postMessageNotification(partnerId, event.message.id, event.message.text)) {
+                        val storedMessage = historyStore.load(historyKey)
+                            .firstOrNull { it.id == event.message.id }
+                        val notificationText = storedMessage?.text ?: event.message.text
+
+                        if (postMessageNotification(partnerId, event.message.id, notificationText)) {
                             lastNotifiedAt = maxOf(lastNotifiedAt, event.message.createdAt)
                             prefs.edit().putLong(lastNotifiedKey, lastNotifiedAt).apply()
-                        }
-
-                        serviceScope.launch {
-                            chatTranslationService.translateIncoming(
-                                event.message.text,
-                                event.message.id
-                            ).onSuccess { translated ->
-                                if (translated == event.message.text) return@onSuccess
-                                val latestHistory = historyStore.load(historyKey)
-                                if (latestHistory.any { it.id == event.message.id }) {
-                                    historyStore.save(
-                                        historyKey,
-                                        latestHistory.map { message ->
-                                            if (message.id == event.message.id) {
-                                                message.copy(text = translated)
-                                            } else {
-                                                message
-                                            }
-                                        }
-                                    )
-                                    val latestConversation = conversationStore.load()
-                                        .firstOrNull { it.partnerId == partnerId }
-                                    if (latestConversation != null && latestConversation.lastMessage == event.message.text) {
-                                        conversationStore.upsert(
-                                            latestConversation.copy(lastMessage = translated)
-                                        )
-                                    }
-                                }
-                            }.onFailure { error ->
-                                android.util.Log.e(
-                                    TAG,
-                                    "Private chat background translation failed for $partnerId",
-                                    error
-                                )
-                            }
                         }
                     }
                     is ChatEvent.Delivered -> {
