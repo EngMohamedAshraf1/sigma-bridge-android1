@@ -4,9 +4,9 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.weight
+import androidx.compose.foundation.layout.align
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -48,9 +48,9 @@ class MainActivity : ComponentActivity() {
             }
 
             SigmaBridgeTheme(darkTheme = darkTheme) {
-                Column(modifier = Modifier.fillMaxSize()) {
+                Box(modifier = Modifier.fillMaxSize()) {
                     SigmaBridgeNavGraph(
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.fillMaxSize(),
                         openPrivateChat = intent?.getBooleanExtra(EXTRA_OPEN_PRIVATE_CHAT, false) == true,
                         darkTheme = darkTheme,
                         onToggleTheme = {
@@ -66,7 +66,8 @@ class MainActivity : ComponentActivity() {
                             installing = updateState.installing,
                             onUpdateClick = {
                                 UpdateManager.downloadAndInstall(context, update)
-                            }
+                            },
+                            modifier = Modifier.align(androidx.compose.ui.Alignment.BottomCenter)
                         )
                     }
                 }
