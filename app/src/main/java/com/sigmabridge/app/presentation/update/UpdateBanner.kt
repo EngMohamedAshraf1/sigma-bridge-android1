@@ -22,6 +22,7 @@ import com.sigmabridge.app.data.update.UpdateCheckResult
 fun UpdateBanner(
     update: UpdateCheckResult,
     downloading: Boolean,
+    installing: Boolean,
     onUpdateClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -46,9 +47,9 @@ fun UpdateBanner(
             )
             Button(
                 onClick = onUpdateClick,
-                enabled = !downloading,
+                enabled = !downloading && !installing,
                 content = {
-                    if (downloading) {
+                    if (downloading || installing) {
                         CircularProgressIndicator(strokeWidth = 2.dp)
                     } else {
                         Text(stringResource(R.string.update_now))
