@@ -46,6 +46,10 @@
     <string name="settings_error_gemini_key_required">Требуется хотя бы один ключ Gemini API.</string>
     <string name="settings_error_gemini_key_invalid">Один из ключей Gemini API не выглядит действительным.</string>
 
+    <!-- Updates -->
+    <string name="update_available_banner">Доступно новое обновление: v%1$s</string>
+    <string name="update_now">Обновить сейчас</string>
+
     <!-- Private Chat -->
     <string name="chat_private_chat">Личный чат</string>
     <string name="chat_back">Назад</string>
