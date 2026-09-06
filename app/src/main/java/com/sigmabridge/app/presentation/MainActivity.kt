@@ -4,12 +4,22 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.weight
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import com.sigmabridge.app.BuildConfig
+import com.sigmabridge.app.data.update.UpdateManager
 import com.sigmabridge.app.presentation.navigation.SigmaBridgeNavGraph
 import com.sigmabridge.app.presentation.theme.SigmaBridgeTheme
+import com.sigmabridge.app.presentation.update.UpdateBanner
 import dagger.hilt.android.AndroidEntryPoint
 
 @AndroidEntryPoint
@@ -30,16 +40,36 @@ class MainActivity : ComponentActivity() {
                     }
                 )
             }
+            val updateState by UpdateManager.state.collectAsState()
+            val context = LocalContext.current
+
+            LaunchedEffect(Unit) {
+                UpdateManager.checkOnLaunch(BuildConfig.VERSION_NAME)
+            }
 
             SigmaBridgeTheme(darkTheme = darkTheme) {
-                SigmaBridgeNavGraph(
-                    openPrivateChat = intent?.getBooleanExtra(EXTRA_OPEN_PRIVATE_CHAT, false) == true,
-                    darkTheme = darkTheme,
-                    onToggleTheme = {
-                        darkTheme = !darkTheme
-                        preferences.edit().putBoolean(DARK_THEME_KEY, darkTheme).apply()
+                Column(modifier = Modifier.fillMaxSize()) {
+                    SigmaBridgeNavGraph(
+                        modifier = Modifier.weight(1f),
+                        openPrivateChat = intent?.getBooleanExtra(EXTRA_OPEN_PRIVATE_CHAT, false) == true,
+                        darkTheme = darkTheme,
+                        onToggleTheme = {
+                            darkTheme = !darkTheme
+                            preferences.edit().putBoolean(DARK_THEME_KEY, darkTheme).apply()
+                        }
+                    )
+
+                    updateState.update?.let { update ->
+                        UpdateBanner(
+                            update = update,
+                            downloading = updateState.downloading,
+                            installing = updateState.installing,
+                            onUpdateClick = {
+                                UpdateManager.downloadAndInstall(context, update)
+                            }
+                        )
                     }
-                )
+                }
             }
         }
     }
