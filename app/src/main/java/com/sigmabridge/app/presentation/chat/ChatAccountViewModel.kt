@@ -99,6 +99,11 @@ class ChatAccountViewModel @Inject constructor(
             "لم يصل رمز Google. حاول مرة أخرى."
         error.message?.contains("GOOGLE_NONCE_REQUIRED", true) == true ->
             "فشل التحقق الأمني لتسجيل Google. حاول مرة أخرى."
+        error.message?.contains("already linked", true) == true ||
+            error.message?.contains("already associated", true) == true ||
+            error.message?.contains("identity", true) == true &&
+            error.message?.contains("already", true) == true ->
+            "حساب Google هذا مرتبط بحساب Sigma Bridge آخر. لن يتم استبدال حسابك الحالي."
         else -> error.message ?: "تعذر تسجيل الدخول باستخدام Google."
     }
 }
