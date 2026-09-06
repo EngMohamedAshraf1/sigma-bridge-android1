@@ -37,10 +37,22 @@ class ChatAccountRepository @Inject constructor(
         auth.awaitInitialization()
         require(credentials.idToken.isNotBlank()) { "GOOGLE_ID_TOKEN_REQUIRED" }
         require(credentials.nonce.isNotBlank()) { "GOOGLE_NONCE_REQUIRED" }
-        auth.signInWith(IDToken) {
-            idToken = credentials.idToken
-            provider = Google
-            nonce = credentials.nonce
+
+        val currentUser = auth.currentUserOrNull()
+        if (currentUser != null && currentUser.email == null) {
+            // Preserve the existing anonymous Supabase user (and therefore its
+            // profile, chats, messages and receipts) by upgrading that user with
+            // the selected Google identity instead of signing into a new user.
+            auth.linkIdentityWithIdToken(
+                Google,
+                idToken = credentials.idToken
+            )
+        } else {
+            auth.signInWith(IDToken) {
+                idToken = credentials.idToken
+                provider = Google
+                nonce = credentials.nonce
+            }
         }
     }
 
