@@ -205,6 +205,10 @@ class ChatNotificationService : Service() {
                 }
         }
     }
+    private fun parseTimestamp(value: String): Long =
+        runCatching { java.time.Instant.parse(value).toEpochMilli() }
+            .getOrElse { System.currentTimeMillis() }
+
 
     private fun observeAllChatEvents() {
         serviceScope.launch {
