@@ -46,6 +46,10 @@
     <string name="settings_error_gemini_key_required">At least one Gemini API key is required.</string>
     <string name="settings_error_gemini_key_invalid">One of the Gemini API keys does not look valid.</string>
 
+    <!-- Updates -->
+    <string name="update_available_banner">New update available: v%1$s</string>
+    <string name="update_now">Update now</string>
+
     <!-- Private Chat -->
     <string name="chat_private_chat">Private Chat</string>
     <string name="chat_back">Back</string>
