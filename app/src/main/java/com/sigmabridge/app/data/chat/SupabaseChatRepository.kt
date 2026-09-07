@@ -30,6 +30,7 @@ class SupabaseChatRepository @Inject constructor(
 
     private var cachedDeviceId: String? = null
     private var cachedConversationId: String? = null
+    private var cachedConversationPartnerId: String? = null
     private val prepareMutex = Mutex()
 
     override suspend fun send(topic: String, message: ChatMessage): Result<Unit> = runCatching {
@@ -91,12 +92,6 @@ class SupabaseChatRepository @Inject constructor(
         ).decodeAs<SupabaseReceiptRow>()
     }
 
-    /**
-     * Background-only observer used by ChatNotificationService.
-     * It deliberately uses the same PostgREST polling path as the working
-     * foreground transport, avoiding a second Realtime consumer that can
-     * interfere with message visibility while keeping the foreground path intact.
-     */
     fun observeRealtimeEvents(partnerId: String): Flow<ChatEvent> {
         val normalizedPartnerId = partnerId.trim()
         if (normalizedPartnerId.isBlank()) return emptyFlow()
@@ -228,7 +223,7 @@ class SupabaseChatRepository @Inject constructor(
                                     type = ChatReceiptType.DELIVERED
                                 )
                             )
-                        )
+                        }
                     }
                 }
             }
@@ -258,14 +253,19 @@ class SupabaseChatRepository @Inject constructor(
     private suspend fun prepareConversation(): String = prepareMutex.withLock {
         val userId = sessionManager.ensureAnonymousSession().getOrThrow()
         if (cachedDeviceId == null) cachedDeviceId = registerDeviceWithRecovery()
-        if (cachedConversationId == null) {
+
+        val partner = identity.partnerId
+        if (partner.isBlank()) error("Supabase partner is not initialized.")
+
+        if (cachedConversationId == null || cachedConversationPartnerId != partner) {
             cachedConversationId = supabase.postgrest.rpc(
                 "sigma_ensure_conversation",
                 EnsureConversationRpcParams(
-                    partnerPublicId = identity.partnerId,
+                    partnerPublicId = partner,
                     conversationKey = identity.conversationKeyHex()
                 )
             ).decodeAs<String>()
+            cachedConversationPartnerId = partner
         }
         userId
     }
