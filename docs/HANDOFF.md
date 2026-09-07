@@ -10,8 +10,8 @@ At this documentation point:
 
 ```text
 Repository: EngMohamedAshraf1/sigma-bridge-android1
-Private Chat baseline branch: private-chat-6bb07de-fix
-Baseline commit before documentation: b2eea8d0d4fdb94827ee72476b01d08d1e954a88
+Private Chat development branch: private-chat-6bb07de-fix
+Latest documented commit: 508b1e56882b20ebf28cfd35b7cb17c7a56d2c99
 Application version in source: 0.8.6
 versionCode: 6
 ```
@@ -42,6 +42,12 @@ B) Telegram Bridge
 ```
 
 The current maintenance scope discussed in the project is Private Chat. Do not touch Telegram unless the task explicitly says to.
+
+## Read the project history
+
+`docs/PROJECT_HISTORY.md` preserves the development path reconstructed from an earlier project conversation: the original Private Chat/ntfy prototype, the move toward Supabase, the identity and conversation model, encryption, receipt and multi-conversation problems, translation decoupling, Telegram Gemini voice/key-rotation lessons, rejected approaches, and historical testing failures.
+
+Treat it as historical context. Current source code, current tests, current Git history, and live Supabase evidence take precedence when they disagree with the old conversation.
 
 ## Current architecture in one minute
 
@@ -156,12 +162,14 @@ The update system currently depends on GitHub Releases and Android's package ins
 ```text
 1. README.md
 2. docs/ARCHITECTURE.md
-3. docs/PRIVATE_CHAT.md
-4. docs/SUPABASE.md
-5. docs/TRANSLATION.md
-6. docs/UPDATE_SYSTEM.md
-7. docs/DEVELOPMENT.md
-8. docs/TROUBLESHOOTING.md
+3. docs/PROJECT_HISTORY.md
+4. docs/PRIVATE_CHAT.md
+5. docs/SUPABASE.md
+6. docs/TRANSLATION.md
+7. docs/UPDATE_SYSTEM.md
+8. docs/DEVELOPMENT.md
+9. docs/TROUBLESHOOTING.md
+10. docs/TELEGRAM_BOUNDARY.md
 ```
 
 Then inspect the exact files related to the task.
@@ -189,7 +197,7 @@ Before committing:
 
 A new AI conversation can be started with the repository plus this instruction:
 
-> Work on Sigma Bridge using the repository's current Private Chat documentation as the source of truth. Read README.md, docs/ARCHITECTURE.md, docs/PRIVATE_CHAT.md, docs/SUPABASE.md, docs/TRANSLATION.md, docs/UPDATE_SYSTEM.md, docs/DEVELOPMENT.md, and docs/TROUBLESHOOTING.md before proposing changes. Current scope is Private Chat only; do not modify Telegram. Do not delete or alter real Supabase user/message/conversation data unless explicitly instructed. Diagnose from actual code and database evidence rather than guessing. Preserve original message text, conversation isolation, and independent receipt/translation behavior.
+> Work on Sigma Bridge using the repository's current Private Chat documentation as the source of truth. Read README.md, docs/ARCHITECTURE.md, docs/PROJECT_HISTORY.md, docs/PRIVATE_CHAT.md, docs/SUPABASE.md, docs/TRANSLATION.md, docs/UPDATE_SYSTEM.md, docs/DEVELOPMENT.md, and docs/TROUBLESHOOTING.md before proposing changes. Current scope is Private Chat only; do not modify Telegram. Do not delete or alter real Supabase user/message/conversation data unless explicitly instructed. Diagnose from actual code and database evidence rather than guessing. Preserve original message text, conversation isolation, and independent receipt/translation behavior.
 
 That instruction is intentionally explicit because repository state and old chat history can disagree.
 
