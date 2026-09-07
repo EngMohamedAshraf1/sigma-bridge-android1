@@ -67,14 +67,14 @@ class SupabaseChatRepository @Inject constructor(
         read: Boolean
     ): Result<Unit> = runCatching {
         val clientMessageId = UUID.fromString(messageId).toString()
-        prepareConversation()
-        val conversationId = cachedConversationId
-            ?: error("Supabase conversation is not initialized.")
+
+        // A receipt belongs to the message itself. Do not resolve it through the
+        // currently selected partner/conversation, because that can be stale when
+        // multiple Private Chat conversations are opened in one process.
         val serverMessageId = supabase.postgrest
             .from("messages")
             .select {
                 filter {
-                    eq("conversation_id", conversationId)
                     eq("client_message_id", clientMessageId)
                 }
             }
