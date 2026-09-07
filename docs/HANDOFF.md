@@ -1,0 +1,198 @@
+# Sigma Bridge Handoff Guide
+
+This file is written for a developer, reviewer, or a new AI conversation taking ownership of Sigma Bridge without access to the previous private chat history.
+
+## First rule
+
+Do not assume that the current GitHub default branch represents the current Private Chat development state. The repository's default branch is `master`, while the documented Private Chat work is on a dedicated fix branch.
+
+At this documentation point:
+
+```text
+Repository: EngMohamedAshraf1/sigma-bridge-android1
+Private Chat baseline branch: private-chat-6bb07de-fix
+Baseline commit before documentation: b2eea8d0d4fdb94827ee72476b01d08d1e954a88
+Application version in source: 0.8.6
+versionCode: 6
+```
+
+The user has previously had local Git divergence problems. Prefer pulling a clean branch and validating the exact commit over attempting to merge uncertain local changes.
+
+## What Sigma Bridge is
+
+Sigma Bridge is an Android application containing two product areas:
+
+```text
+A) Private Chat
+   - Google login
+   - public Sigma identity
+   - 1-to-1 conversations
+   - encrypted messages
+   - Delivered / Read receipts
+   - local history and outbox
+   - unread state
+   - profiles and avatars
+   - presence / last seen
+   - automatic translation
+   - background notifications
+   - remote translation jobs
+
+B) Telegram Bridge
+   - legacy bot/translation subsystem
+```
+
+The current maintenance scope discussed in the project is Private Chat. Do not touch Telegram unless the task explicitly says to.
+
+## Current architecture in one minute
+
+```text
+Google
+  |
+  v
+Supabase Auth
+  |
+  v
+ChatAccountRepository
+  |
+  v
+ChatIdentity
+  |
+  +--> publicId
+  +--> devicePublicId
+  +--> deterministic conversation topic/key
+
+Private Chats UI
+  |
+  v
+ChatViewModel
+  |
+  +--> ChatHistoryStore
+  +--> ChatOutboxStore
+  +--> ChatUnreadStore
+  +--> ChatConversationStore
+  +--> ChatProfileRepository
+  +--> ChatRepository
+  +--> ChatTranslationService
+
+ChatRepository -> Supabase
+ChatProfileRepository -> Supabase Auth/PostgREST/Storage
+ChatTranslationService -> Private Chat Gemini and/or translation relay
+
+ChatNotificationService
+  |
+  +--> background inbox
+  +--> background messages
+  +--> pending-message retry
+  +--> Delivered receipts
+  +--> remote translation jobs
+  +--> notifications
+```
+
+## Core invariants
+
+### Message identity
+
+A locally generated UUID is the `client_message_id`. Supabase assigns its own server message UUID. They are not interchangeable.
+
+### Conversation identity
+
+A conversation is determined by the pair of participant public IDs. The client derives a deterministic key/topic; Supabase owns the authoritative `conversation_id`.
+
+### Device identity
+
+A user and a device are different concepts. Device registration returns an authoritative device UUID used by the message transport.
+
+### Translation identity
+
+Translation belongs to an existing message. Translation must never create a replacement message that loses the original.
+
+### Receipt identity
+
+A Delivered/Read receipt belongs to a server message and receiving user. The current baseline resolves the server message inside the active conversation using the local client message ID.
+
+## Current release behavior
+
+The intended Private Chat UX is:
+
+```text
+incoming message
+   |
+   +--> display original immediately
+   +--> send Read immediately
+   +--> translate asynchronously
+             |
+             +--> success: replace display text with translation
+             +--> failure: keep original
+```
+
+This was verified by device testing during the 0.8.6 work.
+
+## Known historical work
+
+The important Private Chat simplification commits are:
+
+```text
+6a17acb  independent translation state
+7af5676  read receipts decoupled from translation
+6bb07de  original shown immediately, translation asynchronous
+6624abf  receipt polling syntax correction
+b2eea8d  application version aligned to 0.8.6
+```
+
+A later experimental commit attempted to make receipt submission completely message-centric by removing the current conversation lookup. It is intentionally **not** part of the baseline described here.
+
+## Current known limitations
+
+The current repository is not a finished feature-complete messenger. It is an MVP. Features such as photos in chat, reactions, reply-to-message, and copy/share behavior are future UI/product work unless already implemented elsewhere.
+
+The encryption design should not be described as Signal-style E2E with ratcheting or forward secrecy. It is an AES-GCM scheme based on the current identity-derived conversation key.
+
+The Supabase SQL under `docs/supabase/` is a reference snapshot. Before production database changes, inspect the live database.
+
+The update system currently depends on GitHub Releases and Android's package installer rather than a Play Store deployment channel.
+
+## What to inspect first when taking a new task
+
+```text
+1. README.md
+2. docs/ARCHITECTURE.md
+3. docs/PRIVATE_CHAT.md
+4. docs/SUPABASE.md
+5. docs/TRANSLATION.md
+6. docs/UPDATE_SYSTEM.md
+7. docs/DEVELOPMENT.md
+8. docs/TROUBLESHOOTING.md
+```
+
+Then inspect the exact files related to the task.
+
+## Safe change checklist
+
+Before coding:
+
+- identify the exact branch and commit;
+- identify whether the task is Private Chat or Telegram;
+- identify the authoritative identifier involved;
+- check whether background services also touch the same data;
+- check whether asynchronous work can complete after navigation;
+- check whether a failed network/translation request must preserve local data.
+
+Before committing:
+
+- build the app;
+- run the relevant functional test;
+- check `git diff`;
+- check `git status`;
+- update documentation when the architecture or behavior changes.
+
+## What a new AI conversation should be given
+
+A new AI conversation can be started with the repository plus this instruction:
+
+> Work on Sigma Bridge using the repository's current Private Chat documentation as the source of truth. Read README.md, docs/ARCHITECTURE.md, docs/PRIVATE_CHAT.md, docs/SUPABASE.md, docs/TRANSLATION.md, docs/UPDATE_SYSTEM.md, docs/DEVELOPMENT.md, and docs/TROUBLESHOOTING.md before proposing changes. Current scope is Private Chat only; do not modify Telegram. Do not delete or alter real Supabase user/message/conversation data unless explicitly instructed. Diagnose from actual code and database evidence rather than guessing. Preserve original message text, conversation isolation, and independent receipt/translation behavior.
+
+That instruction is intentionally explicit because repository state and old chat history can disagree.
+
+## Do not rely on memory
+
+The repository documentation is the persistent handoff layer. When a new implementation changes an important architectural rule, update the relevant documentation in the same development cycle.
