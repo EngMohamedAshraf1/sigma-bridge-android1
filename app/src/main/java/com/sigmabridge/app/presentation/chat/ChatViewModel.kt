@@ -158,6 +158,11 @@ class ChatViewModel @Inject constructor(
                         is ChatEvent.Message -> {
                             if (_messages.value.any { it.id == event.message.id }) return@collect
 
+                            // Read is a chat transport concern, not a translation concern.
+                            // Send it immediately when the incoming message is delivered to the
+                            // foreground chat so a slow/remote translation worker cannot delay it.
+                            sendReadReceiptForMessage(topic, historyKey, event.message.id)
+
                             val translated = chatTranslationService.translateIncoming(
                                 event.message.text,
                                 event.message.id
@@ -170,7 +175,6 @@ class ChatViewModel @Inject constructor(
                             _messages.value = updated
                             historyStore.save(historyKey, updated)
                             updateConversationPreview(partner, visible.text, visible.createdAt)
-                            sendReadReceiptForMessage(topic, historyKey, event.message.id)
                         }
                         is ChatEvent.Delivered -> updateReceiptStatus(
                             historyKey,
