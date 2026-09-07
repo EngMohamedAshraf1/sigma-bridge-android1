@@ -158,20 +158,35 @@ class SupabaseChatRepository @Inject constructor(
             var lastSequence = 0L
 
             suspend fun fetchMessages(initial: Boolean) {
-                val rows = supabase.postgrest.from("messages").select {
-                    filter {
-                        eq("conversation_id", conversationId)
-                        if (!initial) gt("sequence_number", lastSequence)
+                val rows = supabase.postgrest
+                    .from("messages")
+                    .select {
+                        filter {
+                            eq("conversation_id", conversationId)
+                            if (!initial) gt("sequence_number", lastSequence)
+                        }
                     }
-                }.decodeList<SupabaseMessageRow>().sortedBy { it.sequenceNumber }
+                    .decodeList<SupabaseMessageRow>()
+                    .sortedBy { it.sequenceNumber }
 
                 rows.forEach { row ->
                     if (!isActive || row.conversationId != conversationId) return@forEach
                     lastSequence = maxOf(lastSequence, row.sequenceNumber)
                     if (!knownMessageIds.add(row.id)) return@forEach
-                    val text = runCatching { crypto.decrypt(row.ciphertext) }.getOrNull() ?: return@forEach
-                    val senderId = if (row.senderUserId == preparedUserId) identity.myId else identity.partnerId
-                    val status = if (row.senderUserId == preparedUserId) MessageDeliveryStatus.SENT else MessageDeliveryStatus.DELIVERED
+
+                    val text = runCatching { crypto.decrypt(row.ciphertext) }.getOrNull()
+                        ?: return@forEach
+                    val senderId = if (row.senderUserId == preparedUserId) {
+                        identity.myId
+                    } else {
+                        identity.partnerId
+                    }
+                    val status = if (row.senderUserId == preparedUserId) {
+                        MessageDeliveryStatus.SENT
+                    } else {
+                        MessageDeliveryStatus.DELIVERED
+                    }
+
                     send(
                         ChatEvent.Message(
                             ChatMessage(
@@ -194,6 +209,7 @@ class SupabaseChatRepository @Inject constructor(
 
                 rows.forEach { row ->
                     if (!isActive || row.userId == preparedUserId) return@forEach
+
                     val serverMessage = supabase.postgrest
                         .from("messages")
                         .select {
@@ -204,9 +220,11 @@ class SupabaseChatRepository @Inject constructor(
                         }
                         .decodeSingleOrNull<SupabaseMessageRow>()
                         ?: return@forEach
+
                     val clientMessageId = serverMessage.clientMessageId
-                    when {
-                        row.readAt != null -> send(
+
+                    if (row.readAt != null) {
+                        send(
                             ChatEvent.Read(
                                 ChatReceipt(
                                     messageId = clientMessageId,
@@ -215,7 +233,8 @@ class SupabaseChatRepository @Inject constructor(
                                 )
                             )
                         )
-                        row.deliveredAt != null -> send(
+                    } else if (row.deliveredAt != null) {
+                        send(
                             ChatEvent.Delivered(
                                 ChatReceipt(
                                     messageId = clientMessageId,
@@ -223,7 +242,7 @@ class SupabaseChatRepository @Inject constructor(
                                     type = ChatReceiptType.DELIVERED
                                 )
                             )
-                        }
+                        )
                     }
                 }
             }
