@@ -15,6 +15,7 @@ import com.sigmabridge.app.domain.chat.ChatMessage
 import com.sigmabridge.app.domain.chat.ChatReceipt
 import com.sigmabridge.app.domain.chat.ChatRepository
 import com.sigmabridge.app.domain.chat.ChatTranslationService
+import com.sigmabridge.app.domain.chat.ChatTranslationStatus
 import com.sigmabridge.app.domain.chat.MessageDeliveryStatus
 import com.sigmabridge.app.domain.model.Language
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -158,30 +159,92 @@ class ChatViewModel @Inject constructor(
                         is ChatEvent.Message -> {
                             if (_messages.value.any { it.id == event.message.id }) return@collect
 
-                            // Read is a chat transport concern, not a translation concern.
-                            // Send it immediately when the incoming message is delivered to the
-                            // foreground chat so a slow/remote translation worker cannot delay it.
-                            sendReadReceiptForMessage(topic, historyKey, event.message.id)
+                            // A message must become visible independently of translation.
+                            // The original is stored immediately so a slow/failed translator
+                            // can never prevent the chat message from appearing.
+                            val originalMessage = event.message.copy(
+                                text = event.message.text,
+                                originalText = event.message.text,
+                                translatedText = null,
+                                translationStatus = ChatTranslationStatus.PENDING
+                            )
 
-                            val translated = chatTranslationService.translateIncoming(
-                                event.message.text,
+                            _messages.value = _messages.value + originalMessage
+                            historyStore.save(historyKey, _messages.value)
+                            updateConversationPreview(
+                                partner,
+                                originalMessage.text,
+                                originalMessage.createdAt
+                            )
+
+                            // Read is independent from translation and is sent immediately.
+                            sendReadReceiptForMessage(
+                                topic,
+                                historyKey,
                                 event.message.id
                             )
-                            val visible = event.message.copy(text = translated.getOrElse { error ->
-                                _error.value = sanitizeChatError(error)
-                                event.message.text
-                            })
-                            val updated = _messages.value + visible
-                            _messages.value = updated
-                            historyStore.save(historyKey, updated)
-                            updateConversationPreview(partner, visible.text, visible.createdAt)
+
+                            viewModelScope.launch {
+                                val translated = chatTranslationService.translateIncoming(
+                                    originalMessage.originalText,
+                                    originalMessage.id
+                                )
+
+                                val translationResult = translated.fold(
+                                    onSuccess = { value ->
+                                        originalMessage.copy(
+                                            text = value,
+                                            translatedText = value,
+                                            translationStatus = ChatTranslationStatus.COMPLETED
+                                        )
+                                    },
+                                    onFailure = { error ->
+                                        _error.value = sanitizeChatError(error)
+                                        originalMessage.copy(
+                                            text = originalMessage.originalText,
+                                            translatedText = null,
+                                            translationStatus = ChatTranslationStatus.FAILED
+                                        )
+                                    }
+                                )
+
+                                val stored = historyStore.load(historyKey)
+                                val updatedHistory = stored.map { message ->
+                                    if (message.id == originalMessage.id) {
+                                        translationResult
+                                    } else {
+                                        message
+                                    }
+                                }
+                                historyStore.save(historyKey, updatedHistory)
+
+                                if (
+                                    currentHistoryKey == historyKey &&
+                                    _messages.value.any { it.id == originalMessage.id }
+                                ) {
+                                    _messages.value = _messages.value.map { message ->
+                                        if (message.id == originalMessage.id) {
+                                            translationResult
+                                        } else {
+                                            message
+                                        }
+                                    }
+                                    updateConversationPreview(
+                                        partner,
+                                        translationResult.text,
+                                        translationResult.createdAt
+                                    )
+                                }
+                            }
                         }
+
                         is ChatEvent.Delivered -> updateReceiptStatus(
                             historyKey,
                             event.receipt.messageId,
                             event.receipt.senderId,
                             MessageDeliveryStatus.DELIVERED
                         )
+
                         is ChatEvent.Read -> updateReceiptStatus(
                             historyKey,
                             event.receipt.messageId,
@@ -231,15 +294,24 @@ class ChatViewModel @Inject constructor(
             .filter { it.senderId == identity.partnerId }
             .map { it.id }
             .toList()
-        incomingIds.forEach { messageId -> sendReadReceiptForMessage(topic, historyKey, messageId) }
+        incomingIds.forEach { messageId ->
+            sendReadReceiptForMessage(topic, historyKey, messageId)
+        }
     }
 
-    private fun sendReadReceiptForMessage(topic: String, historyKey: String, messageId: String) {
+    private fun sendReadReceiptForMessage(
+        topic: String,
+        historyKey: String,
+        messageId: String
+    ) {
         if (!readReceiptSentIds.add(messageId)) return
         viewModelScope.launch {
             chatRepository.sendReadReceipt(
                 topic,
-                ChatReceipt(messageId = messageId, senderId = ownSenderId)
+                ChatReceipt(
+                    messageId = messageId,
+                    senderId = ownSenderId
+                )
             ).onSuccess {
                 unreadStore.remove(historyKey, messageId)
             }.onFailure {
@@ -248,8 +320,15 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    private fun updateConversationPreview(partnerId: String, lastMessage: String, lastMessageAt: Long) {
-        val current = conversationStore.load().firstOrNull { it.partnerId == partnerId }
+    private fun updateConversationPreview(
+        partnerId: String,
+        lastMessage: String,
+        lastMessageAt: Long
+    ) {
+        val current = conversationStore
+            .load()
+            .firstOrNull { it.partnerId == partnerId }
+
         conversationStore.upsert(
             ChatConversation(
                 partnerId = partnerId,
@@ -268,13 +347,28 @@ class ChatViewModel @Inject constructor(
         status: MessageDeliveryStatus
     ) {
         if (receiptSenderId != identity.partnerId) return
+
         val updated = _messages.value.map { message ->
-            if (message.id == messageId && message.senderId == ownSenderId && message.deliveryStatus.ordinal < status.ordinal) {
+            if (
+                message.id == messageId &&
+                message.senderId == ownSenderId &&
+                message.deliveryStatus.ordinal < status.ordinal
+            ) {
                 message.copy(deliveryStatus = status)
-            } else message
+            } else {
+                message
+            }
         }
-        if (updated != _messages.value) _messages.value = updated
-        historyStore.updateDeliveryStatus(historyKey, messageId, status)
+
+        if (updated != _messages.value) {
+            _messages.value = updated
+        }
+
+        historyStore.updateDeliveryStatus(
+            historyKey,
+            messageId,
+            status
+        )
     }
 
     fun disconnect() {
@@ -301,17 +395,30 @@ class ChatViewModel @Inject constructor(
             senderId = ownSenderId,
             text = clean,
             createdAt = System.currentTimeMillis(),
-            deliveryStatus = MessageDeliveryStatus.PENDING
+            deliveryStatus = MessageDeliveryStatus.PENDING,
+            originalText = clean,
+            translatedText = null,
+            translationStatus = ChatTranslationStatus.COMPLETED
         )
 
         val updatedWithPending = _messages.value + localMessage
         _messages.value = updatedWithPending
         historyStore.save(historyKey, updatedWithPending)
         outboxStore.add(historyKey, localMessage)
-        updateConversationPreview(identity.partnerId, clean, localMessage.createdAt)
+        updateConversationPreview(
+            identity.partnerId,
+            clean,
+            localMessage.createdAt
+        )
         _error.value = null
 
-        viewModelScope.launch { deliverPendingMessage(historyKey, topic, localMessage) }
+        viewModelScope.launch {
+            deliverPendingMessage(
+                historyKey,
+                topic,
+                localMessage
+            )
+        }
     }
 
     private suspend fun deliverPendingMessage(
@@ -322,11 +429,21 @@ class ChatViewModel @Inject constructor(
         chatRepository.send(topic, pendingMessage)
             .onSuccess {
                 outboxStore.remove(historyKey, pendingMessage.id)
-                val persisted = historyStore.markSent(historyKey, pendingMessage.id)
-                val persistedStatus = persisted.firstOrNull { it.id == pendingMessage.id }?.deliveryStatus
+                val persisted = historyStore.markSent(
+                    historyKey,
+                    pendingMessage.id
+                )
+                val persistedStatus = persisted
+                    .firstOrNull { it.id == pendingMessage.id }
+                    ?.deliveryStatus
                     ?: MessageDeliveryStatus.SENT
+
                 _messages.value = _messages.value.map {
-                    if (it.id == pendingMessage.id) it.copy(deliveryStatus = persistedStatus) else it
+                    if (it.id == pendingMessage.id) {
+                        it.copy(deliveryStatus = persistedStatus)
+                    } else {
+                        it
+                    }
                 }
             }
             .onFailure { error ->
@@ -337,24 +454,40 @@ class ChatViewModel @Inject constructor(
     private fun sanitizeChatError(error: Throwable): String {
         val raw = error.message.orEmpty()
         val normalized = raw.uppercase()
+
         return when {
             "PUBLIC_ID_ALREADY_IN_USE" in normalized ->
                 "تم اكتشاف تعارض في هوية الجهاز وتمت محاولة استعادتها. أعد فتح المحادثة."
+
             "PARTNER_NOT_FOUND" in normalized ->
                 "معرّف الطرف الآخر غير مسجل بعد على Sigma Bridge. افتح التطبيق على الجهاز الآخر وسجّل هويته أولًا."
+
             "AUTH_REQUIRED" in normalized ->
                 "جلسة Sigma Bridge غير صالحة. أعد تشغيل التطبيق وحاول مرة أخرى."
-            "INVALID_PUBLIC_ID" in normalized || "PUBLIC_ID_TOO_LONG" in normalized ->
+
+            "INVALID_PUBLIC_ID" in normalized ||
+                "PUBLIC_ID_TOO_LONG" in normalized ->
                 "تعذر تسجيل هوية Sigma Bridge لهذا الجهاز."
-            "TRANSLATION_FAILED" in normalized || "REMOTE_TRANSLATION_FAILED" in normalized || "TRANSLATION" in normalized ->
+
+            "TRANSLATION_FAILED" in normalized ||
+                "REMOTE_TRANSLATION_FAILED" in normalized ||
+                "TRANSLATION" in normalized ->
                 "تعذر الحصول على الترجمة حاليًا. ستظل الرسالة الأصلية متاحة."
-            "SUPABASE" in normalized || "HTTP 400" in normalized || "STATUS_CODE=400" in normalized ->
+
+            "SUPABASE" in normalized ||
+                "HTTP 400" in normalized ||
+                "STATUS_CODE=400" in normalized ->
                 "تعذر إنشاء المحادثة مع الخادم. تحقق من اتصال الإنترنت وحاول مرة أخرى."
-            raw.contains("Authorization", ignoreCase = true) || raw.contains("Bearer", ignoreCase = true) ->
+
+            raw.contains("Authorization", ignoreCase = true) ||
+                raw.contains("Bearer", ignoreCase = true) ->
                 "حدث خطأ في الاتصال بالخادم."
+
             raw.length > 220 ->
                 "حدث خطأ أثناء الاتصال بالمحادثة. حاول مرة أخرى."
-            else -> raw.ifBlank { "حدث خطأ أثناء الاتصال بالمحادثة." }
+
+            else ->
+                raw.ifBlank { "حدث خطأ أثناء الاتصال بالمحادثة." }
         }
     }
 
