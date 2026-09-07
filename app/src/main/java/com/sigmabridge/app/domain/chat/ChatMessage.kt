@@ -9,6 +9,12 @@ enum class MessageDeliveryStatus {
     READ
 }
 
+enum class ChatTranslationStatus {
+    PENDING,
+    COMPLETED,
+    FAILED
+}
+
 enum class ChatReceiptType {
     DELIVERED,
     READ
@@ -20,7 +26,10 @@ data class ChatMessage(
     val senderId: String,
     val text: String,
     val createdAt: Long,
-    val deliveryStatus: MessageDeliveryStatus = MessageDeliveryStatus.SENT
+    val deliveryStatus: MessageDeliveryStatus = MessageDeliveryStatus.SENT,
+    val originalText: String = text,
+    val translatedText: String? = null,
+    val translationStatus: ChatTranslationStatus = ChatTranslationStatus.COMPLETED
 )
 
 @Serializable
