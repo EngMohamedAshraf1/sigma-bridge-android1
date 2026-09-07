@@ -194,6 +194,7 @@ class SupabaseChatRepository @Inject constructor(
 
                 rows.forEach { row ->
                     if (!isActive || row.userId == preparedUserId) return@forEach
+
                     val serverMessage = supabase.postgrest
                         .from("messages")
                         .select {
@@ -204,9 +205,11 @@ class SupabaseChatRepository @Inject constructor(
                         }
                         .decodeSingleOrNull<SupabaseMessageRow>()
                         ?: return@forEach
+
                     val clientMessageId = serverMessage.clientMessageId
-                    when {
-                        row.readAt != null -> send(
+
+                    if (row.readAt != null) {
+                        send(
                             ChatEvent.Read(
                                 ChatReceipt(
                                     messageId = clientMessageId,
@@ -215,7 +218,8 @@ class SupabaseChatRepository @Inject constructor(
                                 )
                             )
                         )
-                        row.deliveredAt != null -> send(
+                    } else if (row.deliveredAt != null) {
+                        send(
                             ChatEvent.Delivered(
                                 ChatReceipt(
                                     messageId = clientMessageId,
@@ -223,7 +227,7 @@ class SupabaseChatRepository @Inject constructor(
                                     type = ChatReceiptType.DELIVERED
                                 )
                             )
-                        }
+                        )
                     }
                 }
             }
