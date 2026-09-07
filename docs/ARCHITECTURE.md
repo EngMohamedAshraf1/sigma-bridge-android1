@@ -9,6 +9,8 @@ Sigma Bridge is a native Android application containing two distinct product are
 
 The current documentation is written against the `private-chat-6bb07de-fix` development branch and the `v0.8.6` workstream. The repository's historical README was written for an earlier Phase 7 state and should not be treated as the authoritative description of the current Private Chat implementation.
 
+For the historical evolution that led to the present architecture, see `docs/PROJECT_HISTORY.md`. That document is historical context, not a replacement for current source code or current database evidence.
+
 ## Non-negotiable engineering rules
 
 - Do not modify Telegram code while fixing or simplifying Private Chat.
@@ -17,6 +19,28 @@ The current documentation is written against the `private-chat-6bb07de-fix` deve
 - Keep message transport, translation, receipts, and notifications as separate responsibilities.
 - Preserve the original incoming message even when translation is delayed or fails.
 - Treat the repository branch/commit selected for testing as the source of truth; do not mix files from stale local branches.
+
+## Architecture evolution
+
+The major historical transition was from a lightweight notification prototype to a database-backed Private Chat.
+
+```text
+EARLY PRIVATE CHAT
+Android → ntfy → partner device
+
+                 ↓ reliability problems
+                 │ HTTP 429 / connectivity issues
+                 ↓
+
+SUPABASE PHASE
+Android → Supabase Auth / Postgres / RPC / Realtime
+```
+
+The old ntfy architecture was useful for proving the concept, but the project intentionally stopped treating ntfy as the long-term reliability solution. The Supabase phase introduced explicit server-side conversation/message/receipt concepts while keeping Telegram separate.
+
+The identity/conversation model also became more explicit over time: persistent public IDs, separate device IDs, deterministic conversation keys/topics, encrypted payloads, local history/outbox/unread stores, and finally independent translation state.
+
+For the full historical timeline and the rejected alternatives, see `docs/PROJECT_HISTORY.md`.
 
 ## High-level system
 
@@ -264,6 +288,14 @@ Compose UI
 ```
 
 Storage classes such as history/outbox/unread stores are local persistence helpers and should remain independent from UI widgets.
+
+## Historical debugging lessons
+
+The most important recurring failure class has been **implicit dependence on the currently selected conversation**. A delayed translation, receipt, inbox item, or background event must carry enough explicit context to update the correct conversation rather than whichever chat is open when the asynchronous operation completes.
+
+Another recurring lesson came from the Telegram Gemini path: HTTP status and network transport failures must be classified separately. A transient network error is not evidence that an API key is invalid or out of quota.
+
+The full historical record, including the old ntfy phase, key-rotation bug, rejected relay designs, and testing failures, is preserved in `docs/PROJECT_HISTORY.md`.
 
 ## Current baseline for v0.8.6 work
 
