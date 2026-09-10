@@ -28,22 +28,22 @@ android {
         buildConfigField(
             "String",
             "SUPABASE_URL",
-            "\"${localProperties.getProperty("SUPABASE_URL", "https://qcxorfsbwxprfhmsyzqu.supabase.co")}\"
+            "\"${localProperties.getProperty("SUPABASE_URL", "https://qcxorfsbwxprfhmsyzqu.supabase.co")}\""
         )
         buildConfigField(
             "String",
             "SUPABASE_PUBLISHABLE_KEY",
-            "\"${localProperties.getProperty("SUPABASE_PUBLISHABLE_KEY", "")}\"
+            "\"${localProperties.getProperty("SUPABASE_PUBLISHABLE_KEY", "")}\""
         )
         buildConfigField(
             "String",
             "SIGMA_CHAT_BACKEND",
-            "\"${localProperties.getProperty("SIGMA_CHAT_BACKEND", "supabase")}\"
+            "\"${localProperties.getProperty("SIGMA_CHAT_BACKEND", "supabase")}\""
         )
         buildConfigField(
             "String",
             "GOOGLE_WEB_CLIENT_ID",
-            "\"${localProperties.getProperty("GOOGLE_WEB_CLIENT_ID", "")}\"
+            "\"${localProperties.getProperty("GOOGLE_WEB_CLIENT_ID", "")}\""
         )
     }
 
