@@ -18,7 +18,7 @@ class ChatInboxRepository @Inject constructor(
 ) {
     suspend fun fetchUndeliveredMessages(): Result<List<SupabaseUndeliveredMessageRow>> =
         runCatching {
-            sessionManager.ensureAnonymousSession().getOrThrow()
+            sessionManager.ensureAuthenticatedSession().getOrThrow()
             supabase.postgrest.rpc("sigma_get_undelivered_messages")
                 .decodeList<SupabaseUndeliveredMessageRow>()
         }
