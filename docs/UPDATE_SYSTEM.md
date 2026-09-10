@@ -47,6 +47,21 @@ remoteVersion > installedVersion
 
 Therefore the release tag and the embedded application version must be kept synchronized.
 
+## Current stable release: v0.8.7
+
+The current Private Chat stable release is:
+
+```text
+Release:  Sigma Bridge v0.8.7 — Private Chat Stable
+Tag:      v0.8.7-private-chat-stable
+Commit:   37054fa02f8a91d2f4e582b87756479013e73bb8
+Version:  versionName 0.8.7 / versionCode 7
+APK:      sigma-bridge.apk
+SHA-256:  5f671b7d99957cbfc411c72ee558cfdd0c0a22d3067d0719f8cf067864b004b0
+```
+
+The release is published on GitHub and is marked as the latest stable release. Its scope is Private Chat only; Telegram functionality was not changed.
+
 ## Important v0.8.6 incident
 
 The first `v0.8.6` GitHub Release was created while the APK project metadata still declared:
@@ -81,6 +96,8 @@ For a new release:
 5. Attach the matching APK to the release.
 6. Install the APK and verify that no same-version update banner appears.
 ```
+
+For v0.8.7, this process produced `versionCode 7` / `versionName 0.8.7`, and the release asset was attached to `v0.8.7-private-chat-stable`.
 
 ## UI
 
