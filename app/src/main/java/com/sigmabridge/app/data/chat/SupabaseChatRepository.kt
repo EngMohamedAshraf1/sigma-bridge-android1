@@ -55,11 +55,46 @@ class SupabaseChatRepository @Inject constructor(
         ).decodeAs<SupabaseMessageRow>()
     }
 
+    /** Background send for an arbitrary stored conversation without changing identity.partnerId. */
+    suspend fun sendToPartner(partnerId: String, message: ChatMessage): Result<Unit> = runCatching {
+        val normalizedPartnerId = partnerId.trim()
+        require(normalizedPartnerId.isNotBlank()) { "Supabase partner is not initialized." }
+        val userId = prepareConversationForPartner(normalizedPartnerId)
+        require(userId == sessionManager.currentUserId()) {
+            "Supabase session changed unexpectedly."
+        }
+        val encrypted = crypto.encrypt(message.text)
+        supabase.postgrest.rpc(
+            "sigma_send_message",
+            SendMessageRpcParams(
+                conversationKey = identity.conversationKeyFor(normalizedPartnerId)
+                    .joinToString("") { "%02x".format(it) },
+                clientMessageId = UUID.fromString(message.id).toString(),
+                senderDeviceId = cachedDeviceId ?: error("Supabase device is not registered."),
+                ciphertext = encrypted,
+                nonce = crypto.nonceFromEncrypted(encrypted),
+                messageVersion = 1
+            )
+        ).decodeAs<SupabaseMessageRow>()
+    }
+
     override suspend fun sendDeliveredReceipt(topic: String, receipt: ChatReceipt): Result<Unit> =
         setReceipt(receipt.messageId, delivered = true, read = false)
 
     override suspend fun sendReadReceipt(topic: String, receipt: ChatReceipt): Result<Unit> =
         setReceipt(receipt.messageId, delivered = true, read = true)
+
+    /** Background Delivered receipt for an arbitrary conversation without changing identity.partnerId. */
+    suspend fun sendDeliveredReceiptForPartner(
+        partnerId: String,
+        receipt: ChatReceipt
+    ): Result<Unit> = setReceiptForPartner(partnerId, receipt.messageId, delivered = true, read = false)
+
+    /** Background Read receipt for an arbitrary conversation without changing identity.partnerId. */
+    suspend fun sendReadReceiptForPartner(
+        partnerId: String,
+        receipt: ChatReceipt
+    ): Result<Unit> = setReceiptForPartner(partnerId, receipt.messageId, delivered = true, read = true)
 
     private suspend fun setReceipt(
         messageId: String,
@@ -70,6 +105,39 @@ class SupabaseChatRepository @Inject constructor(
         prepareConversation()
         val conversationId = cachedConversationId
             ?: error("Supabase conversation is not initialized.")
+        val serverMessageId = supabase.postgrest
+            .from("messages")
+            .select {
+                filter {
+                    eq("conversation_id", conversationId)
+                    eq("client_message_id", clientMessageId)
+                }
+            }
+            .decodeSingleOrNull<SupabaseMessageRow>()
+            ?.id
+            ?: error("Supabase message was not found for receipt.")
+
+        supabase.postgrest.rpc(
+            "sigma_set_receipt",
+            SetReceiptRpcParams(
+                messageId = UUID.fromString(serverMessageId).toString(),
+                delivered = delivered,
+                read = read
+            )
+        ).decodeAs<SupabaseReceiptRow>()
+    }
+
+    private suspend fun setReceiptForPartner(
+        partnerId: String,
+        messageId: String,
+        delivered: Boolean,
+        read: Boolean
+    ): Result<Unit> = runCatching {
+        val normalizedPartnerId = partnerId.trim()
+        require(normalizedPartnerId.isNotBlank()) { "Supabase partner is not initialized." }
+        val clientMessageId = UUID.fromString(messageId).toString()
+        val conversationId = prepareConversationForPartner(normalizedPartnerId)
+
         val serverMessageId = supabase.postgrest
             .from("messages")
             .select {
@@ -254,6 +322,13 @@ class SupabaseChatRepository @Inject constructor(
                     .joinToString("") { "%02x".format(it) }
             )
         ).decodeAs<String>()
+
+    /** Prepares device auth for an arbitrary partner without changing the active conversation cache. */
+    private suspend fun prepareConversationForPartner(partnerId: String): String = prepareMutex.withLock {
+        sessionManager.ensureAuthenticatedSession().getOrThrow()
+        if (cachedDeviceId == null) cachedDeviceId = registerDeviceWithRecovery()
+        ensureConversationForPartner(partnerId)
+    }
 
     private suspend fun prepareConversation(): String = prepareMutex.withLock {
         val userId = sessionManager.ensureAuthenticatedSession().getOrThrow()
