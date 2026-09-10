@@ -98,7 +98,8 @@ class ChatProfileRepository @Inject constructor(
 
     /** Register this installation/device independently of searching for someone. */
     suspend fun ensureIdentityRegistered() {
-        sessionManager.ensureAnonymousSession().getOrThrow()
+        sessionManager.ensureAuthenticatedSession()
+            .getOrThrow()
 
         for (attempt in 0 until 2) {
             try {
