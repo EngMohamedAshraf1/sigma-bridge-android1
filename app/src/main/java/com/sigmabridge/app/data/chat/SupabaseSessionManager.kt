@@ -10,9 +10,8 @@ import javax.inject.Singleton
 /**
  * Provides the already-authenticated Supabase session for Private Chat.
  *
- * Anonymous accounts are no longer created by the chat. Authentication happens
- * once through the simple passwordless email flow, and every chat operation uses
- * that persistent Supabase Auth user.
+ * Private Chat uses the persistent Supabase Auth user. The chat transport does not
+ * create or depend on anonymous auth sessions.
  */
 @Singleton
 class SupabaseSessionManager @Inject constructor(
@@ -30,9 +29,6 @@ class SupabaseSessionManager @Inject constructor(
                 ?: error("AUTH_REQUIRED")
         }
     }
-
-    /** Temporary compatibility name for the existing chat transport. */
-    suspend fun ensureAnonymousSession(): Result<String> = ensureAuthenticatedSession()
 
     fun currentUserId(): String? = auth.currentUserOrNull()?.id
 }
