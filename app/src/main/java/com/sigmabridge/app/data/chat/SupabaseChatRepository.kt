@@ -92,58 +92,6 @@ class SupabaseChatRepository @Inject constructor(
         ).decodeAs<SupabaseReceiptRow>()
     }
 
-    fun observeRealtimeEvents(partnerId: String): Flow<ChatEvent> {
-        val normalizedPartnerId = partnerId.trim()
-        if (normalizedPartnerId.isBlank()) return emptyFlow()
-
-        return channelFlow {
-            val userId = sessionManager.ensureAnonymousSession().getOrThrow()
-            val conversationId = ensureConversationForPartner(normalizedPartnerId)
-            val knownMessageIds = mutableSetOf<String>()
-            var lastSequence = 0L
-
-            suspend fun fetchMessages(initial: Boolean) {
-                val rows = supabase.postgrest
-                    .from("messages")
-                    .select {
-                        filter {
-                            eq("conversation_id", conversationId)
-                            if (!initial) gt("sequence_number", lastSequence)
-                        }
-                    }
-                    .decodeList<SupabaseMessageRow>()
-                    .sortedBy { it.sequenceNumber }
-
-                rows.forEach { row ->
-                    if (!isActive || row.conversationId != conversationId) return@forEach
-                    lastSequence = maxOf(lastSequence, row.sequenceNumber)
-                    if (!knownMessageIds.add(row.id)) return@forEach
-                    if (row.senderUserId == userId) return@forEach
-
-                    val text = runCatching { crypto.decrypt(row.ciphertext) }.getOrNull()
-                        ?: return@forEach
-                    send(
-                        ChatEvent.Message(
-                            ChatMessage(
-                                id = row.clientMessageId,
-                                senderId = normalizedPartnerId,
-                                text = text,
-                                createdAt = parseTimestamp(row.createdAt),
-                                deliveryStatus = MessageDeliveryStatus.DELIVERED
-                            )
-                        )
-                    )
-                }
-            }
-
-            fetchMessages(initial = true)
-            while (isActive) {
-                delay(BACKGROUND_POLL_INTERVAL_MS)
-                runCatching { fetchMessages(initial = false) }
-            }
-        }
-    }
-
     override fun observeEvents(topics: List<String>, ownSenderId: String): Flow<ChatEvent> {
         val normalized = topics.map(String::trim).filter(String::isNotBlank).distinct()
         if (normalized.isEmpty()) return emptyFlow()
@@ -255,7 +203,7 @@ class SupabaseChatRepository @Inject constructor(
         ).decodeAs<String>()
 
     private suspend fun prepareConversation(): String = prepareMutex.withLock {
-        val userId = sessionManager.ensureAnonymousSession().getOrThrow()
+        val userId = sessionManager.ensureAuthenticatedSession().getOrThrow()
         if (cachedDeviceId == null) cachedDeviceId = registerDeviceWithRecovery()
 
         val partner = identity.partnerId
@@ -306,6 +254,5 @@ class SupabaseChatRepository @Inject constructor(
 
     private companion object {
         const val POLL_INTERVAL_MS = 1_000L
-        const val BACKGROUND_POLL_INTERVAL_MS = 2_000L
     }
 }
