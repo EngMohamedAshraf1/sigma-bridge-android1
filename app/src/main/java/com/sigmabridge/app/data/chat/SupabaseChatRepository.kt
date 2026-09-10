@@ -59,7 +59,8 @@ class SupabaseChatRepository @Inject constructor(
     suspend fun sendToPartner(partnerId: String, message: ChatMessage): Result<Unit> = runCatching {
         val normalizedPartnerId = partnerId.trim()
         require(normalizedPartnerId.isNotBlank()) { "Supabase partner is not initialized." }
-        val userId = prepareConversationForPartner(normalizedPartnerId)
+        val userId = sessionManager.ensureAuthenticatedSession().getOrThrow()
+        prepareConversationForPartner(normalizedPartnerId)
         require(userId == sessionManager.currentUserId()) {
             "Supabase session changed unexpectedly."
         }
