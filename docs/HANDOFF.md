@@ -11,9 +11,16 @@ At this documentation point:
 ```text
 Repository: EngMohamedAshraf1/sigma-bridge-android1
 Private Chat development branch: private-chat-6bb07de-fix
-Latest documented commit: 508b1e56882b20ebf28cfd35b7cb17c7a56d2c99
-Application version in source: 0.8.6
-versionCode: 6
+Latest stable release tag: v0.8.7-private-chat-stable
+Latest documented commit: 37054fa02f8a91d2f4e582b87756479013e73bb8
+Application version in source: 0.8.7
+versionCode: 7
+```
+
+The v0.8.7 release was published on 2026-09-10. Its official GitHub release asset is `sigma-bridge.apk` with SHA-256:
+
+```text
+5f671b7d99957cbfc411c72ee558cfdd0c0a22d3067d0719f8cf067864b004b0
 ```
 
 The user has previously had local Git divergence problems. Prefer pulling a clean branch and validating the exact commit over attempting to merge uncertain local changes.
@@ -114,7 +121,7 @@ Translation belongs to an existing message. Translation must never create a repl
 
 ### Receipt identity
 
-A Delivered/Read receipt belongs to a server message and receiving user. The current baseline resolves the server message inside the active conversation using the local client message ID.
+A Delivered/Read receipt belongs to a server message and receiving user. The current baseline resolves the server message inside the active conversation using the local client message ID. Background receipt handling resolves the message inside the partner-specific conversation without changing the active conversation identity.
 
 ## Current release behavior
 
@@ -131,7 +138,20 @@ incoming message
              +--> failure: keep original
 ```
 
-This was verified by device testing during the 0.8.6 work.
+The v0.8.7 release extends the background transport path so stored conversations can be processed without replacing the currently selected partner in `ChatIdentity`.
+
+## Current stable release
+
+```text
+Release: Sigma Bridge v0.8.7 — Private Chat Stable
+Tag:     v0.8.7-private-chat-stable
+Commit:  37054fa02f8a91d2f4e582b87756479013e73bb8
+Version: versionName 0.8.7 / versionCode 7
+APK:     sigma-bridge.apk
+SHA-256: 5f671b7d99957cbfc411c72ee558cfdd0c0a22d3067d0719f8cf067864b004b0
+```
+
+This release is the current stable Private Chat reference point. It contains no intentional Telegram changes, no Supabase schema changes, and no deletion of real Supabase user, device, conversation, message, or receipt data.
 
 ## Known historical work
 
@@ -145,7 +165,7 @@ The important Private Chat simplification commits are:
 b2eea8d  application version aligned to 0.8.6
 ```
 
-A later experimental commit attempted to make receipt submission completely message-centric by removing the current conversation lookup. It is intentionally **not** part of the baseline described here.
+The v0.8.7 transport-isolation work was implemented after the 0.8.6 baseline and finalized in the release commit listed above.
 
 ## Current known limitations
 
