@@ -168,9 +168,8 @@ class ChatNotificationService : Service() {
             // different conversation is open in the UI.
         }
 
-        val topic = identity.conversationTopicFor(partnerId)
-        val receiptResult = chatRepository.sendDeliveredReceipt(
-            topic,
+        val receiptResult = supabaseChatRepository.sendDeliveredReceiptForPartner(
+            partnerId,
             ChatReceipt(messageId = row.clientMessageId, senderId = partnerId)
         )
         if (receiptResult.isFailure || isKnownLocally) return
@@ -205,10 +204,10 @@ class ChatNotificationService : Service() {
                 }
         }
     }
+
     private fun parseTimestamp(value: String): Long =
         runCatching { java.time.Instant.parse(value).toEpochMilli() }
             .getOrElse { System.currentTimeMillis() }
-
 
     private fun observeAllChatEvents() {
         serviceScope.launch {
@@ -240,7 +239,6 @@ class ChatNotificationService : Service() {
                 when (event) {
                     is ChatEvent.Message -> {
                         val historyKey = historyKeyFor(partnerId)
-                        val topic = identity.conversationTopicFor(partnerId)
                         val existingHistory = historyStore.load(historyKey)
                         val isKnownLocally = existingHistory.any { it.id == event.message.id }
 
@@ -253,8 +251,8 @@ class ChatNotificationService : Service() {
                             unreadStore.addUnread(historyKey, event.message.id)
                         }
 
-                        chatRepository.sendDeliveredReceipt(
-                            topic,
+                        supabaseChatRepository.sendDeliveredReceiptForPartner(
+                            partnerId,
                             ChatReceipt(messageId = event.message.id, senderId = partnerId)
                         )
 
@@ -354,14 +352,13 @@ class ChatNotificationService : Service() {
                     if (partnerId.isBlank() || partnerId == identity.myId) continue
 
                     val historyKey = runCatching { historyKeyFor(partnerId) }.getOrNull() ?: continue
-                    val topic = runCatching { identity.conversationTopicFor(partnerId) }.getOrNull() ?: continue
                     val pending = outboxStore.load(historyKey)
                         .filter { it.deliveryStatus == MessageDeliveryStatus.PENDING }
                         .sortedBy { it.createdAt }
 
                     for (message in pending) {
                         if (!isActive) break
-                        val result = chatRepository.send(topic, message)
+                        val result = supabaseChatRepository.sendToPartner(partnerId, message)
                         if (result.isSuccess) {
                             outboxStore.remove(historyKey, message.id)
                             historyStore.markSent(historyKey, message.id)
