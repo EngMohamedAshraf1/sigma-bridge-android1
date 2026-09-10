@@ -2,6 +2,55 @@
 
 All notable changes to Sigma Bridge Android are recorded here.
 
+## [0.8.7] — Private Chat stable release
+
+Release tag:
+
+```text
+v0.8.7-private-chat-stable
+```
+
+Release commit:
+
+```text
+37054fa02f8a91d2f4e582b87756479013e73bb8
+```
+
+Release date: 2026-09-10
+
+### Private Chat
+
+- Improved background message handling for conversations outside the currently open chat.
+- Isolated background sending and delivery/read receipts by conversation partner.
+- Improved Supabase authentication checks for background message delivery.
+- Preserved the active conversation while background services process other conversations.
+- Maintained asynchronous translation and message history behavior.
+- Fixed the Private Chat background transport isolation issues identified after v0.8.6.
+
+### Update system
+
+- Updated the application metadata to:
+  - `versionCode = 7`
+  - `versionName = 0.8.7`
+- This keeps the embedded application version synchronized with the GitHub release version and prevents same-version update loops.
+
+### Release artifact
+
+- Published `sigma-bridge.apk` as the official v0.8.7 release asset.
+- APK size: `20,747,384` bytes.
+- APK SHA-256:
+
+```text
+5f671b7d99957cbfc411c72ee558cfdd0c0a22d3067d0719f8cf067864b004b0
+```
+
+### Scope boundary
+
+- This release covers **Private Chat only**.
+- Telegram functionality was not changed as part of this release.
+- No Supabase database schema changes were made.
+- No user accounts, devices, conversations, messages, receipts, or other Supabase data were deleted.
+
 ## [0.8.6] — Private Chat stability baseline
 
 ### Private Chat
