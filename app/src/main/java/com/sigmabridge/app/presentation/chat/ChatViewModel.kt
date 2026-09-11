@@ -83,6 +83,87 @@ class ChatViewModel @Inject constructor(
         if (normalized.isNotBlank()) connect()
     }
 
+    /** Returns the currently selected Private Chat translation target. */
+    fun translationTargetLabel(): String = chatLanguagePreferences.getTargetLanguage().displayName
+
+    /**
+     * Whether a local result is already cached for the current target language.
+     * Old messages without translatedToLanguage are intentionally treated as
+     * uncached so the target cannot be guessed incorrectly.
+     */
+    fun hasCurrentTranslation(message: ChatMessage): Boolean {
+        val target = chatLanguagePreferences.getTargetLanguage()
+        return message.translationStatus == ChatTranslationStatus.COMPLETED &&
+            !message.translatedText.isNullOrBlank() &&
+            message.translatedToLanguage == target.code
+    }
+
+    /**
+     * Manual per-message fallback. Uses the same Private Chat translation path
+     * as automatic translation and captures the target language at click time.
+     */
+    fun translateMessage(messageId: String) {
+        val historyKey = currentHistoryKey ?: return
+        val message = _messages.value.firstOrNull { it.id == messageId } ?: return
+        val target = chatLanguagePreferences.getTargetLanguage()
+
+        if (hasCurrentTranslation(message)) return
+
+        val pending = message.copy(
+            text = message.originalText,
+            translatedText = null,
+            translationStatus = ChatTranslationStatus.PENDING,
+            translatedToLanguage = null
+        )
+        _messages.value = _messages.value.map {
+            if (it.id == messageId) pending else it
+        }
+        historyStore.save(historyKey, _messages.value)
+        _error.value = null
+
+        viewModelScope.launch {
+            val result = chatTranslationService.translateIncomingTo(
+                text = message.originalText,
+                clientMessageId = message.id,
+                target = target
+            )
+
+            val translated = result.fold(
+                onSuccess = { value ->
+                    pending.copy(
+                        text = value,
+                        originalText = message.originalText,
+                        translatedText = value,
+                        translationStatus = ChatTranslationStatus.COMPLETED,
+                        translatedToLanguage = target.code
+                    )
+                },
+                onFailure = { error ->
+                    _error.value = sanitizeChatError(error)
+                    pending.copy(
+                        text = message.originalText,
+                        originalText = message.originalText,
+                        translatedText = null,
+                        translationStatus = ChatTranslationStatus.FAILED,
+                        translatedToLanguage = null
+                    )
+                }
+            )
+
+            val stored = historyStore.load(historyKey)
+            historyStore.save(
+                historyKey,
+                stored.map { current -> if (current.id == messageId) translated else current }
+            )
+
+            if (currentHistoryKey == historyKey && _messages.value.any { it.id == messageId }) {
+                _messages.value = _messages.value.map { current ->
+                    if (current.id == messageId) translated else current
+                }
+            }
+        }
+    }
+
     fun connect() {
         val partner = identity.partnerId
         if (partner.isBlank()) { _error.value = "Enter the partner ID first."; return }
@@ -166,7 +247,8 @@ class ChatViewModel @Inject constructor(
                                 text = event.message.text,
                                 originalText = event.message.text,
                                 translatedText = null,
-                                translationStatus = ChatTranslationStatus.PENDING
+                                translationStatus = ChatTranslationStatus.PENDING,
+                                translatedToLanguage = null
                             )
 
                             _messages.value = _messages.value + originalMessage
@@ -185,9 +267,11 @@ class ChatViewModel @Inject constructor(
                             )
 
                             viewModelScope.launch {
-                                val translated = chatTranslationService.translateIncoming(
+                                val targetLanguage = chatLanguagePreferences.getTargetLanguage()
+                                val translated = chatTranslationService.translateIncomingTo(
                                     originalMessage.originalText,
-                                    originalMessage.id
+                                    originalMessage.id,
+                                    targetLanguage
                                 )
 
                                 val translationResult = translated.fold(
@@ -195,7 +279,8 @@ class ChatViewModel @Inject constructor(
                                         originalMessage.copy(
                                             text = value,
                                             translatedText = value,
-                                            translationStatus = ChatTranslationStatus.COMPLETED
+                                            translationStatus = ChatTranslationStatus.COMPLETED,
+                                            translatedToLanguage = targetLanguage.code
                                         )
                                     },
                                     onFailure = { error ->
@@ -203,7 +288,8 @@ class ChatViewModel @Inject constructor(
                                         originalMessage.copy(
                                             text = originalMessage.originalText,
                                             translatedText = null,
-                                            translationStatus = ChatTranslationStatus.FAILED
+                                            translationStatus = ChatTranslationStatus.FAILED,
+                                            translatedToLanguage = null
                                         )
                                     }
                                 )
@@ -398,7 +484,8 @@ class ChatViewModel @Inject constructor(
             deliveryStatus = MessageDeliveryStatus.PENDING,
             originalText = clean,
             translatedText = null,
-            translationStatus = ChatTranslationStatus.COMPLETED
+            translationStatus = ChatTranslationStatus.COMPLETED,
+            translatedToLanguage = null
         )
 
         val updatedWithPending = _messages.value + localMessage
