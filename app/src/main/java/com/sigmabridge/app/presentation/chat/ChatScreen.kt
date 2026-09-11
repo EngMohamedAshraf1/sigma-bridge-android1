@@ -1,8 +1,6 @@
 package com.sigmabridge.app.presentation.chat
 
 import android.Manifest
-import android.content.ClipData
-import android.content.ClipboardManager
 import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
