@@ -2,7 +2,15 @@
 
 All notable changes to Sigma Bridge Android are recorded here.
 
-## Unreleased — Private Chat message actions
+## [0.8.8] — Private Chat message actions
+
+Release tag:
+
+```text
+v0.8.8-private-chat-message-actions
+```
+
+Release status: prepared; tag/release artifact pending
 
 ### Private Chat
 
@@ -14,6 +22,13 @@ All notable changes to Sigma Bridge Android are recorded here.
 - Preserved an existing translation when a manual retry fails.
 - Kept Telegram isolated and unchanged.
 - No Supabase schema changes and no user/message/conversation data deletion.
+
+### Update system
+
+- Updated the application metadata to:
+  - `versionCode = 8`
+  - `versionName = 0.8.8`
+- The release tag is intentionally `v0.8.8-private-chat-message-actions`; the update checker normalizes tags by removing the leading `v` and release suffix, so the installed version `0.8.8` compares equal to the release version `0.8.8` and does not loop on the same release.
 
 ## [0.8.7] — Private Chat stable release
 
