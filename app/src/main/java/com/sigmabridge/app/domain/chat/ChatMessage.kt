@@ -29,7 +29,8 @@ data class ChatMessage(
     val deliveryStatus: MessageDeliveryStatus = MessageDeliveryStatus.SENT,
     val originalText: String = text,
     val translatedText: String? = null,
-    val translationStatus: ChatTranslationStatus = ChatTranslationStatus.COMPLETED
+    val translationStatus: ChatTranslationStatus = ChatTranslationStatus.COMPLETED,
+    val translatedToLanguage: String? = null
 )
 
 @Serializable
