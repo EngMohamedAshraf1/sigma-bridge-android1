@@ -10,7 +10,13 @@ Release tag:
 v0.8.8-private-chat-message-actions
 ```
 
-Release status: prepared; tag/release artifact pending
+Release commit:
+
+```text
+0f41f0a95ae4e5b02ffc52944cb59200e24ac223
+```
+
+Release status: published on GitHub and marked as Latest
 
 ### Private Chat
 
@@ -29,6 +35,16 @@ Release status: prepared; tag/release artifact pending
   - `versionCode = 8`
   - `versionName = 0.8.8`
 - The release tag is intentionally `v0.8.8-private-chat-message-actions`; the update checker normalizes tags by removing the leading `v` and release suffix, so the installed version `0.8.8` compares equal to the release version `0.8.8` and does not loop on the same release.
+
+### Release artifact
+
+- Published `sigma-bridge.apk` as the official v0.8.8 release asset.
+- APK size: `20,762,956` bytes.
+- APK SHA-256:
+
+```text
+d6fa89b16c5a97e5b3df5722ba6846ab2af26ad11b9089e7abadff75754faf46
+```
 
 ## [0.8.7] — Private Chat stable release
 
