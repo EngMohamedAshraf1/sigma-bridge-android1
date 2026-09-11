@@ -27,7 +27,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -331,12 +330,6 @@ fun ChatScreen(
                                     )
                                     DropdownMenuItem(
                                         text = { Text(stringResource(R.string.chat_copy)) },
-                                        leadingIcon = {
-                                            Icon(
-                                                Icons.Filled.ContentCopy,
-                                                contentDescription = null
-                                            )
-                                        },
                                         onClick = {
                                             clipboardManager.setText(AnnotatedString(message.text))
                                             selectedMessageId = null
