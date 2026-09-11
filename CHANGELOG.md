@@ -2,6 +2,19 @@
 
 All notable changes to Sigma Bridge Android are recorded here.
 
+## Unreleased — Private Chat message actions
+
+### Private Chat
+
+- Added single-tap message actions in the Private Chat UI.
+- Added `Translate to <selected chat language>` using the existing Private Chat translation path.
+- Added `Copy` for the currently displayed message text.
+- Bound manual translation requests to the target language captured at the moment the user taps Translate.
+- Recorded `translatedToLanguage` with each local translation result so cached translations are only reused when they match the current chat language.
+- Preserved an existing translation when a manual retry fails.
+- Kept Telegram isolated and unchanged.
+- No Supabase schema changes and no user/message/conversation data deletion.
+
 ## [0.8.7] — Private Chat stable release
 
 Release tag:
