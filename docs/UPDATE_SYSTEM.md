@@ -47,20 +47,33 @@ remoteVersion > installedVersion
 
 Therefore the release tag and the embedded application version must be kept synchronized.
 
-## Current stable release: v0.8.7
+## Current stable release: v0.8.8
 
 The current Private Chat stable release is:
 
 ```text
-Release:  Sigma Bridge v0.8.7 — Private Chat Stable
-Tag:      v0.8.7-private-chat-stable
-Commit:   37054fa02f8a91d2f4e582b87756479013e73bb8
-Version:  versionName 0.8.7 / versionCode 7
+Release:  Sigma Bridge v0.8.8 — Private Chat Message Actions
+Tag:      v0.8.8-private-chat-message-actions
+Commit:   0f41f0a95ae4e5b02ffc52944cb59200e24ac223
+Version:  versionName 0.8.8 / versionCode 8
 APK:      sigma-bridge.apk
-SHA-256:  5f671b7d99957cbfc411c72ee558cfdd0c0a22d3067d0719f8cf067864b004b0
+Size:     20,762,956 bytes
+SHA-256:  d6fa89b16c5a97e5b3df5722ba6846ab2af26ad11b9089e7abadff75754faf46
+Status:   Published on GitHub and marked as Latest
 ```
 
-The release is published on GitHub and is marked as the latest stable release. Its scope is Private Chat only; Telegram functionality was not changed.
+The release includes the Private Chat single-tap message actions (`Translate` and `Copy`) and remains Private Chat only. Telegram functionality was not changed.
+
+### v0.8.8 no-loop verification
+
+The v0.8.8 release tag intentionally contains the suffix `-private-chat-message-actions`. The checker removes the leading `v` and everything after the first `-` before comparing versions. The source at the release tag reports:
+
+```text
+versionName = "0.8.8"
+versionCode = 8
+```
+
+Therefore GitHub Latest normalizes to `0.8.8` and the installed application also reports `0.8.8`; the comparison is equal and `updateAvailable` is `false`. A v0.8.8 installation must not repeatedly request v0.8.8 again.
 
 ## Important v0.8.6 incident
 
@@ -97,7 +110,7 @@ For a new release:
 6. Install the APK and verify that no same-version update banner appears.
 ```
 
-For v0.8.7, this process produced `versionCode 7` / `versionName 0.8.7`, and the release asset was attached to `v0.8.7-private-chat-stable`.
+For v0.8.8, the release tag, source metadata, and published APK release are aligned at version `0.8.8` / `versionCode 8`.
 
 ## UI
 
