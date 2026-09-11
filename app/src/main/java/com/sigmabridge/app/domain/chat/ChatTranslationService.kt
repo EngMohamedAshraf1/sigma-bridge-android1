@@ -31,8 +31,19 @@ class ChatTranslationService @Inject constructor(
         LanguageCatalog.findByCode(code)?.let(languagePreferences::setTargetLanguage)
     }
 
-    suspend fun translateIncoming(text: String, clientMessageId: String): Result<String> {
-        val target = languagePreferences.getTargetLanguage()
+    suspend fun translateIncoming(text: String, clientMessageId: String): Result<String> =
+        translateIncomingTo(text, clientMessageId, languagePreferences.getTargetLanguage())
+
+    /**
+     * Translate using an explicit target captured by the caller. This prevents
+     * a target-language change while a request is running from changing the
+     * meaning of the request that was already started.
+     */
+    suspend fun translateIncomingTo(
+        text: String,
+        clientMessageId: String,
+        target: Language
+    ): Result<String> {
         val sourceCode = detectSimpleLanguage(text)
             ?: return Result.success(text)
 
