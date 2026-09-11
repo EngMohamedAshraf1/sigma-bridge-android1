@@ -1,12 +1,15 @@
 package com.sigmabridge.app.presentation.chat
 
 import android.Manifest
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -24,6 +27,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -48,8 +52,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
@@ -82,13 +88,16 @@ fun ChatScreen(
     val conversationName by viewModel.conversationName.collectAsState()
     val partnerId by viewModel.partnerId.collectAsState()
     val partnerAvatarPath by viewModel.partnerAvatarPath.collectAsState()
+    val translationTargetLanguage by viewModel.translationTargetLanguage.collectAsState()
     val error by viewModel.error.collectAsState()
-    val context = androidx.compose.ui.platform.LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val listState = rememberLazyListState()
+    val clipboardManager = LocalClipboardManager.current
     var input by remember { mutableStateOf("") }
     var languageMenuExpanded by remember { mutableStateOf(false) }
+    var selectedMessageId by remember { mutableStateOf<String?>(null) }
 
+    val context = androidx.compose.ui.platform.LocalContext.current
     val notificationPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
     LaunchedEffect(Unit) {
@@ -257,46 +266,82 @@ fun ChatScreen(
                 ) {
                     items(messages, key = { it.id }) { message ->
                         val mine = message.senderId == viewModel.ownSenderId
+                        val menuOpen = selectedMessageId == message.id
+                        val targetLabel = translationTargetLanguage.displayName
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start
                         ) {
-                            Surface(
-                                modifier = Modifier.widthIn(max = 300.dp),
-                                shape = if (mine) RoundedCornerShape(18.dp, 18.dp, 5.dp, 18.dp) else RoundedCornerShape(18.dp, 18.dp, 18.dp, 5.dp),
-                                color = if (mine) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
-                                tonalElevation = 1.dp,
-                                shadowElevation = 1.dp
-                            ) {
-                                Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
-                                    Text(
-                                        text = message.text,
-                                        style = MaterialTheme.typography.bodyLarge,
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    )
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                                        horizontalArrangement = Arrangement.End,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
+                            Box {
+                                Surface(
+                                    modifier = Modifier
+                                        .widthIn(max = 300.dp)
+                                        .clickable { selectedMessageId = message.id },
+                                    shape = if (mine) RoundedCornerShape(18.dp, 18.dp, 5.dp, 18.dp) else RoundedCornerShape(18.dp, 18.dp, 18.dp, 5.dp),
+                                    color = if (mine) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
+                                    tonalElevation = 1.dp,
+                                    shadowElevation = 1.dp
+                                ) {
+                                    Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
                                         Text(
-                                            text = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(message.createdAt)),
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            text = message.text,
+                                            style = MaterialTheme.typography.bodyLarge,
+                                            color = MaterialTheme.colorScheme.onSurface
                                         )
-                                        if (mine) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                                            horizontalArrangement = Arrangement.End,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
                                             Text(
-                                                text = when (message.deliveryStatus) {
-                                                    MessageDeliveryStatus.PENDING -> " · …"
-                                                    MessageDeliveryStatus.SENT -> " · ✓"
-                                                    MessageDeliveryStatus.DELIVERED -> " · ✓✓"
-                                                    MessageDeliveryStatus.READ -> " · ✓✓"
-                                                },
+                                                text = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(message.createdAt)),
                                                 style = MaterialTheme.typography.labelSmall,
-                                                color = if (message.deliveryStatus == MessageDeliveryStatus.READ) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
                                             )
+                                            if (mine) {
+                                                Text(
+                                                    text = when (message.deliveryStatus) {
+                                                        MessageDeliveryStatus.PENDING -> " · …"
+                                                        MessageDeliveryStatus.SENT -> " · ✓"
+                                                        MessageDeliveryStatus.DELIVERED -> " · ✓✓"
+                                                        MessageDeliveryStatus.READ -> " · ✓✓"
+                                                    },
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = if (message.deliveryStatus == MessageDeliveryStatus.READ) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
                                         }
                                     }
+                                }
+
+                                DropdownMenu(
+                                    expanded = menuOpen,
+                                    onDismissRequest = { selectedMessageId = null }
+                                ) {
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(
+                                                text = stringResource(R.string.chat_translate_to, targetLabel)
+                                            )
+                                        },
+                                        onClick = {
+                                            selectedMessageId = null
+                                            viewModel.translateMessage(message.id)
+                                        }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text(stringResource(R.string.chat_copy)) },
+                                        leadingIcon = {
+                                            Icon(
+                                                Icons.Filled.ContentCopy,
+                                                contentDescription = null
+                                            )
+                                        },
+                                        onClick = {
+                                            clipboardManager.setText(AnnotatedString(message.text))
+                                            selectedMessageId = null
+                                        }
+                                    )
                                 }
                             }
                         }
