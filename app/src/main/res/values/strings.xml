@@ -59,6 +59,8 @@
     <string name="chat_connecting">Connecting…</string>
     <string name="chat_message">Message</string>
     <string name="chat_send_message">Send message</string>
+    <string name="chat_translate_to">Translate to %1$s</string>
+    <string name="chat_copy">Copy</string>
     <string name="chat_avatar_preview">Avatar preview</string>
     <string name="chat_new_chat">New chat</string>
     <string name="chat_search">Search</string>
