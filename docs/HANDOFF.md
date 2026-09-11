@@ -11,17 +11,19 @@ At this documentation point:
 ```text
 Repository: EngMohamedAshraf1/sigma-bridge-android1
 Private Chat development branch: private-chat-6bb07de-fix
-Latest stable release tag: v0.8.7-private-chat-stable
-Latest documented commit: 37054fa02f8a91d2f4e582b87756479013e73bb8
-Application version in source: 0.8.7
-versionCode: 7
+Latest stable release tag: v0.8.8-private-chat-message-actions
+Latest documented commit: b82c48475280b8fd3ba3ff8e6fe7f39c1e1a4ca0
+Application version in source: 0.8.8
+versionCode: 8
 ```
 
-The v0.8.7 release was published on 2026-09-10. Its official GitHub release asset is `sigma-bridge.apk` with SHA-256:
+The v0.8.8 release was published on 2026-09-11 and is marked as the GitHub Latest release. Its official GitHub release asset is `sigma-bridge.apk` with SHA-256:
 
 ```text
-5f671b7d99957cbfc411c72ee558cfdd0c0a22d3067d0719f8cf067864b004b0
+d6fa89b16c5a97e5b3df5722ba6846ab2af26ad11b9089e7abadff75754faf46
 ```
+
+The release is based on code commit `0f41f0a95ae4e5b02ffc52944cb59200e24ac223`, which reports `versionName 0.8.8` / `versionCode 8`.
 
 The user has previously had local Git divergence problems. Prefer pulling a clean branch and validating the exact commit over attempting to merge uncertain local changes.
 
@@ -117,7 +119,7 @@ A user and a device are different concepts. Device registration returns an autho
 
 ### Translation identity
 
-Translation belongs to an existing message. Translation must never create a replacement message that loses the original.
+Translation belongs to an existing message. Translation must never create a replacement message that loses the original. `translatedToLanguage` records which target language the cached translation belongs to.
 
 ### Receipt identity
 
@@ -136,22 +138,33 @@ incoming message
              |
              +--> success: replace display text with translation
              +--> failure: keep original
+
+single tap on a message
+   |
+   +--> Translate to selected chat language
+   +--> Copy displayed message text
 ```
 
-The v0.8.7 release extends the background transport path so stored conversations can be processed without replacing the currently selected partner in `ChatIdentity`.
+Manual translation uses the existing Private Chat translation service. The target language is captured when Translate is selected, so a later language-setting change does not alter an already-started request. Cached translations are reused only when `translatedToLanguage` matches the current chat language.
+
+The v0.8.7 release extended the background transport path so stored conversations could be processed without replacing the currently selected partner in `ChatIdentity`.
 
 ## Current stable release
 
 ```text
-Release: Sigma Bridge v0.8.7 — Private Chat Stable
-Tag:     v0.8.7-private-chat-stable
-Commit:  37054fa02f8a91d2f4e582b87756479013e73bb8
-Version: versionName 0.8.7 / versionCode 7
-APK:     sigma-bridge.apk
-SHA-256: 5f671b7d99957cbfc411c72ee558cfdd0c0a22d3067d0719f8cf067864b004b0
+Release:  Sigma Bridge v0.8.8 — Private Chat Message Actions
+Tag:      v0.8.8-private-chat-message-actions
+Commit:   0f41f0a95ae4e5b02ffc52944cb59200e24ac223
+Version:  versionName 0.8.8 / versionCode 8
+APK:      sigma-bridge.apk
+Size:     20,762,956 bytes
+SHA-256:  d6fa89b16c5a97e5b3df5722ba6846ab2af26ad11b9089e7abadff75754faf46
+Status:   GitHub Latest
 ```
 
-This release is the current stable Private Chat reference point. It contains no intentional Telegram changes, no Supabase schema changes, and no deletion of real Supabase user, device, conversation, message, or receipt data.
+The GitHub update checker normalizes the release tag from `v0.8.8-private-chat-message-actions` to `0.8.8`, and the source embedded in the release reports `versionName 0.8.8`. Therefore a v0.8.8 installation compares equal to GitHub Latest and must not request the same release again.
+
+This release contains no intentional Telegram changes, no Supabase schema changes, and no deletion of real Supabase user, device, conversation, message, or receipt data.
 
 ## Known historical work
 
@@ -165,11 +178,11 @@ The important Private Chat simplification commits are:
 b2eea8d  application version aligned to 0.8.6
 ```
 
-The v0.8.7 transport-isolation work was implemented after the 0.8.6 baseline and finalized in the release commit listed above.
+The v0.8.7 transport-isolation work was implemented after the 0.8.6 baseline. The v0.8.8 message-action work was then added on top of the v0.8.7 stable release line.
 
 ## Current known limitations
 
-The current repository is not a finished feature-complete messenger. It is an MVP. Features such as photos in chat, reactions, reply-to-message, and copy/share behavior are future UI/product work unless already implemented elsewhere.
+The current repository is not a finished feature-complete messenger. It is an MVP. Features such as photos in chat, reactions, and reply-to-message remain future UI/product work unless already implemented elsewhere.
 
 The encryption design should not be described as Signal-style E2E with ratcheting or forward secrecy. It is an AES-GCM scheme based on the current identity-derived conversation key.
 
