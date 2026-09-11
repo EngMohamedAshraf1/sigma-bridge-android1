@@ -83,14 +83,8 @@ class ChatViewModel @Inject constructor(
         if (normalized.isNotBlank()) connect()
     }
 
-    /** Returns the currently selected Private Chat translation target. */
     fun translationTargetLabel(): String = chatLanguagePreferences.getTargetLanguage().displayName
 
-    /**
-     * Whether a local result is already cached for the current target language.
-     * Old messages without translatedToLanguage are intentionally treated as
-     * uncached so the target cannot be guessed incorrectly.
-     */
     fun hasCurrentTranslation(message: ChatMessage): Boolean {
         val target = chatLanguagePreferences.getTargetLanguage()
         return message.translationStatus == ChatTranslationStatus.COMPLETED &&
@@ -98,10 +92,6 @@ class ChatViewModel @Inject constructor(
             message.translatedToLanguage == target.code
     }
 
-    /**
-     * Manual per-message fallback. Uses the same Private Chat translation path
-     * as automatic translation and captures the target language at click time.
-     */
     fun translateMessage(messageId: String) {
         val historyKey = currentHistoryKey ?: return
         val message = _messages.value.firstOrNull { it.id == messageId } ?: return
@@ -110,10 +100,10 @@ class ChatViewModel @Inject constructor(
         if (hasCurrentTranslation(message)) return
 
         val pending = message.copy(
-            text = message.originalText,
-            translatedText = null,
+            text = message.text,
+            translatedText = message.translatedText,
             translationStatus = ChatTranslationStatus.PENDING,
-            translatedToLanguage = null
+            translatedToLanguage = message.translatedToLanguage
         )
         _messages.value = _messages.value.map {
             if (it.id == messageId) pending else it
@@ -130,7 +120,7 @@ class ChatViewModel @Inject constructor(
 
             val translated = result.fold(
                 onSuccess = { value ->
-                    pending.copy(
+                    message.copy(
                         text = value,
                         originalText = message.originalText,
                         translatedText = value,
@@ -140,12 +130,12 @@ class ChatViewModel @Inject constructor(
                 },
                 onFailure = { error ->
                     _error.value = sanitizeChatError(error)
-                    pending.copy(
-                        text = message.originalText,
+                    message.copy(
+                        text = message.text,
                         originalText = message.originalText,
-                        translatedText = null,
+                        translatedText = message.translatedText,
                         translationStatus = ChatTranslationStatus.FAILED,
-                        translatedToLanguage = null
+                        translatedToLanguage = message.translatedToLanguage
                     )
                 }
             )
@@ -240,9 +230,6 @@ class ChatViewModel @Inject constructor(
                         is ChatEvent.Message -> {
                             if (_messages.value.any { it.id == event.message.id }) return@collect
 
-                            // A message must become visible independently of translation.
-                            // The original is stored immediately so a slow/failed translator
-                            // can never prevent the chat message from appearing.
                             val originalMessage = event.message.copy(
                                 text = event.message.text,
                                 originalText = event.message.text,
@@ -259,7 +246,6 @@ class ChatViewModel @Inject constructor(
                                 originalMessage.createdAt
                             )
 
-                            // Read is independent from translation and is sent immediately.
                             sendReadReceiptForMessage(
                                 topic,
                                 historyKey,
