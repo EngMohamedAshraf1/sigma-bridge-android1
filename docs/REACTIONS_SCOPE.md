@@ -1,0 +1,1 @@
+Reactions are implemented as a separate feature layer. Existing message transport, encryption, translation, Reply, Swipe-to-Reply, receipts, outbox, notifications, and Telegram remain unchanged.
