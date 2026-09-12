@@ -1,0 +1,1 @@
+Reactions feature starts from verified Private Chat state at commit 784e8d06ba20266b8c91a90363617f8e418774c5.
