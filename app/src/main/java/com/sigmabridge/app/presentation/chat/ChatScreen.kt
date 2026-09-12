@@ -9,6 +9,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -264,25 +265,37 @@ fun ChatScreen(
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start) {
                             Box {
                                 Surface(
-                                    modifier = Modifier.widthIn(max = 300.dp).pointerInput(message.id) {
-                                        var totalDrag = 0f
-                                        var triggered = false
-                                        detectHorizontalDragGestures(
-                                            onDragStart = { totalDrag = 0f; triggered = false },
-                                            onHorizontalDrag = { change, dragAmount ->
-                                                change.consume()
-                                                if (!triggered) {
-                                                    totalDrag += dragAmount
-                                                    if (abs(totalDrag) >= swipeThresholdPx) {
-                                                        triggered = true
-                                                        startReply(message)
+                                    modifier = Modifier
+                                        .widthIn(max = 300.dp)
+                                        .pointerInput(message.id) {
+                                            var totalDrag = 0f
+                                            var triggered = false
+                                            detectHorizontalDragGestures(
+                                                onDragStart = { totalDrag = 0f; triggered = false },
+                                                onHorizontalDrag = { change, dragAmount ->
+                                                    change.consume()
+                                                    if (!triggered) {
+                                                        totalDrag += dragAmount
+                                                        if (abs(totalDrag) >= swipeThresholdPx) {
+                                                            triggered = true
+                                                            startReply(message)
+                                                        }
                                                     }
-                                                }
+                                                },
+                                                onDragEnd = { totalDrag = 0f },
+                                                onDragCancel = { totalDrag = 0f }
+                                            )
+                                        }
+                                        .combinedClickable(
+                                            onClick = {
+                                                selectedMessageId = null
+                                                reactionPickerMessageId = message.id
                                             },
-                                            onDragEnd = { totalDrag = 0f },
-                                            onDragCancel = { totalDrag = 0f }
-                                        )
-                                    }.clickable { selectedMessageId = message.id },
+                                            onLongClick = {
+                                                reactionPickerMessageId = null
+                                                selectedMessageId = message.id
+                                            }
+                                        ),
                                     shape = if (mine) RoundedCornerShape(18.dp, 18.dp, 5.dp, 18.dp) else RoundedCornerShape(18.dp, 18.dp, 18.dp, 5.dp),
                                     color = when {
                                         isHighlighted -> MaterialTheme.colorScheme.primary.copy(alpha = 0.22f)
