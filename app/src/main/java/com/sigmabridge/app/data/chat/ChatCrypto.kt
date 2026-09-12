@@ -55,6 +55,16 @@ class ChatCrypto @Inject constructor(
     fun encryptForPartner(text: String, partnerId: String): String =
         encryptWithKey(text, identity.conversationKeyFor(partnerId))
 
+    /** Encrypt using an explicitly selected partner conversation with optional reply metadata. */
+    fun encryptWithPartnerMessage(text: String, partnerId: String, replyToMessageId: String?): String {
+        val plaintext = if (replyToMessageId.isNullOrBlank()) {
+            text
+        } else {
+            "$REPLY_PREFIX${replyToMessageId.trim()}$REPLY_SEPARATOR$text"
+        }
+        return encryptWithKey(plaintext, identity.conversationKeyFor(partnerId))
+    }
+
     /** Returns the Base64URL representation of the IV stored in the encrypted payload. */
     fun nonceFromEncrypted(value: String): String {
         val payload = decodePayload(value)
