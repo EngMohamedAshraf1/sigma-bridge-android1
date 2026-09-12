@@ -67,6 +67,7 @@
     <string name="chat_replying_to">الرد على %1$s</string>
     <string name="chat_reply_unavailable">الرسالة الأصلية غير متاحة</string>
     <string name="chat_you">أنت</string>
+    <string name="chat_react">تفاعل</string>
     <string name="chat_avatar_preview">معاينة الصورة الشخصية</string>
     <string name="chat_new_chat">محادثة جديدة</string>
     <string name="chat_search">بحث</string>
