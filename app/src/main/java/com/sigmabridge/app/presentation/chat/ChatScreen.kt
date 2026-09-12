@@ -87,7 +87,10 @@ import kotlin.math.abs
 
 private val REACTION_OPTIONS = listOf("❤️", "😂", "👍", "😢", "😡", "😍", "🔥")
 
-@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@OptIn(
+    androidx.compose.material3.ExperimentalMaterial3Api::class,
+    androidx.compose.foundation.ExperimentalFoundationApi::class
+)
 @Composable
 fun ChatScreen(
     onBack: () -> Unit,
