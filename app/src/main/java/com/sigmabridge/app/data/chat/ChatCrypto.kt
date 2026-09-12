@@ -18,11 +18,18 @@ import javax.inject.Singleton
 class ChatCrypto @Inject constructor(
     private val identity: ChatIdentity
 ) {
+    data class DecryptedMessage(
+        val text: String,
+        val replyToMessageId: String? = null
+    )
+
     private companion object {
         const val PREFIX = "sb2:"
         const val VERSION: Byte = 1
         const val IV_BYTES = 12
         const val TAG_BITS = 128
+        const val REPLY_PREFIX = "sb_reply_v1:"
+        const val REPLY_SEPARATOR = "\u0000"
         val RANDOM = SecureRandom()
 
         fun encode(bytes: ByteArray): String =
@@ -34,6 +41,16 @@ class ChatCrypto @Inject constructor(
 
     fun encrypt(text: String): String = encryptWithKey(text, identity.conversationKey())
 
+    /** Encrypt a message while carrying optional reply metadata inside the encrypted payload. */
+    fun encryptMessage(text: String, replyToMessageId: String?): String {
+        val plaintext = if (replyToMessageId.isNullOrBlank()) {
+            text
+        } else {
+            "$REPLY_PREFIX${replyToMessageId.trim()}$REPLY_SEPARATOR$text"
+        }
+        return encryptWithKey(plaintext, identity.conversationKey())
+    }
+
     /** Encrypt using an explicitly selected partner conversation. */
     fun encryptForPartner(text: String, partnerId: String): String =
         encryptWithKey(text, identity.conversationKeyFor(partnerId))
@@ -44,10 +61,16 @@ class ChatCrypto @Inject constructor(
         return encode(payload.copyOfRange(1, 1 + IV_BYTES))
     }
 
-    fun decrypt(value: String): String = decryptWithKey(value, identity.conversationKey())
+    fun decrypt(value: String): String = decryptWithKey(value, identity.conversationKey()).text
+
+    fun decryptMessage(value: String): DecryptedMessage =
+        decryptWithKey(value, identity.conversationKey())
 
     /** Decrypt an incoming message without mutating the currently selected partner. */
     fun decryptForPartner(value: String, partnerId: String): String =
+        decryptWithKey(value, identity.conversationKeyFor(partnerId)).text
+
+    fun decryptMessageForPartner(value: String, partnerId: String): DecryptedMessage =
         decryptWithKey(value, identity.conversationKeyFor(partnerId))
 
     private fun encryptWithKey(text: String, key: ByteArray): String {
@@ -67,7 +90,7 @@ class ChatCrypto @Inject constructor(
         return PREFIX + encode(payload)
     }
 
-    private fun decryptWithKey(value: String, key: ByteArray): String {
+    private fun decryptWithKey(value: String, key: ByteArray): DecryptedMessage {
         val payload = decodePayload(value)
         val iv = payload.copyOfRange(1, 1 + IV_BYTES)
         val ciphertext = payload.copyOfRange(1 + IV_BYTES, payload.size)
@@ -77,7 +100,22 @@ class ChatCrypto @Inject constructor(
             SecretKeySpec(key, "AES"),
             GCMParameterSpec(TAG_BITS, iv)
         )
-        return cipher.doFinal(ciphertext).toString(Charsets.UTF_8)
+        val plaintext = cipher.doFinal(ciphertext).toString(Charsets.UTF_8)
+        if (!plaintext.startsWith(REPLY_PREFIX)) {
+            return DecryptedMessage(text = plaintext)
+        }
+        val separatorIndex = plaintext.indexOf(REPLY_SEPARATOR, REPLY_PREFIX.length)
+        if (separatorIndex <= REPLY_PREFIX.length) {
+            return DecryptedMessage(text = plaintext)
+        }
+        val replyId = plaintext.substring(REPLY_PREFIX.length, separatorIndex).trim()
+        if (!replyId.matches(Regex("[0-9a-fA-F-]{36}"))) {
+            return DecryptedMessage(text = plaintext)
+        }
+        return DecryptedMessage(
+            text = plaintext.substring(separatorIndex + REPLY_SEPARATOR.length),
+            replyToMessageId = replyId
+        )
     }
 
     private fun decodePayload(value: String): ByteArray {
