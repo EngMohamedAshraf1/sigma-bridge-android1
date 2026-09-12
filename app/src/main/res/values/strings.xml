@@ -67,6 +67,7 @@
     <string name="chat_replying_to">Replying to %1$s</string>
     <string name="chat_reply_unavailable">Original message unavailable</string>
     <string name="chat_you">You</string>
+    <string name="chat_react">React</string>
     <string name="chat_avatar_preview">Avatar preview</string>
     <string name="chat_new_chat">New chat</string>
     <string name="chat_search">Search</string>
