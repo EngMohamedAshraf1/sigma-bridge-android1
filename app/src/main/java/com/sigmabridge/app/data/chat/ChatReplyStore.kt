@@ -1,7 +1,6 @@
 package com.sigmabridge.app.data.chat
 
 import android.content.Context
-import androidx.annotation.VisibleForTesting
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
