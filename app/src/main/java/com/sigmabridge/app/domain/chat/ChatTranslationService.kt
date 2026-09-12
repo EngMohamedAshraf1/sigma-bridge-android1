@@ -1,6 +1,5 @@
 package com.sigmabridge.app.domain.chat
 
-import com.sigmabridge.app.data.chat.ChatAlternativeTranslationRepository
 import com.sigmabridge.app.data.chat.ChatCrypto
 import com.sigmabridge.app.data.chat.ChatGeminiTranslationRepository
 import com.sigmabridge.app.data.chat.ChatLanguagePreferences
@@ -24,7 +23,6 @@ class ChatTranslationService @Inject constructor(
     private val geminiRepository: ChatGeminiTranslationRepository,
     private val languagePreferences: ChatLanguagePreferences,
     private val relayRepository: ChatTranslationRelayRepository,
-    private val alternativeRepository: ChatAlternativeTranslationRepository,
     private val crypto: ChatCrypto
 ) {
     fun targetLanguage(): Language = languagePreferences.getTargetLanguage()
@@ -61,22 +59,6 @@ class ChatTranslationService @Inject constructor(
                 onFailure = { Result.failure(it) }
             )
         }
-    }
-
-    /**
-     * Explicit alternative translation. Unlike the primary local-Gemini path,
-     * this always uses the server-side Google Gemini API so it still works
-     * when the primary phone is offline.
-     */
-    suspend fun translateAlternative(text: String, target: Language): Result<String> {
-        val sourceCode = detectSimpleLanguage(text)
-            ?: return Result.success(text)
-
-        if (sourceCode == target.code || target.code == LanguageCatalog.AUTO_DETECT.code) {
-            return Result.success(text)
-        }
-
-        return alternativeRepository.translate(text, target.code)
     }
 
     suspend fun translateOutgoing(text: String): Result<String> {
