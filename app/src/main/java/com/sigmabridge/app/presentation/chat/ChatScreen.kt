@@ -7,7 +7,9 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -45,6 +47,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -52,11 +55,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.DefaultLifecycleObserver
@@ -70,9 +75,12 @@ import com.sigmabridge.app.domain.chat.ChatMessage
 import com.sigmabridge.app.domain.chat.MessageDeliveryStatus
 import com.sigmabridge.app.domain.language.LanguageCatalog
 import com.sigmabridge.app.domain.model.Language
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.math.abs
 
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
@@ -100,11 +108,16 @@ fun ChatScreen(
     val listState = rememberLazyListState()
     val clipboardManager = LocalClipboardManager.current
     val replyStore = remember(context) { ChatReplyStore(context.applicationContext) }
+    val scope = rememberCoroutineScope()
+    val density = LocalDensity.current
     var input by remember { mutableStateOf("") }
     var languageMenuExpanded by remember { mutableStateOf(false) }
     var selectedMessageId by remember { mutableStateOf<String?>(null) }
     var replyToMessage by remember { mutableStateOf<ChatMessage?>(null) }
     var optimisticReplyToId by remember { mutableStateOf<String?>(null) }
+    var highlightedMessageId by remember { mutableStateOf<String?>(null) }
+
+    val swipeThresholdPx = remember(density) { with(density) { 72.dp.toPx() } }
 
     val notificationPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
@@ -122,6 +135,13 @@ fun ChatScreen(
         if (latest != null && replyId != null && latest.senderId == viewModel.ownSenderId) {
             replyStore.setReplyTo(latest.id, replyId)
             optimisticReplyToId = null
+        }
+    }
+
+    LaunchedEffect(highlightedMessageId) {
+        if (highlightedMessageId != null) {
+            delay(1200L)
+            highlightedMessageId = null
         }
     }
 
@@ -154,6 +174,21 @@ fun ChatScreen(
         if (messages.isNotEmpty()) listState.scrollToItem(messages.lastIndex)
         if (connected && lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
             viewModel.markVisibleMessagesRead()
+        }
+    }
+
+    fun startReply(message: ChatMessage) {
+        replyToMessage = message
+        replyStore.setPendingReply(message.id)
+        selectedMessageId = null
+    }
+
+    fun openReplyTarget(messageId: String) {
+        val index = messages.indexOfFirst { it.id == messageId }
+        if (index < 0) return
+        scope.launch {
+            listState.animateScrollToItem(index)
+            highlightedMessageId = messageId
         }
     }
 
@@ -296,6 +331,7 @@ fun ChatScreen(
                             replyTarget.senderId == viewModel.ownSenderId -> stringResource(R.string.chat_you)
                             else -> conversationName
                         }
+                        val isHighlighted = highlightedMessageId == message.id
 
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -305,16 +341,56 @@ fun ChatScreen(
                                 Surface(
                                     modifier = Modifier
                                         .widthIn(max = 300.dp)
+                                        .pointerInput(message.id) {
+                                            var totalDrag = 0f
+                                            var triggered = false
+                                            detectHorizontalDragGestures(
+                                                onDragStart = {
+                                                    totalDrag = 0f
+                                                    triggered = false
+                                                },
+                                                onHorizontalDrag = { change, dragAmount ->
+                                                    change.consume()
+                                                    if (!triggered) {
+                                                        totalDrag += dragAmount
+                                                        if (abs(totalDrag) >= swipeThresholdPx) {
+                                                            triggered = true
+                                                            startReply(message)
+                                                        }
+                                                    }
+                                                },
+                                                onDragEnd = {
+                                                    totalDrag = 0f
+                                                },
+                                                onDragCancel = {
+                                                    totalDrag = 0f
+                                                }
+                                            )
+                                        }
                                         .clickable { selectedMessageId = message.id },
                                     shape = if (mine) RoundedCornerShape(18.dp, 18.dp, 5.dp, 18.dp) else RoundedCornerShape(18.dp, 18.dp, 18.dp, 5.dp),
-                                    color = if (mine) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
+                                    color = when {
+                                        isHighlighted -> MaterialTheme.colorScheme.primary.copy(alpha = 0.22f)
+                                        mine -> MaterialTheme.colorScheme.primaryContainer
+                                        else -> MaterialTheme.colorScheme.surface
+                                    },
                                     tonalElevation = 1.dp,
-                                    shadowElevation = 1.dp
+                                    shadowElevation = 1.dp,
+                                    border = if (isHighlighted) {
+                                        androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary)
+                                    } else null
                                 ) {
                                     Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
                                         if (replyTargetId != null) {
                                             Surface(
-                                                modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(bottom = 6.dp)
+                                                    .clickable(
+                                                        enabled = replyTarget != null
+                                                    ) {
+                                                        openReplyTarget(replyTargetId)
+                                                    },
                                                 shape = RoundedCornerShape(10.dp),
                                                 color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f)
                                             ) {
@@ -372,9 +448,7 @@ fun ChatScreen(
                                     DropdownMenuItem(
                                         text = { Text(stringResource(R.string.chat_reply)) },
                                         onClick = {
-                                            replyToMessage = message
-                                            replyStore.setPendingReply(message.id)
-                                            selectedMessageId = null
+                                            startReply(message)
                                         }
                                     )
                                     DropdownMenuItem(
@@ -432,7 +506,11 @@ fun ChatScreen(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Surface(
-                                    modifier = Modifier.weight(1f),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clickable {
+                                            openReplyTarget(message.id)
+                                        },
                                     shape = RoundedCornerShape(10.dp),
                                     color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f)
                                 ) {
