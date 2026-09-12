@@ -25,6 +25,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -50,6 +51,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
@@ -63,6 +65,8 @@ import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.sigmabridge.app.R
 import com.sigmabridge.app.data.chat.ChatForegroundState
+import com.sigmabridge.app.data.chat.ChatReplyStore
+import com.sigmabridge.app.domain.chat.ChatMessage
 import com.sigmabridge.app.domain.chat.MessageDeliveryStatus
 import com.sigmabridge.app.domain.language.LanguageCatalog
 import com.sigmabridge.app.domain.model.Language
@@ -79,6 +83,7 @@ fun ChatScreen(
     viewModel: ChatViewModel = hiltViewModel(),
     alternativeViewModel: ChatAlternativeTranslationViewModel = hiltViewModel()
 ) {
+    val context = LocalContext.current
     val messages by viewModel.messages.collectAsState()
     val connected by viewModel.connected.collectAsState()
     val partnerOnline by viewModel.partnerOnline.collectAsState()
@@ -94,11 +99,13 @@ fun ChatScreen(
     val lifecycleOwner = LocalLifecycleOwner.current
     val listState = rememberLazyListState()
     val clipboardManager = LocalClipboardManager.current
+    val replyStore = remember(context) { ChatReplyStore(context.applicationContext) }
     var input by remember { mutableStateOf("") }
     var languageMenuExpanded by remember { mutableStateOf(false) }
     var selectedMessageId by remember { mutableStateOf<String?>(null) }
+    var replyToMessage by remember { mutableStateOf<ChatMessage?>(null) }
+    var optimisticReplyToId by remember { mutableStateOf<String?>(null) }
 
-    val context = androidx.compose.ui.platform.LocalContext.current
     val notificationPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
     LaunchedEffect(Unit) {
@@ -106,6 +113,15 @@ fun ChatScreen(
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) {
             notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+
+    LaunchedEffect(messages.lastOrNull()?.id, optimisticReplyToId) {
+        val latest = messages.lastOrNull()
+        val replyId = optimisticReplyToId
+        if (latest != null && replyId != null && latest.senderId == viewModel.ownSenderId) {
+            replyStore.setReplyTo(latest.id, replyId)
+            optimisticReplyToId = null
         }
     }
 
@@ -272,6 +288,15 @@ fun ChatScreen(
                         val targetLabel = translationTargetLanguage.displayName
                         val displayedText = alternativeTranslations[message.id] ?: message.text
                         val alternativeLoading = message.id in alternativeLoadingIds
+                        val replyTargetId = message.replyToMessageId ?: replyStore.getReplyTo(message.id)
+                        val replyTarget = replyTargetId?.let { targetId -> messages.firstOrNull { it.id == targetId } }
+                        val replyTargetText = replyTarget?.let { alternativeTranslations[it.id] ?: it.text }
+                        val replyTargetLabel = when {
+                            replyTarget == null -> stringResource(R.string.chat_reply)
+                            replyTarget.senderId == viewModel.ownSenderId -> stringResource(R.string.chat_you)
+                            else -> conversationName
+                        }
+
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start
@@ -287,6 +312,28 @@ fun ChatScreen(
                                     shadowElevation = 1.dp
                                 ) {
                                     Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                                        if (replyTargetId != null) {
+                                            Surface(
+                                                modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
+                                                shape = RoundedCornerShape(10.dp),
+                                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f)
+                                            ) {
+                                                Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)) {
+                                                    Text(
+                                                        text = replyTargetLabel,
+                                                        style = MaterialTheme.typography.labelMedium,
+                                                        color = MaterialTheme.colorScheme.primary
+                                                    )
+                                                    Text(
+                                                        text = replyTargetText ?: stringResource(R.string.chat_reply_unavailable),
+                                                        style = MaterialTheme.typography.bodySmall,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                        maxLines = 2,
+                                                        overflow = TextOverflow.Ellipsis
+                                                    )
+                                                }
+                                            }
+                                        }
                                         Text(
                                             text = displayedText,
                                             style = MaterialTheme.typography.bodyLarge,
@@ -322,6 +369,14 @@ fun ChatScreen(
                                     expanded = menuOpen,
                                     onDismissRequest = { selectedMessageId = null }
                                 ) {
+                                    DropdownMenuItem(
+                                        text = { Text(stringResource(R.string.chat_reply)) },
+                                        onClick = {
+                                            replyToMessage = message
+                                            replyStore.setPendingReply(message.id)
+                                            selectedMessageId = null
+                                        }
+                                    )
                                     DropdownMenuItem(
                                         text = {
                                             Text(
@@ -369,42 +424,92 @@ fun ChatScreen(
                     tonalElevation = 3.dp,
                     shadowElevation = 2.dp
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(start = 4.dp, end = 5.dp, top = 4.dp, bottom = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        OutlinedTextField(
-                            value = input,
-                            onValueChange = { input = it },
-                            modifier = Modifier.weight(1f),
-                            placeholder = { Text(stringResource(R.string.chat_message)) },
-                            singleLine = true,
-                            enabled = connected,
-                            shape = RoundedCornerShape(22.dp)
-                        )
-                        IconButton(
-                            onClick = {
-                                val text = input.trim()
-                                if (text.isNotEmpty()) {
-                                    viewModel.send(text)
-                                    input = ""
-                                }
-                            },
-                            enabled = connected && input.isNotBlank(),
-                            modifier = Modifier.padding(start = 2.dp).size(48.dp)
-                        ) {
-                            Surface(
-                                modifier = Modifier.size(42.dp),
-                                shape = CircleShape,
-                                color = if (connected && input.isNotBlank()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
+                    Column {
+                        replyToMessage?.let { message ->
+                            val previewText = alternativeTranslations[message.id] ?: message.text
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(start = 12.dp, top = 8.dp, end = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Icon(
-                                        Icons.Filled.Send,
-                                        contentDescription = stringResource(R.string.chat_send_message),
-                                        tint = if (connected && input.isNotBlank()) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.size(21.dp)
-                                    )
+                                Surface(
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f)
+                                ) {
+                                    Column(modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp)) {
+                                        Text(
+                                            text = stringResource(
+                                                R.string.chat_replying_to,
+                                                if (message.senderId == viewModel.ownSenderId) stringResource(R.string.chat_you) else conversationName
+                                            ),
+                                            style = MaterialTheme.typography.labelMedium,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                        Text(
+                                            text = previewText,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            maxLines = 2,
+                                            overflow = TextOverflow.Ellipsis,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                                IconButton(
+                                    onClick = {
+                                        replyToMessage = null
+                                        replyStore.setPendingReply(null)
+                                    }
+                                ) {
+                                    Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.chat_close))
+                                }
+                            }
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(start = 4.dp, end = 5.dp, top = 4.dp, bottom = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            OutlinedTextField(
+                                value = input,
+                                onValueChange = { input = it },
+                                modifier = Modifier.weight(1f),
+                                placeholder = { Text(stringResource(R.string.chat_message)) },
+                                singleLine = true,
+                                enabled = connected,
+                                shape = RoundedCornerShape(22.dp)
+                            )
+                            IconButton(
+                                onClick = {
+                                    val text = input.trim()
+                                    if (text.isNotEmpty()) {
+                                        val replyId = replyToMessage?.id
+                                        if (replyId != null) {
+                                            replyStore.setPendingReply(replyId)
+                                            optimisticReplyToId = replyId
+                                        } else {
+                                            replyStore.setPendingReply(null)
+                                        }
+                                        viewModel.send(text)
+                                        input = ""
+                                        replyToMessage = null
+                                    }
+                                },
+                                enabled = connected && input.isNotBlank(),
+                                modifier = Modifier.padding(start = 2.dp).size(48.dp)
+                            ) {
+                                Surface(
+                                    modifier = Modifier.size(42.dp),
+                                    shape = CircleShape,
+                                    color = if (connected && input.isNotBlank()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            Icons.Filled.Send,
+                                            contentDescription = stringResource(R.string.chat_send_message),
+                                            tint = if (connected && input.isNotBlank()) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.size(21.dp)
+                                        )
+                                    }
                                 }
                             }
                         }
