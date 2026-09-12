@@ -1,5 +1,6 @@
 package com.sigmabridge.app.domain.chat
 
+import com.sigmabridge.app.data.chat.ChatAlternativeTranslationRepository
 import com.sigmabridge.app.data.chat.ChatCrypto
 import com.sigmabridge.app.data.chat.ChatGeminiTranslationRepository
 import com.sigmabridge.app.data.chat.ChatLanguagePreferences
@@ -15,14 +16,16 @@ import javax.inject.Singleton
  *
  * A device with local Chat Gemini keys is the primary translation worker.
  * A device without keys requests translation through Supabase and waits for
- * the encrypted result. Telegram has its own translation runtime and does
- * not use this class.
+ * the encrypted result. Manual alternative translation uses a direct
+ * Supabase Edge Function and does not depend on the primary phone.
+ * Telegram has its own translation runtime and does not use this class.
  */
 @Singleton
 class ChatTranslationService @Inject constructor(
     private val geminiRepository: ChatGeminiTranslationRepository,
     private val languagePreferences: ChatLanguagePreferences,
     private val relayRepository: ChatTranslationRelayRepository,
+    private val alternativeRepository: ChatAlternativeTranslationRepository,
     private val crypto: ChatCrypto
 ) {
     fun targetLanguage(): Language = languagePreferences.getTargetLanguage()
@@ -35,9 +38,7 @@ class ChatTranslationService @Inject constructor(
         translateIncomingTo(text, clientMessageId, languagePreferences.getTargetLanguage())
 
     /**
-     * Translate using an explicit target captured by the caller. This prevents
-     * a target-language change while a request is running from changing the
-     * meaning of the request that was already started.
+     * Translate using the existing primary Gemini/relay path.
      */
     suspend fun translateIncomingTo(
         text: String,
@@ -59,6 +60,20 @@ class ChatTranslationService @Inject constructor(
                 onFailure = { Result.failure(it) }
             )
         }
+    }
+
+    /**
+     * Manual fallback path. This never uses the primary phone's Gemini worker.
+     */
+    suspend fun translateAlternative(text: String, target: Language): Result<String> {
+        val sourceCode = detectSimpleLanguage(text)
+            ?: return Result.success(text)
+
+        if (sourceCode == target.code || target.code == LanguageCatalog.AUTO_DETECT.code) {
+            return Result.success(text)
+        }
+
+        return alternativeRepository.translate(text, target.code)
     }
 
     suspend fun translateOutgoing(text: String): Result<String> {
