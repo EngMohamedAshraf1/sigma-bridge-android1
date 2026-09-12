@@ -25,7 +25,8 @@ class SupabaseChatRepository @Inject constructor(
     private val supabase: SupabaseClient,
     private val sessionManager: SupabaseSessionManager,
     private val identity: ChatIdentity,
-    private val crypto: ChatCrypto
+    private val crypto: ChatCrypto,
+    private val replyStore: ChatReplyStore
 ) : ChatRepository {
 
     private var cachedDeviceId: String? = null
@@ -41,7 +42,9 @@ class SupabaseChatRepository @Inject constructor(
         require(userId == sessionManager.currentUserId()) {
             "Supabase session changed unexpectedly."
         }
-        val encrypted = crypto.encrypt(message.text)
+        val replyToMessageId = replyStore.getReplyTo(message.id) ?: replyStore.consumePendingReply()
+        replyToMessageId?.let { replyStore.setReplyTo(message.id, it) }
+        val encrypted = crypto.encryptMessage(message.text, replyToMessageId)
         supabase.postgrest.rpc(
             "sigma_send_message",
             SendMessageRpcParams(
@@ -50,7 +53,7 @@ class SupabaseChatRepository @Inject constructor(
                 senderDeviceId = cachedDeviceId ?: error("Supabase device is not registered."),
                 ciphertext = encrypted,
                 nonce = crypto.nonceFromEncrypted(encrypted),
-                messageVersion = 1
+                messageVersion = if (replyToMessageId != null) 2 else 1
             )
         ).decodeAs<SupabaseMessageRow>()
     }
@@ -64,7 +67,8 @@ class SupabaseChatRepository @Inject constructor(
         require(userId == sessionManager.currentUserId()) {
             "Supabase session changed unexpectedly."
         }
-        val encrypted = crypto.encrypt(message.text)
+        val replyToMessageId = replyStore.getReplyTo(message.id)
+        val encrypted = crypto.encryptWithPartnerMessage(message.text, normalizedPartnerId, replyToMessageId)
         supabase.postgrest.rpc(
             "sigma_send_message",
             SendMessageRpcParams(
@@ -74,7 +78,7 @@ class SupabaseChatRepository @Inject constructor(
                 senderDeviceId = cachedDeviceId ?: error("Supabase device is not registered."),
                 ciphertext = encrypted,
                 nonce = crypto.nonceFromEncrypted(encrypted),
-                messageVersion = 1
+                messageVersion = if (replyToMessageId != null) 2 else 1
             )
         ).decodeAs<SupabaseMessageRow>()
     }
@@ -190,16 +194,18 @@ class SupabaseChatRepository @Inject constructor(
                     if (!knownMessageIds.add(row.id)) return@forEach
                     if (row.senderUserId == userId) return@forEach
 
-                    val text = runCatching { crypto.decrypt(row.ciphertext) }.getOrNull()
-                        ?: return@forEach
+                    val decrypted = runCatching { crypto.decryptMessageForPartner(row.ciphertext, normalizedPartnerId) }
+                        .getOrNull() ?: return@forEach
+                    decrypted.replyToMessageId?.let { replyStore.setReplyTo(row.clientMessageId, it) }
                     send(
                         ChatEvent.Message(
                             ChatMessage(
                                 id = row.clientMessageId,
                                 senderId = normalizedPartnerId,
-                                text = text,
+                                text = decrypted.text,
                                 createdAt = parseTimestamp(row.createdAt),
-                                deliveryStatus = MessageDeliveryStatus.DELIVERED
+                                deliveryStatus = MessageDeliveryStatus.DELIVERED,
+                                replyToMessageId = decrypted.replyToMessageId
                             )
                         )
                     )
@@ -239,7 +245,8 @@ class SupabaseChatRepository @Inject constructor(
                     if (!isActive || row.conversationId != conversationId) return@forEach
                     lastSequence = maxOf(lastSequence, row.sequenceNumber)
                     if (!knownMessageIds.add(row.id)) return@forEach
-                    val text = runCatching { crypto.decrypt(row.ciphertext) }.getOrNull() ?: return@forEach
+                    val decrypted = runCatching { crypto.decryptMessage(row.ciphertext) }.getOrNull() ?: return@forEach
+                    decrypted.replyToMessageId?.let { replyStore.setReplyTo(row.clientMessageId, it) }
                     val senderId = if (row.senderUserId == preparedUserId) identity.myId else identity.partnerId
                     val status = if (row.senderUserId == preparedUserId) MessageDeliveryStatus.SENT else MessageDeliveryStatus.DELIVERED
                     send(
@@ -247,9 +254,10 @@ class SupabaseChatRepository @Inject constructor(
                             ChatMessage(
                                 id = row.clientMessageId,
                                 senderId = senderId,
-                                text = text,
+                                text = decrypted.text,
                                 createdAt = parseTimestamp(row.createdAt),
-                                deliveryStatus = status
+                                deliveryStatus = status,
+                                replyToMessageId = decrypted.replyToMessageId
                             )
                         )
                     )
