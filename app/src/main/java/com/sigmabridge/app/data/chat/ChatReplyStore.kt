@@ -1,9 +1,16 @@
 package com.sigmabridge.app.data.chat
 
 import android.content.Context
+import androidx.annotation.VisibleForTesting
+import dagger.hilt.android.qualifiers.ApplicationContext
+import javax.inject.Inject
+import javax.inject.Singleton
 
 /** Persists the lightweight reply relationship outside the encrypted message body. */
-class ChatReplyStore(context: Context) {
+@Singleton
+class ChatReplyStore @Inject constructor(
+    @ApplicationContext context: Context
+) {
     private val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
     fun setPendingReply(replyToMessageId: String?) {
