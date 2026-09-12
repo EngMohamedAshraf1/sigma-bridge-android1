@@ -8,7 +8,6 @@ const corsHeaders = {
 
 const MAX_TEXT_LENGTH = 4000;
 const GOOGLE_TRANSLATE_ENDPOINT = "https://translation.googleapis.com/language/translate/v2";
-const GOOGLE_TRANSLATION_MODEL = "general/translation-llm";
 
 interface RequestBody {
   text?: unknown;
@@ -19,6 +18,8 @@ interface GoogleTranslationResponse {
   data?: {
     translations?: Array<{
       translatedText?: string;
+      detectedSourceLanguage?: string;
+      model?: string;
     }>;
   };
   error?: {
@@ -46,9 +47,8 @@ Deno.serve(async (req: Request) => {
   }
 
   const apiKey = Deno.env.get("GOOGLE_TRANSLATION_API_KEY");
-  const projectId = Deno.env.get("GOOGLE_CLOUD_PROJECT_ID");
 
-  if (!apiKey || !projectId) {
+  if (!apiKey) {
     return json({ error: "TRANSLATION_SERVICE_NOT_CONFIGURED" }, 503);
   }
 
@@ -82,18 +82,23 @@ Deno.serve(async (req: Request) => {
   try {
     const googleResponse = await fetch(googleUrl, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json; charset=utf-8" },
       body: JSON.stringify({
         q: [text],
         target: targetLanguage,
-        model: `projects/${projectId}/locations/us-central1/models/${GOOGLE_TRANSLATION_MODEL}`,
+        format: "text",
+        model: "nmt",
       }),
     });
 
     const payload = await googleResponse.json() as GoogleTranslationResponse;
 
     if (!googleResponse.ok) {
-      console.error("Google Translation API error", googleResponse.status, payload.error?.message ?? "unknown");
+      console.error(
+        "Google Translation API error",
+        googleResponse.status,
+        payload.error?.message ?? "unknown"
+      );
       return json({ error: "TRANSLATION_PROVIDER_ERROR" }, 502);
     }
 
