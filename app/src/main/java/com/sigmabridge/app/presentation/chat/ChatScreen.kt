@@ -76,7 +76,8 @@ fun ChatScreen(
     onBack: () -> Unit,
     darkTheme: Boolean,
     onToggleTheme: () -> Unit,
-    viewModel: ChatViewModel = hiltViewModel()
+    viewModel: ChatViewModel = hiltViewModel(),
+    alternativeViewModel: ChatAlternativeTranslationViewModel = hiltViewModel()
 ) {
     val messages by viewModel.messages.collectAsState()
     val connected by viewModel.connected.collectAsState()
@@ -87,6 +88,9 @@ fun ChatScreen(
     val partnerAvatarPath by viewModel.partnerAvatarPath.collectAsState()
     val translationTargetLanguage by viewModel.translationTargetLanguage.collectAsState()
     val error by viewModel.error.collectAsState()
+    val alternativeTranslations by alternativeViewModel.translations.collectAsState()
+    val alternativeLoadingIds by alternativeViewModel.loadingIds.collectAsState()
+    val alternativeError by alternativeViewModel.error.collectAsState()
     val lifecycleOwner = LocalLifecycleOwner.current
     val listState = rememberLazyListState()
     val clipboardManager = LocalClipboardManager.current
@@ -242,7 +246,8 @@ fun ChatScreen(
                     .padding(padding)
                     .imePadding()
             ) {
-                error?.let {
+                val displayError = error ?: alternativeError
+                displayError?.let {
                     Surface(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
                         shape = RoundedCornerShape(14.dp),
@@ -265,6 +270,8 @@ fun ChatScreen(
                         val mine = message.senderId == viewModel.ownSenderId
                         val menuOpen = selectedMessageId == message.id
                         val targetLabel = translationTargetLanguage.displayName
+                        val displayedText = alternativeTranslations[message.id] ?: message.text
+                        val alternativeLoading = message.id in alternativeLoadingIds
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start
@@ -281,7 +288,7 @@ fun ChatScreen(
                                 ) {
                                     Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
                                         Text(
-                                            text = message.text,
+                                            text = displayedText,
                                             style = MaterialTheme.typography.bodyLarge,
                                             color = MaterialTheme.colorScheme.onSurface
                                         )
@@ -327,9 +334,25 @@ fun ChatScreen(
                                         }
                                     )
                                     DropdownMenuItem(
+                                        text = {
+                                            Text(
+                                                text = if (alternativeLoading) {
+                                                    stringResource(R.string.chat_alternative_translation_loading)
+                                                } else {
+                                                    stringResource(R.string.chat_alternative_translation)
+                                                }
+                                            )
+                                        },
+                                        enabled = !alternativeLoading,
+                                        onClick = {
+                                            selectedMessageId = null
+                                            alternativeViewModel.translate(message, translationTargetLanguage)
+                                        }
+                                    )
+                                    DropdownMenuItem(
                                         text = { Text(stringResource(R.string.chat_copy)) },
                                         onClick = {
-                                            clipboardManager.setText(AnnotatedString(message.text))
+                                            clipboardManager.setText(AnnotatedString(displayedText))
                                             selectedMessageId = null
                                         }
                                     )
