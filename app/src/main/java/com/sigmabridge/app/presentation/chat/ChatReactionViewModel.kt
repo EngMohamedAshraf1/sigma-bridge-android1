@@ -14,9 +14,11 @@ import io.github.jan.supabase.realtime.decodeOldRecord
 import io.github.jan.supabase.realtime.decodeRecord
 import io.github.jan.supabase.realtime.postgresChangeFlow
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.util.UUID
 import javax.inject.Inject
@@ -32,16 +34,40 @@ class ChatReactionViewModel @Inject constructor(
 
     private val pendingOwnOperations = mutableMapOf<String, PendingOwnOperation>()
     private var realtimeJob: Job? = null
+    private var activePartnerId: String? = null
 
-    init { connect() }
+    init {
+        watchForPartner()
+    }
 
-    private fun connect() {
-        val partner = identity.partnerId.trim()
-        if (partner.isBlank() || partner == identity.myId) return
+    /**
+     * The chat identity/partner can be populated after this ViewModel is created.
+     * Keep the reaction layer dormant until a valid partner exists, then establish
+     * the realtime subscription and load the current snapshot.
+     */
+    private fun watchForPartner() {
+        viewModelScope.launch {
+            while (isActive) {
+                val partner = identity.partnerId.trim()
+                val valid = partner.isNotBlank() && partner != identity.myId
+                if (valid && partner != activePartnerId) {
+                    activePartnerId = partner
+                    connect(partner)
+                } else if (!valid && activePartnerId != null) {
+                    activePartnerId = null
+                    realtimeJob?.cancel()
+                    realtimeJob = null
+                    _reactions.value = emptyMap()
+                }
+                delay(PARTNER_CHECK_INTERVAL_MS)
+            }
+        }
+    }
 
+    private fun connect(partner: String) {
         realtimeJob?.cancel()
         realtimeJob = viewModelScope.launch {
-            val channel = supabase.channel("sigma-chat-reactions-${identity.conversationKeyHex()}")
+            val channel = supabase.channel("sigma-chat-reactions-${identity.conversationKeyFor(partner).joinToString("") { "%02x".format(it) }}")
             val changes = channel.postgresChangeFlow<PostgresAction>(schema = "public") {
                 table = "message_reactions"
             }
@@ -86,8 +112,11 @@ class ChatReactionViewModel @Inject constructor(
                 pendingOwnOperations.remove(messageId)
             } else {
                 pendingOwnOperations.remove(messageId)
-                reactionRepository.getReactions(identity.partnerId)
-                    .onSuccess { all -> _reactions.value = all.groupBy { it.messageId } }
+                val partner = activePartnerId ?: identity.partnerId.trim()
+                if (partner.isNotBlank()) {
+                    reactionRepository.getReactions(partner)
+                        .onSuccess { all -> _reactions.value = all.groupBy { it.messageId } }
+                }
             }
         }
     }
@@ -145,4 +174,8 @@ class ChatReactionViewModel @Inject constructor(
             .getOrElse { System.currentTimeMillis() }
 
     private data class PendingOwnOperation(val token: String, val desiredEmoji: String?)
+
+    private companion object {
+        const val PARTNER_CHECK_INTERVAL_MS = 500L
+    }
 }
