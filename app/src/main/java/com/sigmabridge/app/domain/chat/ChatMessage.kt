@@ -30,7 +30,8 @@ data class ChatMessage(
     val originalText: String = text,
     val translatedText: String? = null,
     val translationStatus: ChatTranslationStatus = ChatTranslationStatus.COMPLETED,
-    val translatedToLanguage: String? = null
+    val translatedToLanguage: String? = null,
+    val replyToMessageId: String? = null
 )
 
 @Serializable
