@@ -1,0 +1,2 @@
+Checkpoint before Reactions implementation.
+Current branch baseline is the verified Private Chat state.
