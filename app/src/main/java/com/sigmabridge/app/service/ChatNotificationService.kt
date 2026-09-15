@@ -59,6 +59,7 @@ class ChatNotificationService : Service() {
     @Inject lateinit var networkState: ChatNetworkState
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var workersStarted = false
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -72,17 +73,20 @@ class ChatNotificationService : Service() {
         when (intent?.action ?: ACTION_START) {
             ACTION_STOP -> {
                 serviceScope.coroutineContext.cancelChildren()
+                workersStarted = false
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
                 return START_NOT_STICKY
             }
             ACTION_START -> {
-                serviceScope.coroutineContext.cancelChildren()
-                registerIdentityOnStartup()
-                observeUndeliveredInbox()
-                observeAllChatEvents()
-                retryPendingMessages()
-                processTranslationJobs()
+                if (!workersStarted) {
+                    workersStarted = true
+                    registerIdentityOnStartup()
+                    observeUndeliveredInbox()
+                    observeAllChatEvents()
+                    retryPendingMessages()
+                    processTranslationJobs()
+                }
                 return START_STICKY
             }
             else -> return START_NOT_STICKY
