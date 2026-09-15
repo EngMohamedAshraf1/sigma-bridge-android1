@@ -14,8 +14,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.navigation.compose.currentBackStackEntryAsState
+import androidx.navigation.compose.rememberNavController
 import com.sigmabridge.app.BuildConfig
 import com.sigmabridge.app.data.update.UpdateManager
+import com.sigmabridge.app.presentation.navigation.SigmaBridgeDestination
 import com.sigmabridge.app.presentation.navigation.SigmaBridgeNavGraph
 import com.sigmabridge.app.presentation.theme.SigmaBridgeTheme
 import com.sigmabridge.app.presentation.update.UpdateBanner
@@ -41,6 +44,9 @@ class MainActivity : ComponentActivity() {
             }
             val updateState by UpdateManager.state.collectAsState()
             val context = LocalContext.current
+            val navController = rememberNavController()
+            val currentBackStackEntry by navController.currentBackStackEntryAsState()
+            val isPrivateChat = currentBackStackEntry?.destination?.route == SigmaBridgeDestination.PrivateChat.route
 
             LaunchedEffect(Unit) {
                 UpdateManager.checkOnLaunch(BuildConfig.VERSION_NAME)
@@ -49,6 +55,7 @@ class MainActivity : ComponentActivity() {
             SigmaBridgeTheme(darkTheme = darkTheme) {
                 Box(modifier = Modifier.fillMaxSize()) {
                     SigmaBridgeNavGraph(
+                        navController = navController,
                         modifier = Modifier.fillMaxSize(),
                         openPrivateChat = intent?.getBooleanExtra(EXTRA_OPEN_PRIVATE_CHAT, false) == true,
                         darkTheme = darkTheme,
@@ -58,16 +65,18 @@ class MainActivity : ComponentActivity() {
                         }
                     )
 
-                    updateState.update?.let { update ->
-                        UpdateBanner(
-                            update = update,
-                            downloading = updateState.downloading,
-                            installing = updateState.installing,
-                            onUpdateClick = {
-                                UpdateManager.downloadAndInstall(context, update)
-                            },
-                            modifier = Modifier.align(androidx.compose.ui.Alignment.BottomCenter)
-                        )
+                    if (!isPrivateChat) {
+                        updateState.update?.let { update ->
+                            UpdateBanner(
+                                update = update,
+                                downloading = updateState.downloading,
+                                installing = updateState.installing,
+                                onUpdateClick = {
+                                    UpdateManager.downloadAndInstall(context, update)
+                                },
+                                modifier = Modifier.align(androidx.compose.ui.Alignment.BottomCenter)
+                            )
+                        }
                     }
                 }
             }
