@@ -162,17 +162,22 @@ class ChatNotificationService : Service() {
                     )
             )
             unreadStore.addUnread(historyKey, row.clientMessageId)
-
-            // IMPORTANT: do not write partnerId into the global identity here.
-            // Inbox delivery can discover messages for any conversation while a
-            // different conversation is open in the UI.
         }
 
         val receiptResult = supabaseChatRepository.sendDeliveredReceiptForPartner(
             partnerId,
             ChatReceipt(messageId = row.clientMessageId, senderId = partnerId)
         )
-        if (receiptResult.isFailure || isKnownLocally) return
+        if (receiptResult.isFailure) {
+            android.util.Log.e(
+                TAG,
+                "Private chat Delivered receipt failed for $partnerId/${row.clientMessageId}; message will be retried",
+                receiptResult.exceptionOrNull()
+            )
+            return
+        }
+
+        if (isKnownLocally) return
 
         val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
         val lastNotifiedKey = "$KEY_LAST_NOTIFIED_AT_PREFIX$partnerId"
@@ -254,7 +259,13 @@ class ChatNotificationService : Service() {
                         supabaseChatRepository.sendDeliveredReceiptForPartner(
                             partnerId,
                             ChatReceipt(messageId = event.message.id, senderId = partnerId)
-                        )
+                        ).onFailure { error ->
+                            android.util.Log.e(
+                                TAG,
+                                "Private chat Delivered receipt failed during background observation for $partnerId/${event.message.id}",
+                                error
+                            )
+                        }
 
                         if (isKnownLocally) return@collect
                         if (event.message.createdAt <= lastNotifiedAt) return@collect
@@ -455,16 +466,18 @@ class ChatNotificationService : Service() {
         private const val TAG = "ChatNotificationService"
         private const val SERVICE_CHANNEL_ID = "sigma_chat_service"
         private const val CHAT_CHANNEL_ID = "sigma_chat_messages"
-        private const val SERVICE_NOTIFICATION_ID = 2001
-        private const val PREFS_NAME = "sigma_bridge_chat_notifications"
-        private const val KEY_LAST_NOTIFIED_AT_PREFIX = "last_notified_at_"
+        private const val SERVICE_NOTIFICATION_ID = 1001
+        private const val INBOX_POLL_INTERVAL_MS = 2_000L
+        private const val BACKGROUND_POLL_INTERVAL_MS = 2_000L
+        private const val POLL_INTERVAL_MS = 2_000L
+        private const val RECONNECT_DELAY_MS = 2_000L
+        private const val PARTNER_CHECK_INTERVAL_MS = 2_000L
         private const val INITIAL_RETRY_MS = 2_000L
         private const val MAX_RETRY_MS = 60_000L
-        private const val IDLE_RETRY_MS = 15_000L
-        private const val RECONNECT_DELAY_MS = 5_000L
-        private const val PARTNER_CHECK_INTERVAL_MS = 3_000L
-        private const val INBOX_POLL_INTERVAL_MS = 2_000L
-        private const val MAX_HISTORY_MESSAGES = 200
+        private const val IDLE_RETRY_MS = 5_000L
+        private const val MAX_HISTORY_MESSAGES = 500
+        private const val PREFS_NAME = "sigma_chat_notifications"
+        private const val KEY_LAST_NOTIFIED_AT_PREFIX = "last_notified_at_"
 
         fun startIntent(context: android.content.Context): Intent =
             Intent(context, ChatNotificationService::class.java).setAction(ACTION_START)
