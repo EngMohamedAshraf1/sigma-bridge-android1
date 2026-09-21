@@ -10,9 +10,12 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Filenames are always freshly generated UUIDs, never Telegram file_ids.
- * The extension mirrors the MIME type so local temp files remain internally
- * consistent with the media bytes and Gemini upload metadata.
+ * Temporary Telegram voice/audio files live in app-private filesDir rather than cacheDir.
+ * Android may evict cacheDir contents at any time; a translation job must not lose
+ * its input file between download/copy completion and the Gemini read.
+ *
+ * Files remain explicitly temporary because callers delete them in their existing
+ * finally blocks, while cleanup() removes leftovers.
  */
 @Singleton
 class FileCacheManager @Inject constructor(
@@ -20,12 +23,15 @@ class FileCacheManager @Inject constructor(
 ) : CacheManager {
 
     private val voiceCacheDir: File by lazy {
-        File(context.cacheDir, VOICE_SUBDIR).apply { mkdirs() }
+        File(context.filesDir, VOICE_SUBDIR).apply { mkdirs() }
     }
 
     override fun createTempVoice(mimeType: String): TemporaryVoiceFile {
         val id = UUID.randomUUID().toString()
         val file = File(voiceCacheDir, "$id.${extensionForMimeType(mimeType)}")
+        check(file.createNewFile()) {
+            "Could not create temporary voice file: " + file.absolutePath
+        }
         return TemporaryVoiceFile(id = id, path = file.absolutePath, mimeType = mimeType)
     }
 
