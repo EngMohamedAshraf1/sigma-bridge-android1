@@ -4,6 +4,7 @@ import com.sigmabridge.app.domain.dispatch.UpdateDispatcher
 import com.sigmabridge.app.domain.model.BridgeServiceState
 import com.sigmabridge.app.domain.repository.TelegramRepository
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -35,12 +36,15 @@ class BridgeOrchestrator @Inject constructor(
     val state: StateFlow<BridgeServiceState> = telegramRepository.state
 
     suspend fun start() {
-        telegramRepository.start()
         if (dispatchJob?.isActive != true) {
-            dispatchJob = orchestratorScope.launch {
-                telegramRepository.updates.collect { update -> updateDispatcher.dispatch(update) }
+            dispatchJob = orchestratorScope.launch(start = CoroutineStart.UNDISPATCHED) {
+                telegramRepository.updates.collect { update ->
+                    updateDispatcher.dispatch(update)
+                }
             }
         }
+
+        telegramRepository.start()
     }
 
     suspend fun stop() {
