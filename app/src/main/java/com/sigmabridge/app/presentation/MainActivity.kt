@@ -43,7 +43,7 @@ class MainActivity : ComponentActivity() {
             val context = LocalContext.current
 
             LaunchedEffect(Unit) {
-                UpdateManager.checkOnLaunch(BuildConfig.VERSION_NAME)
+                UpdateManager.checkOnLaunch(BuildConfig.VERSION_NAME, context)
             }
 
             SigmaBridgeTheme(darkTheme = darkTheme) {
@@ -65,6 +65,9 @@ class MainActivity : ComponentActivity() {
                             installing = updateState.installing,
                             onUpdateClick = {
                                 UpdateManager.downloadAndInstall(context, update)
+                            },
+                            onNotNowClick = {
+                                UpdateManager.dismissUpdate(context, update.latestVersion)
                             },
                             modifier = Modifier.align(androidx.compose.ui.Alignment.BottomCenter)
                         )
