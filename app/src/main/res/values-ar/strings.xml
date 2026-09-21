@@ -49,6 +49,7 @@
     <!-- Updates -->
     <string name="update_available_banner">يتوفر تحديث جديد: v%1$s</string>
     <string name="update_now">تحديث الآن</string>
+    <string name="update_not_now">ليس الآن</string>
 
     <!-- Private Chat -->
     <string name="chat_private_chat">المحادثة الخاصة</string>
