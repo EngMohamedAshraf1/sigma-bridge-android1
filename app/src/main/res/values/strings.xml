@@ -49,6 +49,7 @@
     <!-- Updates -->
     <string name="update_available_banner">New update available: v%1$s</string>
     <string name="update_now">Update now</string>
+    <string name="update_not_now">Not now</string>
 
     <!-- Private Chat -->
     <string name="chat_private_chat">Private Chat</string>
