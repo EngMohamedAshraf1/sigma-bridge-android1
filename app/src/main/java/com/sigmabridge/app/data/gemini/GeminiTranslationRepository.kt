@@ -156,11 +156,19 @@ class GeminiTranslationRepository @Inject constructor(
 
     private suspend fun translateWithKey(apiKey: String, request: TranslationRequest): TranslationResult {
         val file = File(request.sourceFile.path)
+        if (!file.isFile) {
+            throw IOException("Temporary audio file missing before Gemini read: " + file.absolutePath)
+        }
+        val fileSize = file.length()
+        if (fileSize <= 0L) {
+            throw IOException("Temporary audio file is empty before Gemini read: " + file.absolutePath)
+        }
+
         val mimeType = request.sourceFile.mimeType
         val prompt = buildPrompt(request.languagePair)
 
         // Small Telegram voice/audio files avoid the Files API upload + ACTIVE polling cycle.
-        if (file.length() <= INLINE_AUDIO_MAX_BYTES) {
+        if (fileSize <= INLINE_AUDIO_MAX_BYTES) {
             val rawText = withRetryOnTransientFailure {
                 apiClient.generateContentInline(
                     apiKey = apiKey,
