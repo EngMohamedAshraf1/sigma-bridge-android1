@@ -10,6 +10,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -24,6 +25,7 @@ fun UpdateBanner(
     downloading: Boolean,
     installing: Boolean,
     onUpdateClick: () -> Unit,
+    onNotNowClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Surface(
@@ -38,13 +40,19 @@ fun UpdateBanner(
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Text(
                 text = stringResource(R.string.update_available_banner, update.latestVersion),
                 modifier = Modifier.weight(1f),
                 style = MaterialTheme.typography.bodyMedium
             )
+            TextButton(
+                onClick = onNotNowClick,
+                enabled = !downloading && !installing
+            ) {
+                Text(stringResource(R.string.update_not_now))
+            }
             Button(
                 onClick = onUpdateClick,
                 enabled = !downloading && !installing,
