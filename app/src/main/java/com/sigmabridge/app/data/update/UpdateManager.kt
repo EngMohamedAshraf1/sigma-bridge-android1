@@ -17,6 +17,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 
 object UpdateManager {
+    private const val PREFERENCES_NAME = "sigma_bridge_update_preferences"
+    private const val DISMISSED_VERSION_KEY = "dismissed_update_version"
+
     private val checker = GitHubUpdateChecker()
     private val _state = MutableStateFlow(UpdateUiState())
     val state = _state.asStateFlow()
@@ -39,8 +42,30 @@ object UpdateManager {
             }.getOrThrow()
         }
 
-    suspend fun checkOnLaunch(currentVersion: String = BuildConfig.VERSION_NAME) {
-        runCatching { checkNow(currentVersion) }
+    suspend fun checkOnLaunch(
+        currentVersion: String = BuildConfig.VERSION_NAME,
+        context: Context
+    ) {
+        runCatching {
+            val result = checkNow(currentVersion)
+            if (result.updateAvailable) {
+                val dismissedVersion = context.applicationContext
+                    .getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
+                    .getString(DISMISSED_VERSION_KEY, null)
+                if (dismissedVersion == result.latestVersion) {
+                    _state.value = _state.value.copy(update = null)
+                }
+            }
+        }
+    }
+
+    fun dismissUpdate(context: Context, version: String) {
+        context.applicationContext
+            .getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putString(DISMISSED_VERSION_KEY, version)
+            .apply()
+        _state.value = _state.value.copy(update = null)
     }
 
     fun downloadAndInstall(context: Context, update: UpdateCheckResult) {
