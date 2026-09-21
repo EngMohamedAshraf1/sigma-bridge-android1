@@ -49,6 +49,7 @@
     <!-- Updates -->
     <string name="update_available_banner">Доступно новое обновление: v%1$s</string>
     <string name="update_now">Обновить сейчас</string>
+    <string name="update_not_now">Не сейчас</string>
 
     <!-- Private Chat -->
     <string name="chat_private_chat">Личный чат</string>
