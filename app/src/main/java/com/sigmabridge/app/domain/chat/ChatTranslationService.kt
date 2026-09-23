@@ -38,15 +38,21 @@ class ChatTranslationService @Inject constructor(
     suspend fun translateIncoming(
         text: String,
         clientMessageId: String,
-        peerUserId: String
+        peerUserId: String,
+        conversationId: String
     ): Result<String> =
-        translateIncomingTo(text, clientMessageId, languagePreferences.getTargetLanguage(), peerUserId)
+        translateIncomingTo(
+            text,
+            clientMessageId,
+            languagePreferences.getTargetLanguage(),
+            conversationId
+        )
 
     suspend fun translateIncomingTo(
         text: String,
         clientMessageId: String,
         target: Language,
-        peerUserId: String
+        conversationId: String
     ): Result<String> {
         val sourceCode = detectSimpleLanguage(text)
             ?: return Result.success(text)
@@ -63,7 +69,7 @@ class ChatTranslationService @Inject constructor(
                     relayRepository.awaitTranslation(
                         clientMessageId,
                         target.code,
-                        peerUserId
+                        conversationId
                     )
                 },
                 onFailure = { Result.failure(it) }
@@ -113,7 +119,7 @@ class ChatTranslationService @Inject constructor(
                 relayRepository.completeJob(
                     job.jobId,
                     translated,
-                    job.peerUserId
+                    job.conversationId
                 ).getOrThrow()
             }.onFailure { error ->
                 relayRepository.failJob(job.jobId, error)
