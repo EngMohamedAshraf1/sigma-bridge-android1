@@ -9,6 +9,8 @@ import com.sigmabridge.app.data.chat.ChatLanguagePreferences
 import com.sigmabridge.app.data.chat.ChatOutboxStore
 import com.sigmabridge.app.data.chat.ChatProfileRepository
 import com.sigmabridge.app.data.chat.ChatUnreadStore
+import com.sigmabridge.app.data.chat.SupabaseChatRepository
+import com.sigmabridge.app.data.chat.SupabaseSessionManager
 import com.sigmabridge.app.domain.chat.ChatConversation
 import com.sigmabridge.app.domain.chat.ChatEvent
 import com.sigmabridge.app.domain.chat.ChatMessage
@@ -39,9 +41,12 @@ class ChatViewModel @Inject constructor(
     private val unreadStore: ChatUnreadStore,
     private val conversationStore: ChatConversationStore,
     private val profileRepository: ChatProfileRepository,
-    private val identity: ChatIdentity
+    private val identity: ChatIdentity,
+    private val supabaseChatRepository: SupabaseChatRepository,
+    private val sessionManager: SupabaseSessionManager
 ) : ViewModel() {
-    val myId: String = identity.myId
+    val myId: String
+        get() = sessionManager.currentUserId().orEmpty()
     private val _partnerId = MutableStateFlow(identity.partnerId)
     val partnerId: StateFlow<String> = _partnerId.asStateFlow()
     private val _conversationName = MutableStateFlow(identity.partnerId.ifBlank { "Private Chat" })
@@ -60,7 +65,9 @@ class ChatViewModel @Inject constructor(
     val error: StateFlow<String?> = _error.asStateFlow()
     private val _translationTargetLanguage = MutableStateFlow(chatLanguagePreferences.getTargetLanguage())
     val translationTargetLanguage: StateFlow<Language> = _translationTargetLanguage.asStateFlow()
-    val ownSenderId: String = myId
+    val ownSenderId: String
+        get() = myId
+    private var connectJob: Job? = null
     private var currentTopic: String? = null
     private var currentHistoryKey: String? = null
     private var statusSyncJob: Job? = null
@@ -79,6 +86,7 @@ class ChatViewModel @Inject constructor(
     fun setPartnerId(value: String) {
         val normalized = value.trim()
         identity.partnerId = normalized
+        identity.selectedConversationId = ""
         _partnerId.value = normalized
         disconnect()
         if (normalized.isNotBlank()) connect()
@@ -116,7 +124,8 @@ class ChatViewModel @Inject constructor(
             val result = chatTranslationService.translateIncomingTo(
                 text = message.originalText,
                 clientMessageId = message.id,
-                target = target
+                target = target,
+                peerUserId = identity.partnerId
             )
 
             val translated = result.fold(
@@ -158,21 +167,26 @@ class ChatViewModel @Inject constructor(
     fun connect() {
         val partner = identity.partnerId
         if (partner.isBlank()) { _error.value = "Enter the partner ID first."; return }
-        if (partner == myId) { _error.value = "Partner ID must be different from your own ID."; return }
-        val topic = runCatching { identity.conversationTopic() }.getOrElse {
-            _error.value = sanitizeChatError(it); return
+        if (partner == myId) { _error.value = "Partner account must be different from your own account."; return }
+        val topic = identity.selectedConversationId.trim()
+        if (topic.isBlank()) {
+            _error.value = "Conversation is not initialized."
+            return
         }
         if (currentTopic == topic && _connected.value) return
+        connectJob?.cancel()
         statusSyncJob?.cancel()
         presenceSyncJob?.cancel()
         chatEventsJob?.cancel()
         chatEventsJob = null
         readReceiptSentIds.clear()
         currentTopic = topic
-        currentHistoryKey = identity.conversationKey().joinToString("") { "%02x".format(it) }
+        currentHistoryKey = topic
         val historyKey = currentHistoryKey!!
         val pendingIds = outboxStore.load(historyKey).map { it.id }.toSet()
-        val existingConversation = conversationStore.load().firstOrNull { it.partnerId == partner }
+        val existingConversation = conversationStore.load().firstOrNull {
+            it.conversationId == topic || it.partnerId == partner
+        }
         val history = historyStore.load(historyKey).map { message ->
             if (message.senderId == ownSenderId && message.id in pendingIds) {
                 message.copy(deliveryStatus = MessageDeliveryStatus.PENDING)
@@ -189,20 +203,26 @@ class ChatViewModel @Inject constructor(
                 displayName = existingConversation?.displayName ?: partner,
                 lastMessage = history.lastOrNull()?.text.orEmpty(),
                 lastMessageAt = history.lastOrNull()?.createdAt ?: existingConversation?.lastMessageAt ?: 0L,
-                avatarPath = existingConversation?.avatarPath
+                avatarPath = existingConversation?.avatarPath,
+                conversationId = topic
             )
         )
         _error.value = null
         _connected.value = true
 
         viewModelScope.launch {
-            profileRepository.getProfileByPublicId(partner)
+            profileRepository.getProfileByUserId(partner)
                 .getOrNull()
                 ?.let { profile ->
                     _partnerAvatarPath.value = profile.avatarPath
                     conversationStore.upsert(
                         conversationStore.load().firstOrNull { it.partnerId == partner }?.copy(avatarPath = profile.avatarPath)
-                            ?: ChatConversation(partnerId = partner, displayName = profile.displayName, avatarPath = profile.avatarPath)
+                            ?: ChatConversation(
+                                partnerId = partner,
+                                displayName = profile.displayName,
+                                avatarPath = profile.avatarPath,
+                                conversationId = topic
+                            )
                     )
                 }
         }
@@ -210,7 +230,7 @@ class ChatViewModel @Inject constructor(
         presenceSyncJob = viewModelScope.launch {
             while (isActive && currentHistoryKey == historyKey) {
                 profileRepository.touchMyLastSeen()
-                profileRepository.getLastSeenByPublicId(partner)
+                profileRepository.getLastSeenByUserId(partner)
                     .getOrNull()
                     ?.let { seenAt ->
                         _partnerLastSeen.value = seenAt
@@ -228,7 +248,7 @@ class ChatViewModel @Inject constructor(
 
         chatEventsJob = viewModelScope.launch {
             runCatching {
-                chatRepository.observeEvents(topic, ownSenderId).collect { event ->
+                supabaseChatRepository.observeConversationV2(topic, partner, ownSenderId).collect { event ->
                     when (event) {
                         is ChatEvent.Message -> {
                             if (_messages.value.any { it.id == event.message.id }) return@collect
@@ -260,7 +280,8 @@ class ChatViewModel @Inject constructor(
                                 val translated = chatTranslationService.translateIncomingTo(
                                     originalMessage.originalText,
                                     originalMessage.id,
-                                    targetLanguage
+                                    targetLanguage,
+                                    partner
                                 )
 
                                 val translationResult = translated.fold(
@@ -381,7 +402,7 @@ class ChatViewModel @Inject constructor(
     ) {
         if (!readReceiptSentIds.add(messageId)) return
         viewModelScope.launch {
-            chatRepository.sendReadReceipt(
+            supabaseChatRepository.sendReadReceiptForConversationV2(
                 topic,
                 ChatReceipt(
                     messageId = messageId,
@@ -402,7 +423,9 @@ class ChatViewModel @Inject constructor(
     ) {
         val current = conversationStore
             .load()
-            .firstOrNull { it.partnerId == partnerId }
+            .firstOrNull {
+                it.partnerId == partnerId || (currentHistoryKey != null && it.conversationId == currentHistoryKey)
+            }
 
         conversationStore.upsert(
             ChatConversation(
@@ -410,7 +433,8 @@ class ChatViewModel @Inject constructor(
                 displayName = current?.displayName ?: partnerId,
                 lastMessage = lastMessage,
                 lastMessageAt = lastMessageAt,
-                avatarPath = current?.avatarPath
+                avatarPath = current?.avatarPath,
+                conversationId = current?.conversationId ?: currentHistoryKey.orEmpty()
             )
         )
     }
@@ -447,6 +471,8 @@ class ChatViewModel @Inject constructor(
     }
 
     fun disconnect() {
+        connectJob?.cancel()
+        connectJob = null
         statusSyncJob?.cancel()
         statusSyncJob = null
         presenceSyncJob?.cancel()
@@ -504,8 +530,11 @@ class ChatViewModel @Inject constructor(
         topic: String,
         pendingMessage: ChatMessage
     ) {
-        chatRepository.send(topic, pendingMessage)
-            .onSuccess {
+        supabaseChatRepository.sendToConversationV2(
+            conversationId = topic,
+            partnerUserId = identity.partnerId,
+            message = pendingMessage
+        ).onSuccess {
                 outboxStore.remove(historyKey, pendingMessage.id)
                 val persisted = historyStore.markSent(
                     historyKey,
