@@ -846,7 +846,7 @@ class SupabaseChatRepository @Inject constructor(
     }
 
     private suspend fun ensureAccountDeviceV2(ownUserId: String): String {
-        prepareMutex.withLock {
+        return prepareMutex.withLock {
             if (cachedDeviceId != null && cachedDeviceOwnerUserId == ownUserId) {
                 return@withLock cachedDeviceId!!
             }
