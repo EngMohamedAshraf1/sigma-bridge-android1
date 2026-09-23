@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.sigmabridge.app.data.chat.ChatIdentity
 import com.sigmabridge.app.data.chat.SupabaseReactionRepository
 import com.sigmabridge.app.data.chat.SupabaseRealtimeReactionRow
+import com.sigmabridge.app.data.chat.SupabaseSessionManager
 import com.sigmabridge.app.domain.chat.ChatReaction
 import dagger.hilt.android.lifecycle.HiltViewModel
 import io.github.jan.supabase.SupabaseClient
@@ -27,6 +28,7 @@ import javax.inject.Inject
 class ChatReactionViewModel @Inject constructor(
     private val reactionRepository: SupabaseReactionRepository,
     private val identity: ChatIdentity,
+    private val sessionManager: SupabaseSessionManager,
     private val supabase: SupabaseClient
 ) : ViewModel() {
     private val _reactions = MutableStateFlow<Map<String, List<ChatReaction>>>(emptyMap())
@@ -35,26 +37,24 @@ class ChatReactionViewModel @Inject constructor(
     private val pendingOwnOperations = mutableMapOf<String, PendingOwnOperation>()
     private var realtimeJob: Job? = null
     private var syncJob: Job? = null
-    private var activePartnerId: String? = null
+    private var activeConversationId: String? = null
 
     init {
-        watchForPartner()
+        watchForConversation()
     }
 
-    /**
-     * The chat identity/partner can be populated after this ViewModel is created.
-     * Keep the reaction layer dormant until a valid partner exists.
-     */
-    private fun watchForPartner() {
+    private fun watchForConversation() {
         viewModelScope.launch {
             while (isActive) {
-                val partner = identity.partnerId.trim()
-                val valid = partner.isNotBlank() && partner != identity.myId
-                if (valid && partner != activePartnerId) {
-                    activePartnerId = partner
-                    restartSync(partner)
-                } else if (!valid && activePartnerId != null) {
-                    activePartnerId = null
+                val conversationId = identity.selectedConversationId.trim()
+                val ownUserId = sessionManager.currentUserId().orEmpty()
+                val valid = conversationId.isNotBlank() && ownUserId.isNotBlank()
+
+                if (valid && conversationId != activeConversationId) {
+                    activeConversationId = conversationId
+                    restartSync(conversationId)
+                } else if (!valid && activeConversationId != null) {
+                    activeConversationId = null
                     stopSync()
                     _reactions.value = emptyMap()
                 }
@@ -63,44 +63,32 @@ class ChatReactionViewModel @Inject constructor(
         }
     }
 
-    /**
-     * Reactions use two complementary paths:
-     * 1) a Realtime subscription for immediate remote changes;
-     * 2) a small periodic snapshot sync so a missed Realtime event or a screen
-     *    recreation cannot make persisted reactions disappear from the UI.
-     */
-    private fun restartSync(partner: String) {
+    private fun restartSync(conversationId: String) {
         stopSync()
 
         realtimeJob = viewModelScope.launch {
-            val conversationKey = identity.conversationKeyFor(partner)
-                .joinToString("") { "%02x".format(it) }
-            val channel = supabase.channel("sigma-chat-reactions-$conversationKey")
+            val channel = supabase.channel("sigma-chat-reactions-v2-$conversationId")
             val changes = channel.postgresChangeFlow<PostgresAction>(schema = "public") {
                 table = "message_reactions"
             }
 
-            val collector = launch {
-                changes.collect { applyRealtimeAction(it) }
-            }
+            val collector = launch { changes.collect { applyRealtimeAction(it) } }
 
             try {
                 channel.subscribe(blockUntilSubscribed = true)
-                // Do not rely on Realtime for the first load.
-                syncSnapshot(partner)
+                syncSnapshot(conversationId)
                 collector.join()
             } finally {
                 collector.cancel()
-                runCatching { channel.unsubscribe() }
+                runCatching { supabase.realtime.removeChannel(channel) }
             }
         }
 
         syncJob = viewModelScope.launch {
-            // This covers both app/screen re-entry and missed Realtime events.
-            syncSnapshot(partner)
-            while (isActive && activePartnerId == partner) {
+            syncSnapshot(conversationId)
+            while (isActive && activeConversationId == conversationId) {
                 delay(SNAPSHOT_SYNC_INTERVAL_MS)
-                syncSnapshot(partner)
+                syncSnapshot(conversationId)
             }
         }
     }
@@ -112,21 +100,19 @@ class ChatReactionViewModel @Inject constructor(
         syncJob = null
     }
 
-    private suspend fun syncSnapshot(partner: String) {
-        reactionRepository.getReactions(partner)
-            .onSuccess { all ->
-                _reactions.value = mergeServerSnapshot(all)
-            }
+    private suspend fun syncSnapshot(conversationId: String) {
+        reactionRepository.getReactions(conversationId)
+            .onSuccess { all -> _reactions.value = mergeServerSnapshot(all) }
     }
 
     private fun mergeServerSnapshot(all: List<ChatReaction>): Map<String, List<ChatReaction>> {
+        val ownUserId = sessionManager.currentUserId().orEmpty()
         val merged = all.groupBy { it.messageId }
             .mapValues { (_, values) -> values.toMutableList() }
             .toMutableMap()
 
         pendingOwnOperations.forEach { (messageId, pending) ->
-            val withoutOwn = merged[messageId].orEmpty()
-                .filterNot { it.userId == identity.myId }
+            val withoutOwn = merged[messageId].orEmpty().filterNot { it.userId == ownUserId }
 
             if (pending.desiredEmoji == null) {
                 if (withoutOwn.isEmpty()) merged.remove(messageId)
@@ -135,7 +121,7 @@ class ChatReactionViewModel @Inject constructor(
                 merged[messageId] = (
                     withoutOwn + ChatReaction(
                         messageId = messageId,
-                        userId = identity.myId,
+                        userId = ownUserId,
                         emoji = pending.desiredEmoji,
                         createdAt = System.currentTimeMillis()
                     )
@@ -147,8 +133,11 @@ class ChatReactionViewModel @Inject constructor(
     }
 
     fun setReaction(messageId: String, emoji: String) {
+        val ownUserId = sessionManager.currentUserId().orEmpty()
+        if (ownUserId.isBlank()) return
+
         val current = _reactions.value[messageId].orEmpty()
-        val own = current.firstOrNull { it.userId == identity.myId }
+        val own = current.firstOrNull { it.userId == ownUserId }
         val desired = if (own?.emoji == emoji) null else emoji
         val token = UUID.randomUUID().toString()
 
@@ -168,23 +157,16 @@ class ChatReactionViewModel @Inject constructor(
                 pendingOwnOperations.remove(messageId)
             } else {
                 pendingOwnOperations.remove(messageId)
-                val partner = activePartnerId ?: identity.partnerId.trim()
-                if (partner.isNotBlank()) syncSnapshot(partner)
+                activeConversationId?.let { syncSnapshot(it) }
             }
         }
     }
 
     private suspend fun applyRealtimeAction(action: PostgresAction) {
         val row = when (action) {
-            is PostgresAction.Insert -> runCatching {
-                action.decodeRecord<SupabaseRealtimeReactionRow>()
-            }.getOrNull()
-            is PostgresAction.Update -> runCatching {
-                action.decodeRecord<SupabaseRealtimeReactionRow>()
-            }.getOrNull()
-            is PostgresAction.Delete -> runCatching {
-                action.decodeOldRecord<SupabaseRealtimeReactionRow>()
-            }.getOrNull()
+            is PostgresAction.Insert -> runCatching { action.decodeRecord<SupabaseRealtimeReactionRow>() }.getOrNull()
+            is PostgresAction.Update -> runCatching { action.decodeRecord<SupabaseRealtimeReactionRow>() }.getOrNull()
+            is PostgresAction.Delete -> runCatching { action.decodeOldRecord<SupabaseRealtimeReactionRow>() }.getOrNull()
             is PostgresAction.Select -> null
         } ?: return
 
@@ -193,7 +175,7 @@ class ChatReactionViewModel @Inject constructor(
             .getOrNull()
             ?: return
 
-        if (context.userPublicId == identity.myId) return
+        if (context.userPublicId == sessionManager.currentUserId().orEmpty()) return
 
         val current = _reactions.value[context.clientMessageId].orEmpty()
         when (action) {
@@ -201,7 +183,6 @@ class ChatReactionViewModel @Inject constructor(
                 context.clientMessageId,
                 current.filterNot { it.userId == context.userPublicId }
             )
-
             is PostgresAction.Insert,
             is PostgresAction.Update -> {
                 if (row.emoji.isBlank()) return
@@ -216,20 +197,20 @@ class ChatReactionViewModel @Inject constructor(
                     )
                 )
             }
-
             is PostgresAction.Select -> Unit
         }
     }
 
     private fun applyOwnReaction(messageId: String, desired: String?) {
+        val ownUserId = sessionManager.currentUserId().orEmpty()
         val withoutOwn = _reactions.value[messageId].orEmpty()
-            .filterNot { it.userId == identity.myId }
+            .filterNot { it.userId == ownUserId }
         val updated = if (desired == null) {
             withoutOwn
         } else {
             withoutOwn + ChatReaction(
                 messageId = messageId,
-                userId = identity.myId,
+                userId = ownUserId,
                 emoji = desired,
                 createdAt = System.currentTimeMillis()
             )
