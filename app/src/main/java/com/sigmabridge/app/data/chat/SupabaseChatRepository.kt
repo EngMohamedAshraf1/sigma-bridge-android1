@@ -9,6 +9,7 @@ import com.sigmabridge.app.domain.chat.MessageDeliveryStatus
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.rpc
+import io.github.jan.supabase.realtime.HasRecord
 import io.github.jan.supabase.realtime.PostgresAction
 import io.github.jan.supabase.realtime.channel
 import io.github.jan.supabase.realtime.decodeRecordOrNull
@@ -418,7 +419,9 @@ class SupabaseChatRepository @Inject constructor(
                 launch {
                     receiptChanges.collect { action ->
                         runCatching {
-                            val row = action.decodeRecordOrNull<SupabaseReceiptRow>() ?: return@runCatching
+                            val row = (action as? HasRecord)
+                                ?.decodeRecordOrNull<SupabaseReceiptRow>()
+                                ?: return@runCatching
                             emitReceiptRow(row)
                         }.onFailure { error ->
                             android.util.Log.e(
