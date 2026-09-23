@@ -111,9 +111,11 @@ class ChatNotificationService : Service() {
                     delay(RECONNECT_DELAY_MS)
                     continue
                 }
+                // Realtime is the low-latency delivery path. This inbox query is
+                // intentionally kept as a slower recovery pass for missed events.
                 val result = chatInboxRepository.fetchUndeliveredMessages()
                 result.onFailure { error ->
-                    android.util.Log.e(TAG, "Private chat inbox discovery failed; retrying", error)
+                    android.util.Log.e(TAG, "Private chat inbox recovery failed; retrying", error)
                 }
                 for (row in result.getOrNull().orEmpty().sortedBy { it.sequenceNumber }) {
                     if (!isActive) break
@@ -463,7 +465,7 @@ class ChatNotificationService : Service() {
         private const val IDLE_RETRY_MS = 15_000L
         private const val RECONNECT_DELAY_MS = 5_000L
         private const val PARTNER_CHECK_INTERVAL_MS = 3_000L
-        private const val INBOX_POLL_INTERVAL_MS = 2_000L
+        private const val INBOX_POLL_INTERVAL_MS = 5_000L
         private const val MAX_HISTORY_MESSAGES = 200
 
         fun startIntent(context: android.content.Context): Intent =
