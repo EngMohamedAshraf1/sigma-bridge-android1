@@ -8,18 +8,17 @@ import javax.inject.Singleton
 
 /**
  * Discovers incoming Private Chat messages independently of the locally selected
- * conversation. This is what allows the first message from a new person to arrive
- * without the recipient searching for that person first.
+ * conversation. Account UUIDs and conversation IDs are the only v2 identities.
  */
 @Singleton
 class ChatInboxRepository @Inject constructor(
     private val supabase: SupabaseClient,
     private val sessionManager: SupabaseSessionManager
 ) {
-    suspend fun fetchUndeliveredMessages(): Result<List<SupabaseUndeliveredMessageRow>> =
+    suspend fun fetchUndeliveredMessages(): Result<List<SupabaseUndeliveredMessageV2Row>> =
         runCatching {
             sessionManager.ensureAuthenticatedSession().getOrThrow()
-            supabase.postgrest.rpc("sigma_get_undelivered_messages")
-                .decodeList<SupabaseUndeliveredMessageRow>()
+            supabase.postgrest.rpc("sigma_get_undelivered_messages_v2")
+                .decodeList<SupabaseUndeliveredMessageV2Row>()
         }
 }
