@@ -50,6 +50,7 @@ class SupabaseChatRepository @Inject constructor(
     private var cachedDeviceId: String? = null
     private var cachedConversationId: String? = null
     private var cachedConversationPartnerId: String? = null
+    private var cachedDeviceOwnerUserId: String? = null
     private val prepareMutex = Mutex()
 
     override suspend fun send(topic: String, message: ChatMessage): Result<Unit> = runCatching {
@@ -547,7 +548,290 @@ class SupabaseChatRepository @Inject constructor(
                 throw error
             }
         }
-        error("Supabase device registration failed after identity recovery.")
+        error("Supabase devic    /** Account-identity v2: the conversation UUID is the transport identity. */
+    suspend fun ensureConversationWithUserV2(partnerUserId: String): Result<String> = runCatching {
+        val ownUserId = sessionManager.ensureAuthenticatedSession().getOrThrow()
+            .user?.id ?: error("AUTH_REQUIRED")
+        require(partnerUserId.trim().isNotBlank()) { "PARTNER_REQUIRED" }
+        require(partnerUserId.trim() != ownUserId) { "PARTNER_MUST_BE_DIFFERENT" }
+        ensureAccountDeviceV2(ownUserId)
+        supabase.postgrest.rpc(
+            "sigma_ensure_conversation_v2",
+            EnsureConversationV2RpcParams(partnerUserId.trim())
+        ).decodeAs<String>()
+    }
+
+    suspend fun sendToConversationV2(
+        conversationId: String,
+        partnerUserId: String,
+        message: ChatMessage
+    ): Result<Unit> = runCatching {
+        val ownUserId = sessionManager.ensureAuthenticatedSession().getOrThrow()
+            .user?.id ?: error("AUTH_REQUIRED")
+        val normalizedConversationId = UUID.fromString(conversationId.trim()).toString()
+        val normalizedPartnerId = UUID.fromString(partnerUserId.trim()).toString()
+        require(normalizedPartnerId != ownUserId) { "PARTNER_MUST_BE_DIFFERENT" }
+        ensureAccountDeviceV2(ownUserId)
+
+        val replyToMessageId = replyStore.getReplyTo(message.id) ?: replyStore.consumePendingReply()
+        replyToMessageId?.let { replyStore.setReplyTo(message.id, it) }
+        val encrypted = crypto.encryptMessageForAccountPair(
+            text = message.text,
+            localUserId = ownUserId,
+            peerUserId = normalizedPartnerId,
+            replyToMessageId = replyToMessageId
+        )
+
+        supabase.postgrest.rpc(
+            "sigma_send_message_v2",
+            SendMessageV2RpcParams(
+                conversationId = normalizedConversationId,
+                clientMessageId = UUID.fromString(message.id).toString(),
+                senderDeviceId = cachedDeviceId ?: error("Supabase device is not registered."),
+                ciphertext = encrypted,
+                nonce = crypto.nonceFromEncrypted(encrypted),
+                messageVersion = if (replyToMessageId != null) 2 else 1
+            )
+        ).decodeAs<SupabaseMessageRow>()
+    }
+
+    suspend fun sendDeliveredReceiptForConversationV2(
+        conversationId: String,
+        receipt: ChatReceipt
+    ): Result<Unit> = setReceiptForConversationV2(conversationId, receipt.messageId, delivered = true, read = false)
+
+    suspend fun sendReadReceiptForConversationV2(
+        conversationId: String,
+        receipt: ChatReceipt
+    ): Result<Unit> = setReceiptForConversationV2(conversationId, receipt.messageId, delivered = true, read = true)
+
+    private suspend fun setReceiptForConversationV2(
+        conversationId: String,
+        clientMessageId: String,
+        delivered: Boolean,
+        read: Boolean
+    ): Result<Unit> = runCatching {
+        val ownUserId = sessionManager.ensureAuthenticatedSession().getOrThrow()
+            .user?.id ?: error("AUTH_REQUIRED")
+        ensureAccountDeviceV2(ownUserId)
+        val normalizedConversationId = UUID.fromString(conversationId.trim()).toString()
+        val normalizedClientMessageId = UUID.fromString(clientMessageId.trim()).toString()
+        val serverMessageId = supabase.postgrest
+            .from("messages")
+            .select {
+                filter {
+                    eq("conversation_id", normalizedConversationId)
+                    eq("client_message_id", normalizedClientMessageId)
+                }
+            }
+            .decodeSingleOrNull<SupabaseMessageRow>()
+            ?.id
+            ?: error("Supabase message was not found for receipt.")
+
+        supabase.postgrest.rpc(
+            "sigma_set_receipt",
+            SetReceiptRpcParams(
+                messageId = UUID.fromString(serverMessageId).toString(),
+                delivered = delivered,
+                read = read
+            )
+        ).decodeAs<SupabaseReceiptRow>()
+    }
+
+    /** Realtime observation for one account-level conversation. */
+    fun observeConversationV2(
+        conversationId: String,
+        partnerUserId: String,
+        ownUserId: String
+    ): Flow<ChatEvent> {
+        val normalizedConversationId = runCatching { UUID.fromString(conversationId.trim()).toString() }.getOrNull()
+            ?: return emptyFlow()
+        val normalizedPartnerId = runCatching { UUID.fromString(partnerUserId.trim()).toString() }.getOrNull()
+            ?: return emptyFlow()
+        val normalizedOwnUserId = runCatching { UUID.fromString(ownUserId.trim()).toString() }.getOrNull()
+            ?: return emptyFlow()
+
+        return channelFlow {
+            ensureAccountDeviceV2(normalizedOwnUserId)
+            val knownMessageIds = mutableSetOf<String>()
+            val serverMessageIdToClientId = mutableMapOf<String, String>()
+            var lastSequence = 0L
+            val stateMutex = Mutex()
+
+            suspend fun emitMessageRow(row: SupabaseMessageRow) {
+                if (!isActive || row.conversationId != normalizedConversationId) return
+
+                val shouldEmit = stateMutex.withLock {
+                    lastSequence = maxOf(lastSequence, row.sequenceNumber)
+                    serverMessageIdToClientId[row.id] = row.clientMessageId
+                    knownMessageIds.add(row.id)
+                }
+                if (!shouldEmit || !isActive || !row.ciphertext.startsWith("sb3:")) return
+
+                val decrypted = runCatching {
+                    crypto.decryptMessageForAccountPair(
+                        row.ciphertext,
+                        normalizedOwnUserId,
+                        normalizedPartnerId
+                    )
+                }.getOrNull() ?: return
+
+                decrypted.replyToMessageId?.let { replyStore.setReplyTo(row.clientMessageId, it) }
+                val isMine = row.senderUserId == normalizedOwnUserId
+                send(
+                    ChatEvent.Message(
+                        ChatMessage(
+                            id = row.clientMessageId,
+                            senderId = row.senderUserId,
+                            text = decrypted.text,
+                            createdAt = parseTimestamp(row.createdAt),
+                            deliveryStatus = if (isMine) MessageDeliveryStatus.SENT else MessageDeliveryStatus.DELIVERED,
+                            replyToMessageId = decrypted.replyToMessageId
+                        )
+                    )
+                )
+            }
+
+            suspend fun fetchMessages(initial: Boolean) {
+                val cutoff = if (initial) 0L else stateMutex.withLock { lastSequence }
+                val rows = supabase.postgrest.from("messages").select {
+                    filter {
+                        eq("conversation_id", normalizedConversationId)
+                        if (!initial) gt("sequence_number", cutoff)
+                    }
+                }.decodeList<SupabaseMessageRow>().sortedBy { it.sequenceNumber }
+                rows.forEach(::emitMessageRow)
+            }
+
+            suspend fun emitReceiptRow(row: SupabaseReceiptRow) {
+                if (!isActive || row.userId != normalizedPartnerId) return
+                val clientMessageId = stateMutex.withLock { serverMessageIdToClientId[row.messageId] }
+                    ?: supabase.postgrest.from("messages").select {
+                        filter {
+                            eq("id", row.messageId)
+                            eq("conversation_id", normalizedConversationId)
+                        }
+                    }.decodeSingleOrNull<SupabaseMessageRow>()?.also { message ->
+                        stateMutex.withLock {
+                            serverMessageIdToClientId[message.id] = message.clientMessageId
+                        }
+                    }?.clientMessageId
+                    ?: return
+
+                when {
+                    row.readAt != null -> send(
+                        ChatEvent.Read(
+                            ChatReceipt(
+                                messageId = clientMessageId,
+                                senderId = normalizedPartnerId,
+                                type = ChatReceiptType.READ
+                            )
+                        )
+                    )
+                    row.deliveredAt != null -> send(
+                        ChatEvent.Delivered(
+                            ChatReceipt(
+                                messageId = clientMessageId,
+                                senderId = normalizedPartnerId,
+                                type = ChatReceiptType.DELIVERED
+                            )
+                        )
+                    )
+                }
+            }
+
+            suspend fun fetchReceipts() {
+                val rows = supabase.postgrest.from("message_receipts").select {
+                    filter { eq("user_id", normalizedPartnerId) }
+                }.decodeList<SupabaseReceiptRow>()
+                rows.forEach { row ->
+                    val known = stateMutex.withLock { serverMessageIdToClientId[row.messageId] }
+                    if (known != null) emitReceiptRow(row)
+                }
+            }
+
+            val channel = supabase.channel("sigma-chat-v2-$normalizedConversationId")
+            try {
+                val messageChanges = channel.postgresChangeFlow<PostgresAction.Insert>(schema = "public") {
+                    table = "messages"
+                    filter = "conversation_id=eq.$normalizedConversationId"
+                }
+                val receiptChanges = channel.postgresChangeFlow<PostgresAction>(schema = "public") {
+                    table = "message_receipts"
+                    filter = "user_id=eq.$normalizedPartnerId"
+                }
+
+                launch {
+                    messageChanges.collect { action ->
+                        runCatching { action.decodeRecordOrNull<SupabaseMessageRow>()?.let(::emitMessageRow) }
+                            .onFailure { error -> android.util.Log.e("SupabaseChatRepository", "Private chat v2 message decode failed", error) }
+                    }
+                }
+                launch {
+                    receiptChanges.collect { action ->
+                        runCatching {
+                            (action as? HasRecord)?.decodeRecordOrNull<SupabaseReceiptRow>()?.let(::emitReceiptRow)
+                        }.onFailure { error -> android.util.Log.e("SupabaseChatRepository", "Private chat v2 receipt decode failed", error) }
+                    }
+                }
+
+                channel.subscribe(blockUntilSubscribed = true)
+                fetchMessages(initial = true)
+                fetchReceipts()
+
+                launch {
+                    while (isActive) {
+                        delay(RECONCILIATION_INTERVAL_MS)
+                        runCatching {
+                            fetchMessages(initial = false)
+                            fetchReceipts()
+                        }.onFailure { error -> android.util.Log.e("SupabaseChatRepository", "Private chat v2 reconciliation failed", error) }
+                    }
+                }
+                awaitCancellation()
+            } finally {
+                withContext(NonCancellable) { supabase.realtime.removeChannel(channel) }
+            }
+        }
+    }
+
+    private suspend fun ensureAccountDeviceV2(ownUserId: String): String {
+        prepareMutex.withLock {
+            if (cachedDeviceId != null && cachedDeviceOwnerUserId == ownUserId) {
+                return@withLock cachedDeviceId!!
+            }
+            val result = supabase.postgrest.rpc(
+                "sigma_register_account_device_v2",
+                RegisterAccountDeviceRpcParams(
+                    devicePublicId = identity.devicePublicId,
+                    identityPublicKey = identity.legacyIdentityKey
+                )
+            ).decodeList<RegisterAccountDeviceRpcResult>().firstOrNull()
+                ?: error("Supabase account device registration returned no device.")
+            cachedDeviceId = result.deviceId
+            cachedDeviceOwnerUserId = result.userId
+            identity.syncDeviceRole(result.deviceRole)
+            return@withLock result.deviceId
+        }
+    }
+
+    suspend fun sendDeliveredReceiptForPartnerV2(
+        partnerUserId: String,
+        receipt: ChatReceipt
+    ): Result<Unit> = runCatching {
+        val conversationId = ensureConversationWithUserV2(partnerUserId).getOrThrow()
+        sendDeliveredReceiptForConversationV2(conversationId, receipt).getOrThrow()
+    }
+
+    suspend fun sendReadReceiptForPartnerV2(
+        partnerUserId: String,
+        receipt: ChatReceipt
+    ): Result<Unit> = runCatching {
+        val conversationId = ensureConversationWithUserV2(partnerUserId).getOrThrow()
+        sendReadReceiptForConversationV2(conversationId, receipt).getOrThrow()
+    }
+
+e registration failed after identity recovery.")
     }
 
     private fun parseTimestamp(value: String): Long =
