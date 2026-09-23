@@ -121,7 +121,7 @@ class ChatProfileRepository @Inject constructor(
             "sigma_register_account_device_v2",
             RegisterAccountDeviceRpcParams(
                 devicePublicId = identity.devicePublicId,
-                identityPublicKey = identity.legacyIdentityKey
+                identityPublicKey = identity.deviceIdentityKey
             )
         ).decodeList<RegisterAccountDeviceRpcResult>().firstOrNull()
             ?: error("Supabase account device registration returned no device.")
