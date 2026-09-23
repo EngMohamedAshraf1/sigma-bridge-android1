@@ -18,30 +18,37 @@ class ChatProfileRepository @Inject constructor(
         get() = supabase.pluginManager.getPlugin(Auth)
 
     suspend fun getMyProfile(): Result<ChatProfile?> = runCatching {
-        ensureIdentityRegistered()
-        supabase.postgrest.rpc("sigma_get_my_profile")
+        ensureAccountDeviceRegistered()
+        supabase.postgrest.rpc("sigma_get_my_profile_v2")
             .decodeList<ChatProfile>()
             .firstOrNull()
     }
 
-    suspend fun getProfileByPublicId(publicId: String): Result<ChatProfile?> = runCatching {
-        ensureIdentityRegistered()
+    suspend fun getProfileByUserId(userId: String): Result<ChatProfile?> = runCatching {
+        ensureAccountDeviceRegistered()
         supabase.postgrest.rpc(
-            "sigma_get_profile_by_public_id",
-            GetChatProfileByPublicIdRpcParams(publicId)
+            "sigma_get_profile_by_user_id_v2",
+            GetChatProfileByUserIdRpcParams(userId)
         ).decodeList<ChatProfile>().firstOrNull()
     }
 
-    suspend fun getLastSeenByPublicId(publicId: String): Result<Long?> = runCatching {
-        ensureIdentityRegistered()
+    /** Legacy public-ID lookup is intentionally no longer part of the v2 flow. */
+    suspend fun getProfileByPublicId(publicId: String): Result<ChatProfile?> =
+        Result.failure(IllegalStateException("LEGACY_PUBLIC_ID_LOOKUP_DISABLED"))
+
+    suspend fun getLastSeenByUserId(userId: String): Result<Long?> = runCatching {
+        ensureAccountDeviceRegistered()
         supabase.postgrest.rpc(
-            "sigma_get_last_seen",
-            GetChatProfileByPublicIdRpcParams(publicId)
+            "sigma_get_last_seen_v2",
+            GetLastSeenByUserIdRpcParams(userId)
         ).decodeList<ChatLastSeenRpcResponse>().firstOrNull()?.lastSeenAt
     }
 
+    suspend fun getLastSeenByPublicId(publicId: String): Result<Long?> =
+        Result.failure(IllegalStateException("LEGACY_PUBLIC_ID_LOOKUP_DISABLED"))
+
     suspend fun touchMyLastSeen(): Result<Long?> = runCatching {
-        ensureIdentityRegistered()
+        ensureAccountDeviceRegistered()
         supabase.postgrest.rpc("sigma_touch_last_seen")
             .decodeList<ChatLastSeenRpcResponse>()
             .firstOrNull()
@@ -53,11 +60,10 @@ class ChatProfileRepository @Inject constructor(
         lastName: String,
         username: String
     ): Result<ChatProfile> = runCatching {
-        ensureIdentityRegistered()
+        ensureAccountDeviceRegistered()
         supabase.postgrest.rpc(
-            "sigma_update_profile",
-            UpdateChatProfileRpcParams(
-                publicId = identity.myId,
+            "sigma_update_profile_v2",
+            UpdateChatProfileV2RpcParams(
                 firstName = firstName.trim(),
                 lastName = lastName.trim(),
                 username = username.trim().lowercase()
@@ -67,7 +73,7 @@ class ChatProfileRepository @Inject constructor(
     }
 
     suspend fun uploadAvatar(bytes: ByteArray, extension: String): Result<ChatProfile> = runCatching {
-        ensureIdentityRegistered()
+        ensureAccountDeviceRegistered()
         require(bytes.isNotEmpty()) { "AVATAR_EMPTY" }
         require(bytes.size <= 5 * 1024 * 1024) { "AVATAR_TOO_LARGE" }
 
@@ -77,55 +83,54 @@ class ChatProfileRepository @Inject constructor(
         val userId = auth.currentUserOrNull()?.id ?: error("AUTH_REQUIRED")
         val path = "$userId/avatar_${System.currentTimeMillis()}.$safeExtension"
 
-        // Use a fresh object path so an avatar change is always an INSERT.
-        // This avoids an UPDATE request that can hit Storage RLS during upsert.
         supabase.storage["chat_avatars"].upload(path, bytes, upsert = false)
-
         supabase.postgrest.rpc(
             "sigma_update_avatar",
             UpdateChatAvatarRpcParams(path)
-        ).decodeList<ChatProfile>().firstOrNull()
-            ?: error("Avatar update returned no profile.")
+        ).decodeList<ChatProfile>()
+
+        getMyProfile().getOrThrow() ?: error("Avatar update returned no profile.")
     }
 
     suspend fun searchUsers(query: String): Result<List<ChatProfile>> = runCatching {
-        ensureIdentityRegistered()
+        ensureAccountDeviceRegistered()
         supabase.postgrest.rpc(
-            "sigma_search_users",
+            "sigma_search_users_v2",
             SearchChatUsersRpcParams(query.trim().lowercase())
         ).decodeList<ChatProfile>()
     }
 
-    /** Register this installation/device independently of searching for someone. */
+    suspend fun getMyConversations(): Result<List<SupabaseConversationV2Row>> = runCatching {
+        ensureAccountDeviceRegistered()
+        supabase.postgrest.rpc("sigma_get_my_conversations_v2")
+            .decodeList<SupabaseConversationV2Row>()
+    }
+
+    suspend fun ensureConversationWithUser(partnerUserId: String): Result<String> = runCatching {
+        ensureAccountDeviceRegistered()
+        supabase.postgrest.rpc(
+            "sigma_ensure_conversation_v2",
+            EnsureConversationV2RpcParams(partnerUserId)
+        ).decodeAs<String>()
+    }
+
+    suspend fun ensureAccountDeviceRegistered(): RegisterAccountDeviceRpcResult {
+        sessionManager.ensureAuthenticatedSession().getOrThrow()
+
+        val result = supabase.postgrest.rpc(
+            "sigma_register_account_device_v2",
+            RegisterAccountDeviceRpcParams(
+                devicePublicId = identity.devicePublicId,
+                identityPublicKey = identity.legacyIdentityKey
+            )
+        ).decodeList<RegisterAccountDeviceRpcResult>().firstOrNull()
+            ?: error("Supabase account device registration returned no device.")
+
+        identity.syncDeviceRole(result.deviceRole)
+        return result
+    }
+
     suspend fun ensureIdentityRegistered() {
-        sessionManager.ensureAuthenticatedSession()
-            .getOrThrow()
-
-        for (attempt in 0 until 2) {
-            try {
-                val result = supabase.postgrest.rpc(
-                    "sigma_register_device",
-                    RegisterDeviceRpcParams(
-                        publicId = identity.myId,
-                        devicePublicId = identity.devicePublicId,
-                        identityPublicKey = identity.legacyIdentityKey
-                    )
-                ).decodeList<RegisterDeviceRpcResult>().firstOrNull()
-                    ?: error("Supabase device registration returned no device.")
-
-                identity.syncMyId(result.publicId)
-                return
-            } catch (error: Throwable) {
-                val isPublicIdConflict = error.message
-                    ?.contains("PUBLIC_ID_ALREADY_IN_USE", ignoreCase = true) == true
-                if (attempt == 0 && isPublicIdConflict) {
-                    identity.regenerateMyId()
-                    continue
-                }
-                throw error
-            }
-        }
-
-        error("Supabase identity registration failed after recovery.")
+        ensureAccountDeviceRegistered()
     }
 }
