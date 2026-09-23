@@ -85,3 +85,56 @@ data class SupabaseReceiptRow(
     @SerialName("delivered_at") val deliveredAt: String? = null,
     @SerialName("read_at") val readAt: String? = null
 )
+
+ 
+@Serializable
+data class EnsureConversationV2RpcParams(
+    @SerialName("p_partner_user_id") val partnerUserId: String
+)
+
+@Serializable
+data class SendMessageV2RpcParams(
+    @SerialName("p_conversation_id") val conversationId: String,
+    @SerialName("p_client_message_id") val clientMessageId: String,
+    @SerialName("p_sender_device_id") val senderDeviceId: String,
+    @SerialName("p_ciphertext") val ciphertext: String,
+    @SerialName("p_nonce") val nonce: String,
+    @SerialName("p_message_version") val messageVersion: Int = 1
+)
+
+@Serializable
+data class SupabaseUndeliveredMessageV2Row(
+    @SerialName("message_id") val messageId: String,
+    @SerialName("conversation_id") val conversationId: String,
+    @SerialName("sender_user_id") val senderUserId: String,
+    @SerialName("client_message_id") val clientMessageId: String,
+    @SerialName("sequence_number") val sequenceNumber: Long,
+    @SerialName("ciphertext") val ciphertext: String,
+    @SerialName("nonce") val nonce: String,
+    @SerialName("message_version") val messageVersion: Int,
+    @SerialName("created_at") val createdAt: String,
+    @SerialName("server_received_at") val serverReceivedAt: String
+)
+
+@Serializable
+data class TranslationJobRpcResultV2(
+    @SerialName("job_id") val jobId: String,
+    @SerialName("client_message_id") val clientMessageId: String,
+    @SerialName("conversation_id") val conversationId: String,
+    @SerialName("peer_user_id") val peerUserId: String,
+    @SerialName("target_language") val targetLanguage: String,
+    @SerialName("ciphertext") val ciphertext: String,
+    @SerialName("nonce") val nonce: String,
+    @SerialName("message_version") val messageVersion: Int
+)
+
+@Serializable
+data class GetChatReactionsV2RpcParams(
+    @SerialName("p_conversation_id") val conversationId: String
+)
+
+@Serializable
+data class GetReactionContextV2RpcParams(
+    @SerialName("p_message_id") val messageId: String,
+    @SerialName("p_user_id") val userId: String
+)
