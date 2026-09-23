@@ -361,7 +361,7 @@ begin
         (v_conversation_id, v_my_user_id, null),
         (v_conversation_id, p_partner_user_id, null)
     on conflict (conversation_id, user_id)
-    do update set device_id = null;
+    do nothing;
 
     return v_conversation_id;
 end;
