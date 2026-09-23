@@ -93,6 +93,7 @@ class ChatViewModel @Inject constructor(
         }
         identity.partnerId = normalizedPartner
         identity.selectedConversationId = normalizedConversation
+        identity.selectedConversationOwnerUserId = sessionManager.currentUserId().orEmpty()
         _partnerId.value = normalizedPartner
         disconnect()
         connect()
@@ -102,6 +103,7 @@ class ChatViewModel @Inject constructor(
         val normalized = value.trim()
         identity.partnerId = normalized
         identity.selectedConversationId = ""
+        identity.selectedConversationOwnerUserId = if (normalized.isBlank()) "" else sessionManager.currentUserId().orEmpty()
         _partnerId.value = normalized
         disconnect()
         if (normalized.isNotBlank()) connect()
