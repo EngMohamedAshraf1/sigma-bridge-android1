@@ -148,11 +148,12 @@ class ChatNotificationService : Service() {
                 ?.displayName
                 ?.takeIf { it.isNotBlank() }
             ?: partnerUserId
+        val keyMaterial = supabaseChatRepository.getConversationKeyV2(historyKey).getOrNull()
+            ?: return
         val decrypted = runCatching {
-            chatCrypto.decryptMessageForAccountPair(
+            chatCrypto.decryptMessageForConversationKey(
                 row.ciphertext,
-                ownUserId,
-                partnerUserId
+                keyMaterial
             )
         }.getOrNull() ?: return
         val createdAt = parseTimestamp(row.createdAt)
