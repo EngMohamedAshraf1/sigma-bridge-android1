@@ -142,7 +142,7 @@ class ChatViewModel @Inject constructor(
                 text = message.originalText,
                 clientMessageId = message.id,
                 target = target,
-                peerUserId = identity.partnerId
+                conversationId = identity.selectedConversationId
             )
 
             val translated = result.fold(
