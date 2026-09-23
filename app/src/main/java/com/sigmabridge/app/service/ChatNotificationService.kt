@@ -323,7 +323,7 @@ class ChatNotificationService : Service() {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
             putExtra(MainActivity.EXTRA_OPEN_PRIVATE_CHAT, true)
             putExtra(MainActivity.EXTRA_OPEN_PRIVATE_CHAT_CONVERSATION_ID, conversationId)
-            putExtra(MainActivity.EXTRA_OPEN_PRIVATE_CHAT_PARTNER_ID, partnerId)
+            putExtra(MainActivity.EXTRA_OPEN_PRIVATE_CHAT_PARTNER_ID, partnerUserId)
         }
         val pendingIntent = PendingIntent.getActivity(
             this,
