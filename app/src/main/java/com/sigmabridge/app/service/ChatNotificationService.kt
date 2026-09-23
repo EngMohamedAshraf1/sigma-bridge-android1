@@ -23,7 +23,7 @@ import com.sigmabridge.app.data.chat.ChatOutboxStore
 import com.sigmabridge.app.data.chat.ChatProfileRepository
 import com.sigmabridge.app.data.chat.ChatUnreadStore
 import com.sigmabridge.app.data.chat.SupabaseChatRepository
-import com.sigmabridge.app.data.chat.SupabaseUndeliveredMessageRow
+import com.sigmabridge.app.data.chat.SupabaseUndeliveredMessageV2Row
 import com.sigmabridge.app.domain.chat.ChatConversation
 import com.sigmabridge.app.domain.chat.ChatEvent
 import com.sigmabridge.app.domain.chat.ChatMessage
