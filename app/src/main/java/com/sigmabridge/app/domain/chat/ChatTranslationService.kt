@@ -89,7 +89,9 @@ class ChatTranslationService @Inject constructor(
      * The Gemini keys themselves stay local to this installation.
      */
     suspend fun processPendingRemoteTranslationJobs() {
-        if (!identity.isPrimaryDevice || !geminiRepository.hasConfiguredKeys()) return
+        // Local Gemini keys are the functional capability. The server role is metadata
+        // and must not block an existing primary installation from translating.
+        if (!geminiRepository.hasConfiguredKeys()) return
 
         val localUserId = sessionManager.ensureAuthenticatedSession()
             .getOrThrow()
