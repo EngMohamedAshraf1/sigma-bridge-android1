@@ -96,6 +96,8 @@ fun ChatScreen(
     onBack: () -> Unit,
     darkTheme: Boolean,
     onToggleTheme: () -> Unit,
+    initialConversationId: String? = null,
+    initialPartnerId: String? = null,
     viewModel: ChatViewModel = hiltViewModel(),
     alternativeViewModel: ChatAlternativeTranslationViewModel = hiltViewModel(),
     reactionViewModel: ChatReactionViewModel = hiltViewModel()
@@ -130,6 +132,14 @@ fun ChatScreen(
 
     val swipeThresholdPx = remember(density) { with(density) { 72.dp.toPx() } }
     val notificationPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+
+    LaunchedEffect(initialConversationId, initialPartnerId) {
+        val conversationId = initialConversationId?.trim().orEmpty()
+        val partnerId = initialPartnerId?.trim().orEmpty()
+        if (conversationId.isNotBlank() && partnerId.isNotBlank()) {
+            viewModel.setConversationContext(partnerId, conversationId)
+        }
+    }
 
     LaunchedEffect(Unit) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
