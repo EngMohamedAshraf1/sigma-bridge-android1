@@ -284,7 +284,7 @@ private fun ChatConversationsContent(
             onDismiss = { showNewChat = false },
             onSearch = viewModel::searchUsers,
             onSelect = { person ->
-                if (viewModel.addProfileToConversation(person)) {
+                viewModel.addProfileToConversation(person) {
                     showNewChat = false
                     onOpenChat()
                 }
