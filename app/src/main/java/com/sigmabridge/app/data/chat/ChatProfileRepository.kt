@@ -32,9 +32,14 @@ class ChatProfileRepository @Inject constructor(
         ).decodeList<ChatProfile>().firstOrNull()
     }
 
-    /** Legacy public-ID lookup is intentionally no longer part of the v2 flow. */
-    suspend fun getProfileByPublicId(publicId: String): Result<ChatProfile?> =
-        Result.failure(IllegalStateException("LEGACY_PUBLIC_ID_LOOKUP_DISABLED"))
+    /** Compatibility path for older Private Chat callers; the new UI uses Auth UUIDs. */
+    suspend fun getProfileByPublicId(publicId: String): Result<ChatProfile?> = runCatching {
+        ensureAccountDeviceRegistered()
+        supabase.postgrest.rpc(
+            "sigma_get_profile_by_public_id",
+            GetChatProfileByPublicIdRpcParams(publicId.trim())
+        ).decodeList<ChatProfile>().firstOrNull()
+    }
 
     suspend fun getLastSeenByUserId(userId: String): Result<Long?> = runCatching {
         ensureAccountDeviceRegistered()
@@ -44,8 +49,14 @@ class ChatProfileRepository @Inject constructor(
         ).decodeList<ChatLastSeenRpcResponse>().firstOrNull()?.lastSeenAt
     }
 
-    suspend fun getLastSeenByPublicId(publicId: String): Result<Long?> =
-        Result.failure(IllegalStateException("LEGACY_PUBLIC_ID_LOOKUP_DISABLED"))
+    /** Compatibility path for older Private Chat callers; the new UI uses Auth UUIDs. */
+    suspend fun getLastSeenByPublicId(publicId: String): Result<Long?> = runCatching {
+        ensureAccountDeviceRegistered()
+        supabase.postgrest.rpc(
+            "sigma_get_last_seen",
+            GetLastSeenByPublicIdRpcParams(publicId.trim())
+        ).decodeList<ChatLastSeenRpcResponse>().firstOrNull()?.lastSeenAt
+    }
 
     suspend fun touchMyLastSeen(): Result<Long?> = runCatching {
         ensureAccountDeviceRegistered()
