@@ -5,8 +5,11 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -24,6 +27,7 @@ fun UpdateBanner(
     downloading: Boolean,
     installing: Boolean,
     onUpdateClick: () -> Unit,
+    onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Surface(
@@ -45,6 +49,12 @@ fun UpdateBanner(
                 modifier = Modifier.weight(1f),
                 style = MaterialTheme.typography.bodyMedium
             )
+            IconButton(onClick = onDismiss) {
+                androidx.compose.material3.Icon(
+                    imageVector = Icons.Filled.Close,
+                    contentDescription = stringResource(R.string.chat_close)
+                )
+            }
             Button(
                 onClick = onUpdateClick,
                 enabled = !downloading && !installing,
