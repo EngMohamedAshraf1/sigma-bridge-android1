@@ -55,6 +55,11 @@ class ChatIdentity @Inject constructor(
         get() = preferences.getString(KEY_CONVERSATION_ID, "").orEmpty()
         set(value) { preferences.edit().putString(KEY_CONVERSATION_ID, value.trim()).apply() }
 
+    /** Auth account that owns the current local selection; prevents cross-account stale selection. */
+    var selectedConversationOwnerUserId: String
+        get() = preferences.getString(KEY_CONVERSATION_OWNER_USER_ID, "").orEmpty()
+        set(value) { preferences.edit().putString(KEY_CONVERSATION_OWNER_USER_ID, value.trim()).apply() }
+
     /** Server-side device role. Credentials themselves are never synchronized. */
     var deviceRole: String
         get() = preferences.getString(KEY_DEVICE_ROLE, "SECONDARY").orEmpty()
@@ -156,6 +161,7 @@ class ChatIdentity @Inject constructor(
         const val KEY_MY_ID = "my_id"
         const val KEY_PARTNER_ID = "partner_id"
         const val KEY_CONVERSATION_ID = "conversation_id"
+        const val KEY_CONVERSATION_OWNER_USER_ID = "conversation_owner_user_id"
         const val KEY_DEVICE_ID = "device_public_id"
         const val KEY_DEVICE_ROLE = "device_role"
     }
