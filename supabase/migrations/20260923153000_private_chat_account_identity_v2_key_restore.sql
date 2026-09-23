@@ -38,7 +38,7 @@ begin
 
     if v_conversation_id is not null then
         insert into public.conversation_keys (conversation_id, key_material)
-        values (v_conversation_id, encode(gen_random_bytes(32), 'hex'))
+        values (v_conversation_id, encode(extensions.gen_random_bytes(32), 'hex'))
         on conflict (conversation_id) do nothing;
         update public.conversations set updated_at = now() where id = v_conversation_id;
         return v_conversation_id;
@@ -65,7 +65,7 @@ begin
     on conflict (conversation_id, user_id) do nothing;
 
     insert into public.conversation_keys (conversation_id, key_material)
-    values (v_conversation_id, encode(gen_random_bytes(32), 'hex'))
+    values (v_conversation_id, encode(extensions.gen_random_bytes(32), 'hex'))
     on conflict (conversation_id) do nothing;
 
     return v_conversation_id;
