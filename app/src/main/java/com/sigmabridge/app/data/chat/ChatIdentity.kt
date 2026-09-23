@@ -41,9 +41,30 @@ class ChatIdentity @Inject constructor(
     val legacyIdentityKey: String
         get() = "legacy-id-key-v1:${sha256(myId)}"
 
+    /** Selected partner account (Supabase Auth UUID) for the currently open chat. */
     var partnerId: String
         get() = preferences.getString(KEY_PARTNER_ID, "").orEmpty()
         set(value) { preferences.edit().putString(KEY_PARTNER_ID, value.trim()).apply() }
+
+    /** Durable cloud conversation selected by the UI. */
+    var selectedConversationId: String
+        get() = preferences.getString(KEY_CONVERSATION_ID, "").orEmpty()
+        set(value) { preferences.edit().putString(KEY_CONVERSATION_ID, value.trim()).apply() }
+
+    /** Server-side device role. Credentials themselves are never synchronized. */
+    var deviceRole: String
+        get() = preferences.getString(KEY_DEVICE_ROLE, "SECONDARY").orEmpty()
+        set(value) { preferences.edit().putString(KEY_DEVICE_ROLE, value.trim().uppercase()).apply() }
+
+    val isPrimaryDevice: Boolean
+        get() = deviceRole == "PRIMARY"
+
+    fun syncDeviceRole(role: String) {
+        val normalized = role.trim().uppercase()
+        if (normalized == "PRIMARY" || normalized == "SECONDARY") {
+            deviceRole = normalized
+        }
+    }
 
     fun conversationTopic(): String {
         val partner = partnerId
@@ -130,6 +151,8 @@ class ChatIdentity @Inject constructor(
         const val PREFS_NAME = "sigma_bridge_chat_identity"
         const val KEY_MY_ID = "my_id"
         const val KEY_PARTNER_ID = "partner_id"
+        const val KEY_CONVERSATION_ID = "conversation_id"
         const val KEY_DEVICE_ID = "device_public_id"
+        const val KEY_DEVICE_ROLE = "device_role"
     }
 }
