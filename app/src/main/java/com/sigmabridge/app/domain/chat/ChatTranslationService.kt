@@ -2,8 +2,10 @@ package com.sigmabridge.app.domain.chat
 
 import com.sigmabridge.app.data.chat.ChatCrypto
 import com.sigmabridge.app.data.chat.ChatGeminiTranslationRepository
+import com.sigmabridge.app.data.chat.ChatIdentity
 import com.sigmabridge.app.data.chat.ChatLanguagePreferences
 import com.sigmabridge.app.data.chat.ChatTranslationRelayRepository
+import com.sigmabridge.app.data.chat.SupabaseSessionManager
 import com.sigmabridge.app.domain.language.LanguageCatalog
 import com.sigmabridge.app.domain.model.Language
 import com.sigmabridge.app.domain.model.LanguagePair
@@ -15,15 +17,17 @@ import javax.inject.Singleton
  *
  * A device with local Chat Gemini keys is the primary translation worker.
  * A device without keys requests translation through Supabase and waits for
- * the encrypted result. Telegram has its own translation runtime and does
- * not use this class.
+ * the encrypted result. Telegram has its own translation runtime and does not
+ * use this class.
  */
 @Singleton
 class ChatTranslationService @Inject constructor(
     private val geminiRepository: ChatGeminiTranslationRepository,
     private val languagePreferences: ChatLanguagePreferences,
     private val relayRepository: ChatTranslationRelayRepository,
-    private val crypto: ChatCrypto
+    private val crypto: ChatCrypto,
+    private val sessionManager: SupabaseSessionManager,
+    private val identity: ChatIdentity
 ) {
     fun targetLanguage(): Language = languagePreferences.getTargetLanguage()
 
@@ -31,18 +35,18 @@ class ChatTranslationService @Inject constructor(
         LanguageCatalog.findByCode(code)?.let(languagePreferences::setTargetLanguage)
     }
 
-    suspend fun translateIncoming(text: String, clientMessageId: String): Result<String> =
-        translateIncomingTo(text, clientMessageId, languagePreferences.getTargetLanguage())
+    suspend fun translateIncoming(
+        text: String,
+        clientMessageId: String,
+        peerUserId: String
+    ): Result<String> =
+        translateIncomingTo(text, clientMessageId, languagePreferences.getTargetLanguage(), peerUserId)
 
-    /**
-     * Translate using an explicit target captured by the caller. This prevents
-     * a target-language change while a request is running from changing the
-     * meaning of the request that was already started.
-     */
     suspend fun translateIncomingTo(
         text: String,
         clientMessageId: String,
-        target: Language
+        target: Language,
+        peerUserId: String
     ): Result<String> {
         val sourceCode = detectSimpleLanguage(text)
             ?: return Result.success(text)
@@ -55,7 +59,13 @@ class ChatTranslationService @Inject constructor(
             translateLocally(text, sourceCode, target)
         } else {
             relayRepository.requestTranslation(clientMessageId, target.code).fold(
-                onSuccess = { relayRepository.awaitTranslation(clientMessageId, target.code) },
+                onSuccess = {
+                    relayRepository.awaitTranslation(
+                        clientMessageId,
+                        target.code,
+                        peerUserId
+                    )
+                },
                 onFailure = { Result.failure(it) }
             )
         }
@@ -75,21 +85,34 @@ class ChatTranslationService @Inject constructor(
     }
 
     /**
-     * Primary-device worker. Secondary devices return immediately because they
-     * do not have local Chat Gemini keys.
+     * Primary-device worker. Role metadata and local key presence are both checked.
+     * The Gemini keys themselves stay local to this installation.
      */
     suspend fun processPendingRemoteTranslationJobs() {
-        if (!geminiRepository.hasConfiguredKeys()) return
+        if (!identity.isPrimaryDevice || !geminiRepository.hasConfiguredKeys()) return
 
-        relayRepository.claimJobs().forEach { job ->
+        val localUserId = sessionManager.ensureAuthenticatedSession()
+            .getOrThrow()
+            .user?.id
+            ?: return
+
+        relayRepository.claimJobsV2().forEach { job ->
             runCatching {
-                val sourceText = crypto.decrypt(job.ciphertext)
+                val sourceText = crypto.decryptForAccountPair(
+                    job.ciphertext,
+                    localUserId,
+                    job.peerUserId
+                )
                 val sourceCode = detectSimpleLanguage(sourceText)
                     ?: error("Unsupported source language")
                 val target = LanguageCatalog.findByCode(job.targetLanguage)
                     ?: error("Unsupported target language")
                 val translated = translateLocally(sourceText, sourceCode, target).getOrThrow()
-                relayRepository.completeJob(job.jobId, translated).getOrThrow()
+                relayRepository.completeJob(
+                    job.jobId,
+                    translated,
+                    job.peerUserId
+                ).getOrThrow()
             }.onFailure { error ->
                 relayRepository.failJob(job.jobId, error)
             }
@@ -108,7 +131,6 @@ class ChatTranslationService @Inject constructor(
         )
     }
 
-    /** Lightweight script detection for chat; no extra network/model call. */
     private fun detectSimpleLanguage(text: String): String? {
         var arabic = 0
         var cyrillic = 0
@@ -116,8 +138,8 @@ class ChatTranslationService @Inject constructor(
 
         text.forEach { ch ->
             when {
-                ch in '\u0600'..'\u06FF' || ch in '\u0750'..'\u077F' || ch in '\u08A0'..'\u08FF' -> arabic++
-                ch in '\u0400'..'\u04FF' -> cyrillic++
+                ch in '؀'..'ۿ' || ch in 'ݐ'..'ݿ' || ch in 'ࢠ'..'ࣿ' -> arabic++
+                ch in 'Ѐ'..'ӿ' -> cyrillic++
                 ch in 'A'..'Z' || ch in 'a'..'z' -> latin++
             }
         }
