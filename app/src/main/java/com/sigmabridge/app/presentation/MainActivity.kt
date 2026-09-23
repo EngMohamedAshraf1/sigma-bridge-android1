@@ -52,6 +52,8 @@ class MainActivity : ComponentActivity() {
                     SigmaBridgeNavGraph(
                         modifier = Modifier.fillMaxSize(),
                         openPrivateChat = intent?.getBooleanExtra(EXTRA_OPEN_PRIVATE_CHAT, false) == true,
+                        openPrivateChatConversationId = intent?.getStringExtra(EXTRA_OPEN_PRIVATE_CHAT_CONVERSATION_ID),
+                        openPrivateChatPartnerId = intent?.getStringExtra(EXTRA_OPEN_PRIVATE_CHAT_PARTNER_ID),
                         darkTheme = darkTheme,
                         onToggleTheme = {
                             darkTheme = !darkTheme
@@ -80,6 +82,8 @@ class MainActivity : ComponentActivity() {
 
     companion object {
         const val EXTRA_OPEN_PRIVATE_CHAT = "open_private_chat"
+        const val EXTRA_OPEN_PRIVATE_CHAT_CONVERSATION_ID = "open_private_chat_conversation_id"
+        const val EXTRA_OPEN_PRIVATE_CHAT_PARTNER_ID = "open_private_chat_partner_id"
         private const val PREFERENCES_NAME = "sigma_bridge_preferences"
         private const val DARK_THEME_KEY = "dark_theme"
     }
