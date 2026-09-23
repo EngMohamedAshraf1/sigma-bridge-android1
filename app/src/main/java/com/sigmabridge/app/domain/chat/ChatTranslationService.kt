@@ -2,7 +2,6 @@ package com.sigmabridge.app.domain.chat
 
 import com.sigmabridge.app.data.chat.ChatCrypto
 import com.sigmabridge.app.data.chat.ChatGeminiTranslationRepository
-import com.sigmabridge.app.data.chat.ChatIdentity
 import com.sigmabridge.app.data.chat.ChatLanguagePreferences
 import com.sigmabridge.app.data.chat.ChatTranslationRelayRepository
 import com.sigmabridge.app.data.chat.SupabaseSessionManager
@@ -26,8 +25,7 @@ class ChatTranslationService @Inject constructor(
     private val languagePreferences: ChatLanguagePreferences,
     private val relayRepository: ChatTranslationRelayRepository,
     private val crypto: ChatCrypto,
-    private val sessionManager: SupabaseSessionManager,
-    private val identity: ChatIdentity
+    private val sessionManager: SupabaseSessionManager
 ) {
     fun targetLanguage(): Language = languagePreferences.getTargetLanguage()
 
