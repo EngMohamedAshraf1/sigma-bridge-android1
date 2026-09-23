@@ -83,6 +83,21 @@ class ChatViewModel @Inject constructor(
         _translationTargetLanguage.value = language
     }
 
+    /** Select an account-level conversation, including notification deep links. */
+    fun setConversationContext(partnerUserId: String, conversationId: String) {
+        val normalizedPartner = partnerUserId.trim()
+        val normalizedConversation = conversationId.trim()
+        if (normalizedPartner.isBlank() || normalizedConversation.isBlank()) {
+            _error.value = "Invalid conversation context."
+            return
+        }
+        identity.partnerId = normalizedPartner
+        identity.selectedConversationId = normalizedConversation
+        _partnerId.value = normalizedPartner
+        disconnect()
+        connect()
+    }
+
     fun setPartnerId(value: String) {
         val normalized = value.trim()
         identity.partnerId = normalized
