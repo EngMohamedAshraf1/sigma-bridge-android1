@@ -32,6 +32,16 @@ data class SearchChatUsersRpcParams(
 )
 
 @Serializable
+data class GetChatProfileByPublicIdRpcParams(
+    @SerialName("p_public_id") val publicId: String
+)
+
+@Serializable
+data class GetLastSeenByPublicIdRpcParams(
+    @SerialName("p_public_id") val publicId: String
+)
+
+@Serializable
 data class GetChatProfileByUserIdRpcParams(
     @SerialName("p_user_id") val userId: String
 )
