@@ -22,7 +22,9 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -236,7 +238,9 @@ class SupabaseChatRepository @Inject constructor(
                 awaitCancellation()
                 collectorJob.cancel()
             } finally {
-                supabase.realtime.removeChannel(channel)
+                withContext(NonCancellable) {
+                    supabase.realtime.removeChannel(channel)
+                }
             }
         }
     }
@@ -260,14 +264,18 @@ class SupabaseChatRepository @Inject constructor(
             val knownMessageIds = mutableSetOf<String>()
             val serverMessageIdToClientId = mutableMapOf<String, String>()
             var lastSequence = 0L
+            val realtimeStateMutex = Mutex()
 
             suspend fun emitMessageRow(row: SupabaseMessageRow) {
                 if (!isActive || row.conversationId != conversationId) return
 
-                lastSequence = maxOf(lastSequence, row.sequenceNumber)
-                serverMessageIdToClientId[row.id] = row.clientMessageId
+                val shouldEmit = realtimeStateMutex.withLock {
+                    lastSequence = maxOf(lastSequence, row.sequenceNumber)
+                    serverMessageIdToClientId[row.id] = row.clientMessageId
+                    knownMessageIds.add(row.id)
+                }
 
-                if (!knownMessageIds.add(row.id)) return
+                if (!shouldEmit || !isActive) return
 
                 val decrypted = runCatching { crypto.decryptMessage(row.ciphertext) }.getOrNull() ?: return
                 decrypted.replyToMessageId?.let { replyStore.setReplyTo(row.clientMessageId, it) }
@@ -294,10 +302,16 @@ class SupabaseChatRepository @Inject constructor(
             }
 
             suspend fun fetchMessages(initial: Boolean) {
+                val sequenceCutoff = if (initial) {
+                    0L
+                } else {
+                    realtimeStateMutex.withLock { lastSequence }
+                }
+
                 val rows = supabase.postgrest.from("messages").select {
                     filter {
                         eq("conversation_id", conversationId)
-                        if (!initial) gt("sequence_number", lastSequence)
+                        if (!initial) gt("sequence_number", sequenceCutoff)
                     }
                 }.decodeList<SupabaseMessageRow>().sortedBy { it.sequenceNumber }
 
@@ -307,7 +321,11 @@ class SupabaseChatRepository @Inject constructor(
             suspend fun emitReceiptRow(row: SupabaseReceiptRow) {
                 if (!isActive || row.userId == preparedUserId) return
 
-                val clientMessageId = serverMessageIdToClientId[row.messageId]
+                val knownClientMessageId = realtimeStateMutex.withLock {
+                    serverMessageIdToClientId[row.messageId]
+                }
+
+                val clientMessageId = knownClientMessageId
                     ?: supabase.postgrest
                         .from("messages")
                         .select {
@@ -317,8 +335,12 @@ class SupabaseChatRepository @Inject constructor(
                             }
                         }
                         .decodeSingleOrNull<SupabaseMessageRow>()
-                        ?.also { serverMessageIdToClientId[it.id] = it.clientMessageId }
-                        ?.clientMessageId
+                        ?.let { message ->
+                            realtimeStateMutex.withLock {
+                                serverMessageIdToClientId[message.id] = message.clientMessageId
+                            }
+                            message.clientMessageId
+                        }
                     ?: return
 
                 if (row.readAt != null) {
@@ -355,7 +377,9 @@ class SupabaseChatRepository @Inject constructor(
                     .decodeList<SupabaseReceiptRow>()
 
                 rows.forEach { row ->
-                    val knownMessageId = serverMessageIdToClientId[row.messageId]
+                    val knownMessageId = realtimeStateMutex.withLock {
+                        serverMessageIdToClientId[row.messageId]
+                    }
                     if (knownMessageId != null) {
                         emitReceiptRow(row)
                     }
@@ -433,7 +457,9 @@ class SupabaseChatRepository @Inject constructor(
 
                 awaitCancellation()
             } finally {
-                supabase.realtime.removeChannel(channel)
+                withContext(NonCancellable) {
+                    supabase.realtime.removeChannel(channel)
+                }
             }
         }
     }

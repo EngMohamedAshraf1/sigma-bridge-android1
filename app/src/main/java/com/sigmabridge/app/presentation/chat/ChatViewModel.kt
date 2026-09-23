@@ -65,6 +65,7 @@ class ChatViewModel @Inject constructor(
     private var currentHistoryKey: String? = null
     private var statusSyncJob: Job? = null
     private var presenceSyncJob: Job? = null
+    private var chatEventsJob: Job? = null
     private val readReceiptSentIds = mutableSetOf<String>()
 
     init { if (_partnerId.value.isNotBlank()) connect() }
@@ -164,6 +165,8 @@ class ChatViewModel @Inject constructor(
         if (currentTopic == topic && _connected.value) return
         statusSyncJob?.cancel()
         presenceSyncJob?.cancel()
+        chatEventsJob?.cancel()
+        chatEventsJob = null
         readReceiptSentIds.clear()
         currentTopic = topic
         currentHistoryKey = identity.conversationKey().joinToString("") { "%02x".format(it) }
@@ -223,7 +226,7 @@ class ChatViewModel @Inject constructor(
 
         markVisibleMessagesRead()
 
-        viewModelScope.launch {
+        chatEventsJob = viewModelScope.launch {
             runCatching {
                 chatRepository.observeEvents(topic, ownSenderId).collect { event ->
                     when (event) {
@@ -448,6 +451,8 @@ class ChatViewModel @Inject constructor(
         statusSyncJob = null
         presenceSyncJob?.cancel()
         presenceSyncJob = null
+        chatEventsJob?.cancel()
+        chatEventsJob = null
         currentTopic = null
         currentHistoryKey = null
         _connected.value = false
