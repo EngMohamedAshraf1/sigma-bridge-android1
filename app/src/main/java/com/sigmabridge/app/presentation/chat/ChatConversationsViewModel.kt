@@ -3,6 +3,7 @@ package com.sigmabridge.app.presentation.chat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.sigmabridge.app.data.chat.ChatConversationStore
+import com.sigmabridge.app.data.chat.ChatConversationKeyStore
 import com.sigmabridge.app.data.chat.ChatCrypto
 import com.sigmabridge.app.data.chat.ChatHistoryStore
 import com.sigmabridge.app.data.chat.ChatIdentity
@@ -27,6 +28,7 @@ class ChatConversationsViewModel @Inject constructor(
     private val identity: ChatIdentity,
     private val profileRepository: ChatProfileRepository,
     private val crypto: ChatCrypto,
+    private val conversationKeyStore: ChatConversationKeyStore,
     private val sessionManager: SupabaseSessionManager,
     private val languagePreferences: ChatLanguagePreferences
 ) : ViewModel() {
@@ -85,6 +87,15 @@ class ChatConversationsViewModel @Inject constructor(
                 val rows = profileRepository.getMyConversations().getOrThrow()
                 val ownUserId = sessionManager.currentUserId() ?: error("AUTH_REQUIRED")
 
+                conversationKeyStore.putAll(
+                    rows.mapNotNull { row ->
+                        row.conversationKeyMaterial
+                            ?.trim()
+                            ?.takeIf { it.isNotBlank() }
+                            ?.let { row.conversationId to it }
+                    }.toMap()
+                )
+
                 rows.map { row ->
                     val displayName = listOf(
                         row.partnerFirstName.trim(),
@@ -93,13 +104,19 @@ class ChatConversationsViewModel @Inject constructor(
                         .ifBlank { row.partnerUsername.ifBlank { "Private Chat" }.let { "@$it" } }
 
                     val preview = if (row.lastCiphertext?.startsWith("sb3:") == true) {
-                        runCatching {
-                            crypto.decryptForAccountPair(
-                                row.lastCiphertext,
-                                ownUserId,
-                                row.partnerUserId
-                            )
-                        }.getOrDefault("")
+                        val keyMaterial = row.conversationKeyMaterial
+                            ?.takeIf { it.isNotBlank() }
+                            ?: conversationKeyStore.get(row.conversationId)
+                        if (keyMaterial != null) {
+                            runCatching {
+                                crypto.decryptForConversationKey(
+                                    row.lastCiphertext,
+                                    keyMaterial
+                                )
+                            }.getOrDefault("")
+                        } else {
+                            ""
+                        }
                     } else {
                         ""
                     }
