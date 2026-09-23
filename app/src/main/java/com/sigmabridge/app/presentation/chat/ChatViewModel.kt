@@ -298,7 +298,7 @@ class ChatViewModel @Inject constructor(
                                     originalMessage.originalText,
                                     originalMessage.id,
                                     targetLanguage,
-                                    partner
+                                    topic
                                 )
 
                                 val translationResult = translated.fold(
