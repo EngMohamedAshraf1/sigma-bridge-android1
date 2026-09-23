@@ -82,6 +82,7 @@ data class SupabaseConversationV2Row(
     @SerialName("partner_last_name") val partnerLastName: String = "",
     @SerialName("partner_username") val partnerUsername: String = "",
     @SerialName("partner_avatar_path") val partnerAvatarPath: String? = null,
+    @SerialName("conversation_key_material") val conversationKeyMaterial: String? = null,
     @SerialName("last_client_message_id") val lastClientMessageId: String? = null,
     @SerialName("last_sender_user_id") val lastSenderUserId: String? = null,
     @SerialName("last_ciphertext") val lastCiphertext: String? = null,
