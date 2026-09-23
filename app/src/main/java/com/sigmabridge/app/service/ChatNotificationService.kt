@@ -163,12 +163,23 @@ class ChatNotificationService : Service() {
 
             val existingConversation = conversationStore.load()
                 .firstOrNull { it.conversationId == historyKey }
+            val displayName = existingConversation?.displayName
+                ?.takeIf { it.isNotBlank() }
+                ?: chatProfileRepository.getProfileByUserId(partnerUserId)
+                    .getOrNull()
+                    ?.displayName
+                    ?.takeIf { it.isNotBlank() }
+                ?: partnerUserId
             conversationStore.upsert(
-                existingConversation?.copy(lastMessage = decrypted.text, lastMessageAt = createdAt)
+                existingConversation?.copy(
+                    displayName = displayName,
+                    lastMessage = decrypted.text,
+                    lastMessageAt = createdAt
+                )
                     ?: ChatConversation(
                         conversationId = historyKey,
                         partnerId = partnerUserId,
-                        displayName = partnerUserId,
+                        displayName = displayName,
                         lastMessage = decrypted.text,
                         lastMessageAt = createdAt
                     )
@@ -302,7 +313,7 @@ class ChatNotificationService : Service() {
         }
     }
 
-    private fun postMessageNotification(partnerId: String, conversationId: String, messageId: String, messageText: String): Boolean {
+    private fun postMessageNotification(displayName: String, conversationId: String, messageId: String, messageText: String): Boolean {
         if (checkSelfPermissionCompat(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return false
 
         val openChatIntent = Intent(this, MainActivity::class.java).apply {
@@ -321,7 +332,7 @@ class ChatNotificationService : Service() {
         val preview = messageText.replace(Regex("\\s+"), " ").trim().take(120)
         val notification = NotificationCompat.Builder(this, CHAT_CHANNEL_ID)
             .setSmallIcon(com.sigmabridge.app.R.drawable.ic_stat_sigma_bridge)
-            .setContentTitle("Sigma Bridge • $partnerId")
+            .setContentTitle("Sigma Bridge • $displayName")
             .setContentText(preview.ifBlank { "New message" })
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
