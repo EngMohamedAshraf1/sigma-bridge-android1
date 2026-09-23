@@ -41,6 +41,10 @@ class ChatIdentity @Inject constructor(
     val legacyIdentityKey: String
         get() = "legacy-id-key-v1:${sha256(myId)}"
 
+    /** Device-only fingerprint for v2 registration; never used as account/chat identity. */
+    val deviceIdentityKey: String
+        get() = "device-key-v2:${sha256(devicePublicId)}"
+
     /** Selected partner account (Supabase Auth UUID) for the currently open chat. */
     var partnerId: String
         get() = preferences.getString(KEY_PARTNER_ID, "").orEmpty()
