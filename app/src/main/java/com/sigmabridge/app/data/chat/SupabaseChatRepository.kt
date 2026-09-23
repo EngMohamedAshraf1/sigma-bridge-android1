@@ -728,18 +728,20 @@ class SupabaseChatRepository @Inject constructor(
 
             suspend fun emitReceiptRow(row: SupabaseReceiptRow) {
                 if (!isActive || row.userId != normalizedPartnerId) return
-                val clientMessageId = stateMutex.withLock { serverMessageIdToClientId[row.messageId] }
-                    ?: supabase.postgrest.from("messages").select {
+                val clientMessageId = stateMutex.withLock {
+                    serverMessageIdToClientId[row.messageId]
+                } ?: run {
+                    val message = supabase.postgrest.from("messages").select {
                         filter {
                             eq("id", row.messageId)
                             eq("conversation_id", normalizedConversationId)
                         }
-                    }.decodeSingleOrNull<SupabaseMessageRow>()?.also { message ->
-                        stateMutex.withLock {
-                            serverMessageIdToClientId[message.id] = message.clientMessageId
-                        }
-                    }?.clientMessageId
-                    ?: return
+                    }.decodeSingleOrNull<SupabaseMessageRow>() ?: return
+                    stateMutex.withLock {
+                        serverMessageIdToClientId[message.id] = message.clientMessageId
+                    }
+                    message.clientMessageId
+                }
 
                 when {
                     row.readAt != null -> send(
