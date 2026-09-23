@@ -40,6 +40,7 @@ class MainActivity : ComponentActivity() {
                 )
             }
             val updateState by UpdateManager.state.collectAsState()
+            var updateDismissedThisSession by remember { mutableStateOf(false) }
             val context = LocalContext.current
 
             LaunchedEffect(Unit) {
@@ -58,13 +59,16 @@ class MainActivity : ComponentActivity() {
                         }
                     )
 
-                    updateState.update?.let { update ->
+                    updateState.update?.takeUnless { updateDismissedThisSession }?.let { update ->
                         UpdateBanner(
                             update = update,
                             downloading = updateState.downloading,
                             installing = updateState.installing,
                             onUpdateClick = {
                                 UpdateManager.downloadAndInstall(context, update)
+                            },
+                            onDismiss = {
+                                updateDismissedThisSession = true
                             },
                             modifier = Modifier.align(androidx.compose.ui.Alignment.BottomCenter)
                         )
