@@ -103,7 +103,7 @@ begin
     do update set
         identity_public_key = excluded.identity_public_key,
         last_seen_at = now()
-    returning id, device_role
+    returning devices.id, devices.device_role
     into v_device_id, v_device_role;
 
     return query
