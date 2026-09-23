@@ -573,7 +573,6 @@ class SupabaseChatRepository @Inject constructor(
     /** Account-identity v2: the conversation UUID is the transport identity. */
     suspend fun ensureConversationWithUserV2(partnerUserId: String): Result<String> = runCatching {
         val ownUserId = sessionManager.ensureAuthenticatedSession().getOrThrow()
-            .user?.id ?: error("AUTH_REQUIRED")
         require(partnerUserId.trim().isNotBlank()) { "PARTNER_REQUIRED" }
         require(partnerUserId.trim() != ownUserId) { "PARTNER_MUST_BE_DIFFERENT" }
         ensureAccountDeviceV2(ownUserId)
@@ -591,7 +590,6 @@ class SupabaseChatRepository @Inject constructor(
         message: ChatMessage
     ): Result<Unit> = runCatching {
         val ownUserId = sessionManager.ensureAuthenticatedSession().getOrThrow()
-            .user?.id ?: error("AUTH_REQUIRED")
         val normalizedConversationId = UUID.fromString(conversationId.trim()).toString()
         val normalizedPartnerId = UUID.fromString(partnerUserId.trim()).toString()
         require(normalizedPartnerId != ownUserId) { "PARTNER_MUST_BE_DIFFERENT" }
@@ -636,7 +634,6 @@ class SupabaseChatRepository @Inject constructor(
         read: Boolean
     ): Result<Unit> = runCatching {
         val ownUserId = sessionManager.ensureAuthenticatedSession().getOrThrow()
-            .user?.id ?: error("AUTH_REQUIRED")
         ensureAccountDeviceV2(ownUserId)
         val normalizedConversationId = UUID.fromString(conversationId.trim()).toString()
         val normalizedClientMessageId = UUID.fromString(clientMessageId.trim()).toString()
