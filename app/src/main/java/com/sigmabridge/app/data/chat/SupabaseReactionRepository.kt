@@ -36,11 +36,9 @@ class SupabaseReactionRepository @Inject constructor(
     suspend fun getReactions(partnerId: String): Result<List<ChatReaction>> = runCatching {
         sessionManager.ensureAuthenticatedSession().getOrThrow()
         val rows = supabase.postgrest.rpc(
-            "sigma_get_reactions",
-            GetReactionsRpcParams(
-                partnerPublicId = partnerId,
-                conversationKey = identity.conversationKeyFor(partnerId)
-                    .joinToString("") { "%02x".format(it) }
+            "sigma_get_reactions_v2",
+            GetChatReactionsV2RpcParams(
+                conversationId = identity.selectedConversationId.trim()
             )
         ).decodeList<SupabaseReactionRow>()
 
@@ -60,8 +58,8 @@ class SupabaseReactionRepository @Inject constructor(
     ): Result<ReactionRealtimeContext> = runCatching {
         sessionManager.ensureAuthenticatedSession().getOrThrow()
         val rows = supabase.postgrest.rpc(
-            "sigma_get_reaction_context",
-            GetReactionContextRpcParams(
+            "sigma_get_reaction_context_v2",
+            GetReactionContextV2RpcParams(
                 messageId = serverMessageId,
                 userId = serverUserId
             )
@@ -71,15 +69,8 @@ class SupabaseReactionRepository @Inject constructor(
     }
 
     private suspend fun serverMessageIdFor(clientMessageId: String): String {
-        val conversationKey = identity.conversationKeyHex()
-        val partnerId = identity.partnerId
-        val conversationId = supabase.postgrest.rpc(
-            "sigma_ensure_conversation",
-            EnsureConversationRpcParams(
-                partnerPublicId = partnerId,
-                conversationKey = conversationKey
-            )
-        ).decodeAs<String>()
+        val conversationId = identity.selectedConversationId.trim()
+        require(conversationId.isNotBlank()) { "CONVERSATION_NOT_SELECTED" }
 
         return supabase.postgrest
             .from("messages")
