@@ -9,5 +9,7 @@ data class ChatConversation(
     val displayName: String,
     val lastMessage: String = "",
     val lastMessageAt: Long = 0L,
-    val avatarPath: String? = null
+    val avatarPath: String? = null,
+    /** Server-authoritative conversation identity. Empty only before the first server ensure. */
+    val conversationId: String = ""
 )
