@@ -405,10 +405,10 @@ class SupabaseChatRepository @Inject constructor(
 
                 launch {
                     messageChanges.collect { action ->
-                        runCatching {
-                            val row = action.decodeRecordOrNull<SupabaseMessageRow>() ?: return@runCatching
+                        try {
+                            val row = action.decodeRecordOrNull<SupabaseMessageRow>() ?: return@collect
                             emitMessageRow(row)
-                        }.onFailure { error ->
+                        } catch (error: Throwable) {
                             android.util.Log.e(
                                 "SupabaseChatRepository",
                                 "Private chat realtime message decode failed",
@@ -420,12 +420,12 @@ class SupabaseChatRepository @Inject constructor(
 
                 launch {
                     receiptChanges.collect { action ->
-                        runCatching {
+                        try {
                             val row = (action as? HasRecord)
                                 ?.decodeRecordOrNull<SupabaseReceiptRow>()
-                                ?: return@runCatching
+                                ?: return@collect
                             emitReceiptRow(row)
-                        }.onFailure { error ->
+                        } catch (error: Throwable) {
                             android.util.Log.e(
                                 "SupabaseChatRepository",
                                 "Private chat realtime receipt decode failed",
@@ -447,10 +447,10 @@ class SupabaseChatRepository @Inject constructor(
                 launch {
                     while (isActive) {
                         delay(RECONCILIATION_INTERVAL_MS)
-                        runCatching {
+                        try {
                             fetchMessages(initial = false)
                             fetchReceipts()
-                        }.onFailure { error ->
+                        } catch (error: Throwable) {
                             android.util.Log.e(
                                 "SupabaseChatRepository",
                                 "Private chat realtime reconciliation failed",
