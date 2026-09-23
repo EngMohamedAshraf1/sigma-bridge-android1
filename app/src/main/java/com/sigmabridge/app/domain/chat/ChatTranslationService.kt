@@ -4,7 +4,7 @@ import com.sigmabridge.app.data.chat.ChatCrypto
 import com.sigmabridge.app.data.chat.ChatGeminiTranslationRepository
 import com.sigmabridge.app.data.chat.ChatLanguagePreferences
 import com.sigmabridge.app.data.chat.ChatTranslationRelayRepository
-import com.sigmabridge.app.data.chat.SupabaseSessionManager
+import com.sigmabridge.app.data.chat.SupabaseChatRepository
 import com.sigmabridge.app.domain.language.LanguageCatalog
 import com.sigmabridge.app.domain.model.Language
 import com.sigmabridge.app.domain.model.LanguagePair
@@ -25,7 +25,7 @@ class ChatTranslationService @Inject constructor(
     private val languagePreferences: ChatLanguagePreferences,
     private val relayRepository: ChatTranslationRelayRepository,
     private val crypto: ChatCrypto,
-    private val sessionManager: SupabaseSessionManager
+    private val supabaseChatRepository: SupabaseChatRepository
 ) {
     fun targetLanguage(): Language = languagePreferences.getTargetLanguage()
 
@@ -97,17 +97,14 @@ class ChatTranslationService @Inject constructor(
         // and must not block an existing primary installation from translating.
         if (!geminiRepository.hasConfiguredKeys()) return
 
-        val localUserId = sessionManager.ensureAuthenticatedSession()
-            .getOrThrow()
-            .user?.id
-            ?: return
-
         relayRepository.claimJobsV2().forEach { job ->
             runCatching {
-                val sourceText = crypto.decryptForAccountPair(
+                val keyMaterial = supabaseChatRepository
+                    .getConversationKeyV2(job.conversationId)
+                    .getOrThrow()
+                val sourceText = crypto.decryptForConversationKey(
                     job.ciphertext,
-                    localUserId,
-                    job.peerUserId
+                    keyMaterial
                 )
                 val sourceCode = detectSimpleLanguage(sourceText)
                     ?: error("Unsupported source language")
