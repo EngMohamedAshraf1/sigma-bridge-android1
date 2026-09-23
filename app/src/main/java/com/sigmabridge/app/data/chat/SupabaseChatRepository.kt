@@ -855,8 +855,6 @@ class SupabaseChatRepository @Inject constructor(
         sendReadReceiptForConversationV2(conversationId, receipt).getOrThrow()
     }
 
-e registration failed after identity recovery.")
-    }
 
     private fun parseTimestamp(value: String): Long =
         runCatching { java.time.Instant.parse(value).toEpochMilli() }
