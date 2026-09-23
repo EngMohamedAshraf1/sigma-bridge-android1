@@ -107,7 +107,7 @@ class ChatCrypto @Inject constructor(
             value.startsWith(PREFIX) -> PREFIX
             else -> error("Encrypted chat message required.")
         }
-        if (prefix == PREFIX_V2) error("ACCOUNT_PAIR_CONTEXT_REQUIRED")
+        if (prefix == PREFIX_V2) error("CONVERSATION_KEY_CONTEXT_REQUIRED")
         return decryptWithKey(value, identity.conversationKey(), PREFIX).text
     }
 
@@ -117,7 +117,7 @@ class ChatCrypto @Inject constructor(
             value.startsWith(PREFIX) -> PREFIX
             else -> error("Encrypted chat message required.")
         }
-        if (prefix == PREFIX_V2) error("ACCOUNT_PAIR_CONTEXT_REQUIRED")
+        if (prefix == PREFIX_V2) error("CONVERSATION_KEY_CONTEXT_REQUIRED")
         return decryptWithKey(value, identity.conversationKey(), PREFIX)
     }
 
