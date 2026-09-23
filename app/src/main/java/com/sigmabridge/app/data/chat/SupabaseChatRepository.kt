@@ -721,7 +721,9 @@ class SupabaseChatRepository @Inject constructor(
                         if (!initial) gt("sequence_number", cutoff)
                     }
                 }.decodeList<SupabaseMessageRow>().sortedBy { it.sequenceNumber }
-                rows.forEach(::emitMessageRow)
+                for (row in rows) {
+                    emitMessageRow(row)
+                }
             }
 
             suspend fun emitReceiptRow(row: SupabaseReceiptRow) {
@@ -765,9 +767,11 @@ class SupabaseChatRepository @Inject constructor(
                 val rows = supabase.postgrest.from("message_receipts").select {
                     filter { eq("user_id", normalizedPartnerId) }
                 }.decodeList<SupabaseReceiptRow>()
-                rows.forEach { row ->
+                for (row in rows) {
                     val known = stateMutex.withLock { serverMessageIdToClientId[row.messageId] }
-                    if (known != null) emitReceiptRow(row)
+                    if (known != null) {
+                        emitReceiptRow(row)
+                    }
                 }
             }
 
@@ -784,15 +788,32 @@ class SupabaseChatRepository @Inject constructor(
 
                 launch {
                     messageChanges.collect { action ->
-                        runCatching { action.decodeRecordOrNull<SupabaseMessageRow>()?.let(::emitMessageRow) }
-                            .onFailure { error -> android.util.Log.e("SupabaseChatRepository", "Private chat v2 message decode failed", error) }
+                        try {
+                            action.decodeRecordOrNull<SupabaseMessageRow>()?.let { row ->
+                                emitMessageRow(row)
+                            }
+                        } catch (error: Throwable) {
+                            android.util.Log.e(
+                                "SupabaseChatRepository",
+                                "Private chat v2 message decode failed",
+                                error
+                            )
+                        }
                     }
                 }
                 launch {
                     receiptChanges.collect { action ->
-                        runCatching {
-                            (action as? HasRecord)?.decodeRecordOrNull<SupabaseReceiptRow>()?.let(::emitReceiptRow)
-                        }.onFailure { error -> android.util.Log.e("SupabaseChatRepository", "Private chat v2 receipt decode failed", error) }
+                        try {
+                            (action as? HasRecord)?.decodeRecordOrNull<SupabaseReceiptRow>()?.let { row ->
+                                emitReceiptRow(row)
+                            }
+                        } catch (error: Throwable) {
+                            android.util.Log.e(
+                                "SupabaseChatRepository",
+                                "Private chat v2 receipt decode failed",
+                                error
+                            )
+                        }
                     }
                 }
 
