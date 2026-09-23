@@ -31,7 +31,7 @@ begin
     end if;
 
     insert into public.conversation_keys (conversation_id, key_material)
-    values (p_conversation_id, encode(gen_random_bytes(32), 'hex'))
+    values (p_conversation_id, encode(extensions.gen_random_bytes(32), 'hex'))
     on conflict (conversation_id) do nothing;
 
     select ck.key_material into v_key_material
@@ -46,7 +46,7 @@ revoke all on function public.sigma_get_or_create_conversation_key_v2(uuid) from
 grant execute on function public.sigma_get_or_create_conversation_key_v2(uuid) to authenticated;
 
 insert into public.conversation_keys (conversation_id, key_material)
-select c.id, encode(gen_random_bytes(32), 'hex')
+select c.id, encode(extensions.gen_random_bytes(32), 'hex')
 from public.conversations c
 left join public.conversation_keys ck on ck.conversation_id = c.id
 where ck.conversation_id is null;
