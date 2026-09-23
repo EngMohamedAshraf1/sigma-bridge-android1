@@ -14,6 +14,7 @@ import io.github.jan.supabase.realtime.channel
 import io.github.jan.supabase.realtime.decodeOldRecord
 import io.github.jan.supabase.realtime.decodeRecord
 import io.github.jan.supabase.realtime.postgresChangeFlow
+import io.github.jan.supabase.realtime.realtime
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -72,7 +73,11 @@ class ChatReactionViewModel @Inject constructor(
                 table = "message_reactions"
             }
 
-            val collector = launch { changes.collect { applyRealtimeAction(it) } }
+            val collector = launch {
+                changes.collect { action: PostgresAction ->
+                    applyRealtimeAction(action)
+                }
+            }
 
             try {
                 channel.subscribe(blockUntilSubscribed = true)
