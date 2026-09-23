@@ -190,6 +190,7 @@ class ChatConversationsViewModel @Inject constructor(
     fun openConversation(conversation: ChatConversation) {
         identity.partnerId = conversation.partnerId
         identity.selectedConversationId = conversation.conversationId
+        identity.selectedConversationOwnerUserId = sessionManager.currentUserId().orEmpty()
     }
 
     /**
@@ -218,6 +219,7 @@ class ChatConversationsViewModel @Inject constructor(
                     )
                     identity.partnerId = userId
                     identity.selectedConversationId = conversationId
+                    identity.selectedConversationOwnerUserId = sessionManager.currentUserId().orEmpty()
                     refresh()
                     onReady()
                 }
@@ -238,14 +240,22 @@ class ChatConversationsViewModel @Inject constructor(
         if (identity.selectedConversationId == conversation.conversationId) {
             identity.partnerId = ""
             identity.selectedConversationId = ""
+            identity.selectedConversationOwnerUserId = ""
         }
         refresh()
     }
 
     private fun clearLegacySelectionIfNeeded() {
-        if (!isUuid(identity.partnerId) || identity.selectedConversationId.isBlank()) {
+        val currentUserId = sessionManager.currentUserId().orEmpty()
+        if (
+            currentUserId.isBlank() ||
+            identity.selectedConversationOwnerUserId != currentUserId ||
+            !isUuid(identity.partnerId) ||
+            identity.selectedConversationId.isBlank()
+        ) {
             identity.partnerId = ""
             identity.selectedConversationId = ""
+            identity.selectedConversationOwnerUserId = ""
         }
     }
 
