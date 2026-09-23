@@ -8,7 +8,7 @@ import kotlinx.serialization.json.Json
 import javax.inject.Inject
 import javax.inject.Singleton
 
-/** Stores the user's private-chat list separately from message history. */
+/** Local cache of server-owned Private Chat conversations. */
 @Singleton
 class ChatConversationStore @Inject constructor(
     @ApplicationContext context: Context,
@@ -20,28 +20,51 @@ class ChatConversationStore @Inject constructor(
     @Synchronized
     fun load(): List<ChatConversation> {
         val raw = preferences.getString(KEY_CONVERSATIONS, null) ?: return emptyList()
-        return runCatching { json.decodeFromString(serializer, raw) }.getOrDefault(emptyList())
+        return runCatching { json.decodeFromString(serializer, raw) }
+            .getOrDefault(emptyList())
             .sortedByDescending { it.lastMessageAt }
     }
 
     @Synchronized
     fun upsert(conversation: ChatConversation) {
-        val current = load().filterNot { it.partnerId == conversation.partnerId }
-        val updated = (current + conversation).sortedByDescending { it.lastMessageAt }
-        save(updated)
+        val current = load().filterNot {
+            if (conversation.conversationId.isNotBlank() && it.conversationId.isNotBlank()) {
+                it.conversationId == conversation.conversationId
+            } else {
+                it.partnerId == conversation.partnerId
+            }
+        }
+        save((current + conversation).sortedByDescending { it.lastMessageAt })
+    }
+
+    @Synchronized
+    fun replaceAll(conversations: List<ChatConversation>) {
+        save(
+            conversations
+                .filter { it.partnerId.isNotBlank() && it.conversationId.isNotBlank() }
+                .distinctBy { it.conversationId }
+                .sortedByDescending { it.lastMessageAt }
+        )
     }
 
     @Synchronized
     fun updateName(partnerId: String, displayName: String) {
         val current = load().map {
-            if (it.partnerId == partnerId) it.copy(displayName = displayName.trim().ifBlank { partnerId }) else it
+            if (it.partnerId == partnerId) it.copy(displayName = displayName.trim().ifBlank { it.displayName }) else it
         }
         save(current)
     }
 
     @Synchronized
-    fun remove(partnerId: String) {
-        save(load().filterNot { it.partnerId == partnerId })
+    fun remove(conversation: ChatConversation) {
+        val current = load().filterNot {
+            if (conversation.conversationId.isNotBlank() && it.conversationId.isNotBlank()) {
+                it.conversationId == conversation.conversationId
+            } else {
+                it.partnerId == conversation.partnerId
+            }
+        }
+        save(current)
     }
 
     private fun save(conversations: List<ChatConversation>) {
