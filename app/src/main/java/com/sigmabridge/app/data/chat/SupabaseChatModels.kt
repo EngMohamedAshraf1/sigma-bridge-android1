@@ -88,6 +88,11 @@ data class SupabaseReceiptRow(
 
  
 @Serializable
+data class GetConversationKeyV2RpcParams(
+    @SerialName("p_conversation_id") val conversationId: String
+)
+
+@Serializable
 data class EnsureConversationV2RpcParams(
     @SerialName("p_partner_user_id") val partnerUserId: String
 )
