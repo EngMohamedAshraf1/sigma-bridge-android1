@@ -534,6 +534,8 @@ class SupabaseChatRepository @Inject constructor(
                     )
                 ).decodeList<RegisterDeviceRpcResult>().firstOrNull()
                     ?: error("Supabase device registration returned no device.")
+
+                identity.syncMyId(result.publicId)
                 return result.deviceId
             } catch (error: Throwable) {
                 val isPublicIdConflict = error.message

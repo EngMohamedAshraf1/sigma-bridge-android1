@@ -103,7 +103,7 @@ class ChatProfileRepository @Inject constructor(
 
         for (attempt in 0 until 2) {
             try {
-                supabase.postgrest.rpc(
+                val result = supabase.postgrest.rpc(
                     "sigma_register_device",
                     RegisterDeviceRpcParams(
                         publicId = identity.myId,
@@ -112,6 +112,8 @@ class ChatProfileRepository @Inject constructor(
                     )
                 ).decodeList<RegisterDeviceRpcResult>().firstOrNull()
                     ?: error("Supabase device registration returned no device.")
+
+                identity.syncMyId(result.publicId)
                 return
             } catch (error: Throwable) {
                 val isPublicIdConflict = error.message

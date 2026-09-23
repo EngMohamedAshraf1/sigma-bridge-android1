@@ -12,10 +12,10 @@ import javax.inject.Singleton
 /**
  * Persistent Private Chat identity.
  *
- * The user-facing SB-... ID remains unchanged during normal operation. Supabase
- * gets a separate stable device identifier. If an old anonymous-auth session no
- * longer owns the persisted SB ID, the repository may rotate the SB ID once to
- * recover from an interrupted first-time registration.
+ * The user-facing SB-... ID is the canonical identity of the authenticated
+ * Google/Supabase account and remains stable across devices. Supabase gets a
+ * separate stable device identifier. A fresh device synchronizes its local
+ * cache with the account's existing canonical SB ID.
  */
 @Singleton
 class ChatIdentity @Inject constructor(
@@ -84,6 +84,19 @@ class ChatIdentity @Inject constructor(
      * Generates a fresh public ID. Used only when Supabase reports that the
      * locally persisted ID is already owned by another anonymous auth user.
      */
+    /**
+     * Synchronizes the local cache with the canonical Sigma ID owned by the
+     * authenticated Supabase account.
+     */
+    @Synchronized
+    fun syncMyId(officialId: String) {
+        val normalized = officialId.trim()
+        require(normalized.matches(Regex("^SB-[A-Z0-9]+(-[A-Z0-9]+)*$"))) {
+            "INVALID_PUBLIC_ID"
+        }
+        preferences.edit().putString(KEY_MY_ID, normalized).apply()
+    }
+
     @Synchronized
     fun regenerateMyId(): String {
         val id = generateId()
