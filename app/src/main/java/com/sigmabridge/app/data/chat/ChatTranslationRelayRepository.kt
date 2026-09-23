@@ -51,7 +51,8 @@ data class TranslationResultRpcRow(
 class ChatTranslationRelayRepository @Inject constructor(
     private val supabase: SupabaseClient,
     private val sessionManager: SupabaseSessionManager,
-    private val crypto: ChatCrypto
+    private val crypto: ChatCrypto,
+    private val supabaseChatRepository: SupabaseChatRepository
 ) {
     suspend fun requestTranslation(clientMessageId: String, targetLanguage: String): Result<Unit> = runCatching {
         supabase.postgrest.rpc(
@@ -63,12 +64,10 @@ class ChatTranslationRelayRepository @Inject constructor(
     suspend fun awaitTranslation(
         clientMessageId: String,
         targetLanguage: String,
-        peerUserId: String
+        conversationId: String
     ): Result<String> = runCatching {
-        val localUserId = sessionManager.ensureAuthenticatedSession()
-            .getOrThrow()
-            .user?.id
-            ?: error("AUTH_REQUIRED")
+        sessionManager.ensureAuthenticatedSession().getOrThrow()
+        val keyMaterial = supabaseChatRepository.getConversationKeyV2(conversationId).getOrThrow()
 
         withTimeout(30_000L) {
             var translatedText: String? = null
@@ -83,10 +82,9 @@ class ChatTranslationRelayRepository @Inject constructor(
                     "COMPLETED" -> {
                         val encrypted = result.translatedCiphertext
                             ?: error("Translation result is empty.")
-                        translatedText = crypto.decryptForAccountPair(
+                        translatedText = crypto.decryptForConversationKey(
                             encrypted,
-                            localUserId,
-                            peerUserId
+                            keyMaterial
                         )
                     }
                     "FAILED" -> error("Remote translation failed.")
@@ -105,17 +103,13 @@ class ChatTranslationRelayRepository @Inject constructor(
     suspend fun completeJob(
         jobId: String,
         translatedText: String,
-        peerUserId: String
+        conversationId: String
     ): Result<Unit> = runCatching {
-        val localUserId = sessionManager.ensureAuthenticatedSession()
-            .getOrThrow()
-            .user?.id
-            ?: error("AUTH_REQUIRED")
-
-        val encrypted = crypto.encryptForAccountPair(
+        sessionManager.ensureAuthenticatedSession().getOrThrow()
+        val keyMaterial = supabaseChatRepository.getConversationKeyV2(conversationId).getOrThrow()
+        val encrypted = crypto.encryptForConversationKey(
             translatedText,
-            localUserId,
-            peerUserId
+            keyMaterial
         )
 
         supabase.postgrest.rpc(
