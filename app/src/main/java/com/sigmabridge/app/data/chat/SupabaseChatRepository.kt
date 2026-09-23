@@ -532,7 +532,7 @@ class SupabaseChatRepository @Inject constructor(
                     RegisterDeviceRpcParams(
                         publicId = identity.myId,
                         devicePublicId = identity.devicePublicId,
-                        identityPublicKey = identity.deviceIdentityKey
+                        identityPublicKey = identity.legacyIdentityKey
                     )
                 ).decodeList<RegisterDeviceRpcResult>().firstOrNull()
                     ?: error("Supabase device registration returned no device.")
@@ -549,7 +549,10 @@ class SupabaseChatRepository @Inject constructor(
                 throw error
             }
         }
-        error("Supabase devic    /** Returns a recoverable random conversation key for an authenticated member. */
+        error("Supabase device registration failed after identity recovery.")
+    }
+
+    /** Returns a recoverable random conversation key for an authenticated member. */
     suspend fun getConversationKeyV2(conversationId: String): Result<String> = runCatching {
         val normalized = UUID.fromString(conversationId.trim()).toString()
         conversationKeyStore.get(normalized)?.let { return@runCatching it }
