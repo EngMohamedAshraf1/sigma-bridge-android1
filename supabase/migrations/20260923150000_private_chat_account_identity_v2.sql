@@ -77,7 +77,7 @@ begin
 
     if v_public_id is null then
         loop
-            v_public_id := 'SB-' || upper(encode(gen_random_bytes(18), 'hex'));
+            v_public_id := 'SB-' || upper(encode(extensions.gen_random_bytes(18), 'hex'));
             exit when not exists (
                 select 1
                 from public.users
