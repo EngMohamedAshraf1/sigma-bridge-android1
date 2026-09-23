@@ -139,6 +139,15 @@ class ChatNotificationService : Service() {
 
         val existingHistory = historyStore.load(historyKey)
         val isKnownLocally = existingHistory.any { it.id == row.clientMessageId }
+        val existingConversation = conversationStore.load()
+            .firstOrNull { it.conversationId == historyKey }
+        val displayName = existingConversation?.displayName
+            ?.takeIf { it.isNotBlank() }
+            ?: chatProfileRepository.getProfileByUserId(partnerUserId)
+                .getOrNull()
+                ?.displayName
+                ?.takeIf { it.isNotBlank() }
+            ?: partnerUserId
         val decrypted = runCatching {
             chatCrypto.decryptMessageForAccountPair(
                 row.ciphertext,
@@ -161,15 +170,6 @@ class ChatNotificationService : Service() {
                 )).takeLast(MAX_HISTORY_MESSAGES)
             )
 
-            val existingConversation = conversationStore.load()
-                .firstOrNull { it.conversationId == historyKey }
-            val displayName = existingConversation?.displayName
-                ?.takeIf { it.isNotBlank() }
-                ?: chatProfileRepository.getProfileByUserId(partnerUserId)
-                    .getOrNull()
-                    ?.displayName
-                    ?.takeIf { it.isNotBlank() }
-                ?: partnerUserId
             conversationStore.upsert(
                 existingConversation?.copy(
                     displayName = displayName,
@@ -194,7 +194,7 @@ class ChatNotificationService : Service() {
         if (receiptResult.isFailure || isKnownLocally) return
 
         if (postMessageNotification(
-                partnerUserId,
+                displayName,
                 row.conversationId,
                 row.clientMessageId,
                 decrypted.text
