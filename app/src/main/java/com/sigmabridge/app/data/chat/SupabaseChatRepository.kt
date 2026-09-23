@@ -44,7 +44,8 @@ class SupabaseChatRepository @Inject constructor(
     private val sessionManager: SupabaseSessionManager,
     private val identity: ChatIdentity,
     private val crypto: ChatCrypto,
-    private val replyStore: ChatReplyStore
+    private val replyStore: ChatReplyStore,
+    private val conversationKeyStore: ChatConversationKeyStore
 ) : ChatRepository {
 
     private var cachedDeviceId: String? = null
@@ -548,17 +549,37 @@ class SupabaseChatRepository @Inject constructor(
                 throw error
             }
         }
-        error("Supabase devic    /** Account-identity v2: the conversation UUID is the transport identity. */
+        error("Supabase devic    /** Returns a recoverable random conversation key for an authenticated member. */
+    suspend fun getConversationKeyV2(conversationId: String): Result<String> = runCatching {
+        val normalized = UUID.fromString(conversationId.trim()).toString()
+        conversationKeyStore.get(normalized)?.let { return@runCatching it }
+
+        sessionManager.ensureAuthenticatedSession().getOrThrow()
+        val keyMaterial = supabase.postgrest.rpc(
+            "sigma_get_or_create_conversation_key_v2",
+            GetConversationKeyV2RpcParams(normalized)
+        ).decodeAs<String>()
+
+        require(keyMaterial.matches(Regex("[0-9a-fA-F]{64}"))) {
+            "INVALID_CONVERSATION_KEY"
+        }
+        conversationKeyStore.put(normalized, keyMaterial)
+        keyMaterial
+    }
+
+    /** Account-identity v2: the conversation UUID is the transport identity. */
     suspend fun ensureConversationWithUserV2(partnerUserId: String): Result<String> = runCatching {
         val ownUserId = sessionManager.ensureAuthenticatedSession().getOrThrow()
             .user?.id ?: error("AUTH_REQUIRED")
         require(partnerUserId.trim().isNotBlank()) { "PARTNER_REQUIRED" }
         require(partnerUserId.trim() != ownUserId) { "PARTNER_MUST_BE_DIFFERENT" }
         ensureAccountDeviceV2(ownUserId)
-        supabase.postgrest.rpc(
+        val conversationId = supabase.postgrest.rpc(
             "sigma_ensure_conversation_v2",
             EnsureConversationV2RpcParams(partnerUserId.trim())
         ).decodeAs<String>()
+        getConversationKeyV2(conversationId).getOrThrow()
+        conversationId
     }
 
     suspend fun sendToConversationV2(
@@ -575,10 +596,10 @@ class SupabaseChatRepository @Inject constructor(
 
         val replyToMessageId = replyStore.getReplyTo(message.id) ?: replyStore.consumePendingReply()
         replyToMessageId?.let { replyStore.setReplyTo(message.id, it) }
-        val encrypted = crypto.encryptMessageForAccountPair(
+        val keyMaterial = getConversationKeyV2(normalizedConversationId).getOrThrow()
+        val encrypted = crypto.encryptMessageForConversationKey(
             text = message.text,
-            localUserId = ownUserId,
-            peerUserId = normalizedPartnerId,
+            keyMaterial = keyMaterial,
             replyToMessageId = replyToMessageId
         )
 
@@ -653,6 +674,7 @@ class SupabaseChatRepository @Inject constructor(
 
         return channelFlow {
             ensureAccountDeviceV2(normalizedOwnUserId)
+            val keyMaterial = getConversationKeyV2(normalizedConversationId).getOrThrow()
             val knownMessageIds = mutableSetOf<String>()
             val serverMessageIdToClientId = mutableMapOf<String, String>()
             var lastSequence = 0L
@@ -669,10 +691,9 @@ class SupabaseChatRepository @Inject constructor(
                 if (!shouldEmit || !isActive || !row.ciphertext.startsWith("sb3:")) return
 
                 val decrypted = runCatching {
-                    crypto.decryptMessageForAccountPair(
+                    crypto.decryptMessageForConversationKey(
                         row.ciphertext,
-                        normalizedOwnUserId,
-                        normalizedPartnerId
+                        keyMaterial
                     )
                 }.getOrNull() ?: return
 
