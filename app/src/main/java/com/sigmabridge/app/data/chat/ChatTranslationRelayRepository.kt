@@ -36,16 +36,6 @@ data class TranslationLookupRpcParams(
 )
 
 @Serializable
-data class TranslationJobRpcResult(
-    @SerialName("job_id") val jobId: String,
-    @SerialName("client_message_id") val clientMessageId: String,
-    @SerialName("target_language") val targetLanguage: String,
-    @SerialName("ciphertext") val ciphertext: String,
-    @SerialName("nonce") val nonce: String,
-    @SerialName("message_version") val messageVersion: Int
-)
-
-@Serializable
 data class TranslationResultRpcRow(
     val status: String,
     @SerialName("translated_ciphertext") val translatedCiphertext: String? = null,
@@ -55,12 +45,12 @@ data class TranslationResultRpcRow(
 
 /**
  * Relay used only by Private Chat's primary/secondary translation protocol.
- * Requests contain identifiers only; translated text is encrypted before it
- * is stored in Supabase. Telegram never uses this repository.
+ * Telegram never uses this repository.
  */
 @Singleton
 class ChatTranslationRelayRepository @Inject constructor(
     private val supabase: SupabaseClient,
+    private val sessionManager: SupabaseSessionManager,
     private val crypto: ChatCrypto
 ) {
     suspend fun requestTranslation(clientMessageId: String, targetLanguage: String): Result<Unit> = runCatching {
@@ -70,7 +60,16 @@ class ChatTranslationRelayRepository @Inject constructor(
         )
     }
 
-    suspend fun awaitTranslation(clientMessageId: String, targetLanguage: String): Result<String> = runCatching {
+    suspend fun awaitTranslation(
+        clientMessageId: String,
+        targetLanguage: String,
+        peerUserId: String
+    ): Result<String> = runCatching {
+        val localUserId = sessionManager.ensureAuthenticatedSession()
+            .getOrThrow()
+            .user?.id
+            ?: error("AUTH_REQUIRED")
+
         withTimeout(30_000L) {
             var translatedText: String? = null
 
@@ -84,24 +83,41 @@ class ChatTranslationRelayRepository @Inject constructor(
                     "COMPLETED" -> {
                         val encrypted = result.translatedCiphertext
                             ?: error("Translation result is empty.")
-                        translatedText = crypto.decrypt(encrypted)
+                        translatedText = crypto.decryptForAccountPair(
+                            encrypted,
+                            localUserId,
+                            peerUserId
+                        )
                     }
                     "FAILED" -> error("Remote translation failed.")
                     else -> delay(2_000L)
                 }
             }
 
-            translatedText
-                ?: error("Translation result is empty.")
+            translatedText ?: error("Translation result is empty.")
         }
     }
 
-    suspend fun claimJobs(): List<TranslationJobRpcResult> =
-        supabase.postgrest.rpc("sigma_claim_translation_jobs")
-            .decodeAs<List<TranslationJobRpcResult>>()
+    suspend fun claimJobsV2(): List<TranslationJobRpcResultV2> =
+        supabase.postgrest.rpc("sigma_claim_translation_jobs_v2")
+            .decodeAs<List<TranslationJobRpcResultV2>>()
 
-    suspend fun completeJob(jobId: String, translatedText: String): Result<Unit> = runCatching {
-        val encrypted = crypto.encrypt(translatedText)
+    suspend fun completeJob(
+        jobId: String,
+        translatedText: String,
+        peerUserId: String
+    ): Result<Unit> = runCatching {
+        val localUserId = sessionManager.ensureAuthenticatedSession()
+            .getOrThrow()
+            .user?.id
+            ?: error("AUTH_REQUIRED")
+
+        val encrypted = crypto.encryptForAccountPair(
+            translatedText,
+            localUserId,
+            peerUserId
+        )
+
         supabase.postgrest.rpc(
             "sigma_complete_translation_job",
             TranslationJobRpcParams(
