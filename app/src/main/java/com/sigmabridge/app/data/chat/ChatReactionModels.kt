@@ -29,7 +29,7 @@ data class GetReactionContextRpcParams(
 @Serializable
 data class SupabaseReactionRow(
     @SerialName("client_message_id") val clientMessageId: String,
-    @SerialName("user_public_id") val userPublicId: String,
+    @SerialName("user_id") val userPublicId: String,
     @SerialName("emoji") val emoji: String,
     @SerialName("created_at") val createdAt: String
 )
