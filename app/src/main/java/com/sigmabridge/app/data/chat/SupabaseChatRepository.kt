@@ -824,10 +824,16 @@ class SupabaseChatRepository @Inject constructor(
                 launch {
                     while (isActive) {
                         delay(RECONCILIATION_INTERVAL_MS)
-                        runCatching {
+                        try {
                             fetchMessages(initial = false)
                             fetchReceipts()
-                        }.onFailure { error -> android.util.Log.e("SupabaseChatRepository", "Private chat v2 reconciliation failed", error) }
+                        } catch (error: Throwable) {
+                            android.util.Log.e(
+                                "SupabaseChatRepository",
+                                "Private chat v2 reconciliation failed",
+                                error
+                            )
+                        }
                     }
                 }
                 awaitCancellation()
