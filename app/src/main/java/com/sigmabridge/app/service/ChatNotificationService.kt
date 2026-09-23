@@ -196,6 +196,7 @@ class ChatNotificationService : Service() {
 
         if (postMessageNotification(
                 displayName,
+                partnerUserId,
                 row.conversationId,
                 row.clientMessageId,
                 decrypted.text
@@ -315,7 +316,7 @@ class ChatNotificationService : Service() {
         }
     }
 
-    private fun postMessageNotification(displayName: String, conversationId: String, messageId: String, messageText: String): Boolean {
+    private fun postMessageNotification(displayName: String, partnerUserId: String, conversationId: String, messageId: String, messageText: String): Boolean {
         if (checkSelfPermissionCompat(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return false
 
         val openChatIntent = Intent(this, MainActivity::class.java).apply {
