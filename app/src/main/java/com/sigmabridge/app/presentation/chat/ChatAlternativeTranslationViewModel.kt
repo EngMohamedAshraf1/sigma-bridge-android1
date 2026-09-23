@@ -42,10 +42,9 @@ class ChatAlternativeTranslationViewModel @Inject constructor(
         val text = message.originalText.ifBlank { message.text }.trim()
         if (text.isBlank()) return
 
-        val historyKey = runCatching {
-            identity.conversationKey().joinToString("") { "%02x".format(it) }
-        }.getOrElse {
-            _error.value = sanitizeError(it)
+        val historyKey = identity.selectedConversationId.trim()
+        if (historyKey.isBlank()) {
+            _error.value = "Conversation is not initialized."
             return
         }
 
