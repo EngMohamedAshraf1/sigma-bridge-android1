@@ -7,7 +7,6 @@ import com.sigmabridge.app.data.chat.ChatConversationKeyStore
 import com.sigmabridge.app.data.chat.ChatCrypto
 import com.sigmabridge.app.data.chat.ChatHistoryStore
 import com.sigmabridge.app.data.chat.ChatIdentity
-import com.sigmabridge.app.data.chat.ChatLanguagePreferences
 import com.sigmabridge.app.data.chat.ChatProfile
 import com.sigmabridge.app.data.chat.ChatProfileRepository
 import com.sigmabridge.app.data.chat.ChatUnreadStore
@@ -29,8 +28,7 @@ class ChatConversationsViewModel @Inject constructor(
     private val profileRepository: ChatProfileRepository,
     private val crypto: ChatCrypto,
     private val conversationKeyStore: ChatConversationKeyStore,
-    private val sessionManager: SupabaseSessionManager,
-    private val languagePreferences: ChatLanguagePreferences
+    private val sessionManager: SupabaseSessionManager
 ) : ViewModel() {
     private val _conversations = MutableStateFlow<List<ChatConversationRow>>(emptyList())
     val conversations: StateFlow<List<ChatConversationRow>> = _conversations.asStateFlow()
@@ -85,8 +83,6 @@ class ChatConversationsViewModel @Inject constructor(
             runCatching {
                 profileRepository.ensureAccountDeviceRegistered()
                 val rows = profileRepository.getMyConversations().getOrThrow()
-                val ownUserId = sessionManager.currentUserId() ?: error("AUTH_REQUIRED")
-
                 conversationKeyStore.putAll(
                     rows.mapNotNull { row ->
                         row.conversationKeyMaterial
