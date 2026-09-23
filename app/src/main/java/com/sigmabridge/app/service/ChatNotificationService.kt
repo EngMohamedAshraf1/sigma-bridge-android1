@@ -210,7 +210,8 @@ class ChatNotificationService : Service() {
             chatTranslationService.translateIncoming(
                 decrypted.text,
                 row.clientMessageId,
-                partnerUserId
+                partnerUserId,
+                row.conversationId
             )
                 .onSuccess { translated ->
                     if (translated == decrypted.text) return@onSuccess
