@@ -19,6 +19,8 @@ fun SigmaBridgeNavGraph(
     navController: NavHostController = rememberNavController(),
     modifier: Modifier = Modifier,
     openPrivateChat: Boolean = false,
+    openPrivateChatConversationId: String? = null,
+    openPrivateChatPartnerId: String? = null,
     darkTheme: Boolean = false,
     onToggleTheme: () -> Unit = {}
 ) {
@@ -49,7 +51,9 @@ fun SigmaBridgeNavGraph(
             ChatScreen(
                 onBack = { navController.popBackStack() },
                 darkTheme = darkTheme,
-                onToggleTheme = onToggleTheme
+                onToggleTheme = onToggleTheme,
+                initialConversationId = openPrivateChatConversationId,
+                initialPartnerId = openPrivateChatPartnerId
             )
         }
         composable(SigmaBridgeDestination.Settings.route) {
