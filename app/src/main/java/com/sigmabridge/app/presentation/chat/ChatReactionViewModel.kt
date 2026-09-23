@@ -16,12 +16,14 @@ import io.github.jan.supabase.realtime.decodeRecord
 import io.github.jan.supabase.realtime.postgresChangeFlow
 import io.github.jan.supabase.realtime.realtime
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.UUID
 import javax.inject.Inject
 
@@ -85,7 +87,9 @@ class ChatReactionViewModel @Inject constructor(
                 collector.join()
             } finally {
                 collector.cancel()
-                runCatching { supabase.realtime.removeChannel(channel) }
+                withContext(NonCancellable) {
+                    supabase.realtime.removeChannel(channel)
+                }
             }
         }
 
