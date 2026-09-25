@@ -101,8 +101,9 @@ class GeminiTranslationRepository @Inject constructor(
                             if (isTransientGeminiError(error)) {
                                 logger.debug(
                                     TAG,
-                                    "Transient Gemini HTTP ${error.httpCode} persisted for key ending in " +
-                                        ""${apiKey.takeLast(4)}"; moving to next key after retry/fallback window"
+                                    "Transient Gemini HTTP ${error.httpCode} persisted for key ending in [" +
+                                        apiKey.takeLast(4) +
+                                        "]; moving to next key after retry/fallback window"
                                 )
                             } else {
                                 throw error
@@ -385,7 +386,6 @@ class GeminiTranslationRepository @Inject constructor(
         error.httpCode == HTTP_INTERNAL_SERVER_ERROR ||
             error.httpCode == HTTP_SERVICE_UNAVAILABLE ||
             error.httpCode == HTTP_GATEWAY_TIMEOUT
-
 
     private fun buildPrompt(languagePair: LanguagePair): String {
         val source = languagePair.source.displayName
