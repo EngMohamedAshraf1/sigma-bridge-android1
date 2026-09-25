@@ -300,7 +300,8 @@ class GeminiTranslationRepository @Inject constructor(
         val rawText = withRetryOnTransientFailure(
             maxAttempts = CHAT_TEXT_MAX_RETRY_ATTEMPTS,
             initialBackoffMillis = CHAT_TEXT_INITIAL_BACKOFF_MS,
-            maxBackoffMillis = CHAT_TEXT_MAX_BACKOFF_MS
+            maxBackoffMillis = CHAT_TEXT_MAX_BACKOFF_MS,
+            jitterMaxMillis = 0L
         ) {
             apiClient.generateTextContent(
                 apiKey = apiKey,
@@ -349,6 +350,7 @@ class GeminiTranslationRepository @Inject constructor(
         maxAttempts: Int = DEFAULT_MAX_RETRY_ATTEMPTS,
         initialBackoffMillis: Long = DEFAULT_INITIAL_BACKOFF_MS,
         maxBackoffMillis: Long = DEFAULT_MAX_BACKOFF_MS,
+        jitterMaxMillis: Long = RETRY_JITTER_MAX_MS,
         block: suspend () -> T
     ): T {
         var attempt = 0
@@ -362,7 +364,11 @@ class GeminiTranslationRepository @Inject constructor(
                     throw error
                 }
 
-                val jitterMillis = Random.nextLong(0L, RETRY_JITTER_MAX_MS + 1L)
+                val jitterMillis = if (jitterMaxMillis > 0L) {
+                    Random.nextLong(0L, jitterMaxMillis + 1L)
+                } else {
+                    0L
+                }
                 val waitMillis = backoffMillis + jitterMillis
 
                 logger.debug(
@@ -383,7 +389,8 @@ class GeminiTranslationRepository @Inject constructor(
             error.httpCode == HTTP_GATEWAY_TIMEOUT
 
     private fun isModelFallbackEligible(error: GeminiApiException): Boolean =
-        error.httpCode == HTTP_INTERNAL_SERVER_ERROR ||
+        error.httpCode == HTTP_REQUEST_TIMEOUT ||
+            error.httpCode == HTTP_INTERNAL_SERVER_ERROR ||
             error.httpCode == HTTP_SERVICE_UNAVAILABLE ||
             error.httpCode == HTTP_GATEWAY_TIMEOUT
 
