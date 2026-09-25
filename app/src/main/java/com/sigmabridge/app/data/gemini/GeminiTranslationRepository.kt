@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withTimeout
 import java.io.File
 import java.io.IOException
+import kotlin.random.Random
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -26,10 +27,12 @@ import javax.inject.Singleton
  * TranslationRepository.
  *
  * Small Telegram audio files use Gemini inline audio to avoid the extra
- * Files API upload/poll lifecycle. Larger files keep the existing Files API
- * path unchanged. Phase Chat adds [translateText] as an additive text-only
- * entry point so Private Chat can reuse the same Gemini key manager, rotation,
- * status tracking, and transient retry policy.
+ * Files API upload/poll lifecycle. Larger files use the Files API. The audio
+ * path also has a transient-failure recovery layer: exponential backoff with
+ * jitter, a model fallback for server-side failures, and key rotation after
+ * the recovery window is exhausted. Phase Chat adds [translateText] as an
+ * additive text-only entry point so Private Chat can reuse the same Gemini key
+ * manager, rotation, status tracking, and transient retry policy.
  */
 @Singleton
 class GeminiTranslationRepository @Inject constructor(
@@ -94,7 +97,17 @@ class GeminiTranslationRepository @Inject constructor(
                             logger.error(TAG, "Key ending in \"${apiKey.takeLast(4)}\" failed auth (${error.httpCode}); marking invalid for this session", error)
                             keyManager.markInvalid(apiKey)
                         }
-                        else -> throw error
+                        else -> {
+                            if (isTransientGeminiError(error)) {
+                                logger.debug(
+                                    TAG,
+                                    "Transient Gemini HTTP ${error.httpCode} persisted for key ending in " +
+                                        ""${apiKey.takeLast(4)}"; moving to next key after retry/fallback window"
+                                )
+                            } else {
+                                throw error
+                            }
+                        }
                     }
                     break
                 }
@@ -159,33 +172,93 @@ class GeminiTranslationRepository @Inject constructor(
         val mimeType = request.sourceFile.mimeType
         val prompt = buildPrompt(request.languagePair)
 
-        // Small Telegram voice/audio files avoid the Files API upload + ACTIVE polling cycle.
+        // Keep the fast inline path for ordinary Telegram voice notes, but leave
+        // enough headroom for Base64 + JSON + prompt bytes under Gemini's request limit.
         if (file.length() <= INLINE_AUDIO_MAX_BYTES) {
-            val rawText = withRetryOnTransientFailure {
-                apiClient.generateContentInline(
-                    apiKey = apiKey,
-                    model = MODEL,
-                    prompt = prompt,
-                    mimeType = mimeType,
-                    data = file.readBytes()
-                )
-            }
+            val audioData = file.readBytes()
+            val rawText = generateInlineTranslationWithFallback(
+                apiKey = apiKey,
+                prompt = prompt,
+                mimeType = mimeType,
+                data = audioData
+            )
             return TranslationResult(translatedText = cleanTranslation(rawText))
         }
 
         var uploadedFile: GeminiFileDto? = null
         try {
-            uploadedFile = apiClient.uploadFile(
-                apiKey = apiKey,
-                sourceFilePath = file.path,
-                mimeType = mimeType,
-                displayName = request.sourceFile.id
-            )
+            uploadedFile = withRetryOnTransientFailure {
+                apiClient.uploadFile(
+                    apiKey = apiKey,
+                    sourceFilePath = file.path,
+                    mimeType = mimeType,
+                    displayName = request.sourceFile.id
+                )
+            }
 
             val activeFile = awaitActiveState(apiKey, uploadedFile)
             val fileUri = activeFile.uri ?: error("Gemini file has no uri after becoming ACTIVE")
 
-            val rawText = withRetryOnTransientFailure {
+            val rawText = generateFileTranslationWithFallback(
+                apiKey = apiKey,
+                prompt = prompt,
+                fileUri = fileUri,
+                mimeType = mimeType
+            )
+
+            return TranslationResult(translatedText = cleanTranslation(rawText))
+        } finally {
+            uploadedFile?.let { runCatching { apiClient.deleteFile(apiKey, it.name) } }
+        }
+    }
+
+    private suspend fun generateInlineTranslationWithFallback(
+        apiKey: String,
+        prompt: String,
+        mimeType: String,
+        data: ByteArray
+    ): String {
+        return try {
+            withRetryOnTransientFailure {
+                apiClient.generateContentInline(
+                    apiKey = apiKey,
+                    model = MODEL,
+                    prompt = prompt,
+                    mimeType = mimeType,
+                    data = data
+                )
+            }
+        } catch (primaryError: GeminiApiException) {
+            if (!isModelFallbackEligible(primaryError)) {
+                throw primaryError
+            }
+
+            logger.debug(
+                TAG,
+                "Primary Gemini audio model failed transiently (${primaryError.httpCode}); " +
+                    "retrying audio translation with fallback model $FALLBACK_AUDIO_MODEL"
+            )
+
+            withRetryOnTransientFailure {
+                apiClient.generateContentInline(
+                    apiKey = apiKey,
+                    model = FALLBACK_AUDIO_MODEL,
+                    prompt = prompt,
+                    mimeType = mimeType,
+                    data = data
+                )
+            }
+        }
+    }
+
+    private suspend fun generateFileTranslationWithFallback(
+        apiKey: String,
+        prompt: String,
+        fileUri: String,
+        mimeType: String
+    ): String {
+        return try {
+            withRetryOnTransientFailure {
                 apiClient.generateContent(
                     apiKey = apiKey,
                     model = MODEL,
@@ -194,10 +267,26 @@ class GeminiTranslationRepository @Inject constructor(
                     mimeType = mimeType
                 )
             }
+        } catch (primaryError: GeminiApiException) {
+            if (!isModelFallbackEligible(primaryError)) {
+                throw primaryError
+            }
 
-            return TranslationResult(translatedText = cleanTranslation(rawText))
-        } finally {
-            uploadedFile?.let { runCatching { apiClient.deleteFile(apiKey, it.name) } }
+            logger.debug(
+                TAG,
+                "Primary Gemini audio model failed transiently (${primaryError.httpCode}); " +
+                    "retrying uploaded audio with fallback model $FALLBACK_AUDIO_MODEL"
+            )
+
+            withRetryOnTransientFailure {
+                apiClient.generateContent(
+                    apiKey = apiKey,
+                    model = FALLBACK_AUDIO_MODEL,
+                    prompt = prompt,
+                    fileUri = fileUri,
+                    mimeType = mimeType
+                )
+            }
         }
     }
 
@@ -235,17 +324,26 @@ class GeminiTranslationRepository @Inject constructor(
         var current = file
         var waitedMillis = 0L
         while (current.state != STATE_ACTIVE) {
+            if (current.state == STATE_FAILED) {
+                error("Gemini file processing failed for ${file.name}")
+            }
             if (waitedMillis >= ACTIVE_POLL_TIMEOUT_MS) {
                 error("Gemini file did not become ACTIVE within ${ACTIVE_POLL_TIMEOUT_MS}ms")
             }
             delay(ACTIVE_POLL_INTERVAL_MS)
             waitedMillis += ACTIVE_POLL_INTERVAL_MS
-            current = apiClient.getFile(apiKey, current.name)
+            current = withRetryOnTransientFailure(
+                maxAttempts = FILE_STATUS_MAX_RETRY_ATTEMPTS,
+                initialBackoffMillis = FILE_STATUS_INITIAL_BACKOFF_MS,
+                maxBackoffMillis = FILE_STATUS_MAX_BACKOFF_MS
+            ) {
+                apiClient.getFile(apiKey, current.name)
+            }
         }
         return current
     }
 
-    /** Retry 408 and 5xx generation failures with exponential backoff. */
+    /** Retry transient Gemini failures with exponential backoff and jitter. */
     private suspend fun <T> withRetryOnTransientFailure(
         maxAttempts: Int = DEFAULT_MAX_RETRY_ATTEMPTS,
         initialBackoffMillis: Long = DEFAULT_INITIAL_BACKOFF_MS,
@@ -259,24 +357,35 @@ class GeminiTranslationRepository @Inject constructor(
                 return block()
             } catch (error: GeminiApiException) {
                 attempt++
-                val retryable = error.httpCode == HTTP_REQUEST_TIMEOUT ||
-                    error.httpCode == HTTP_INTERNAL_SERVER_ERROR ||
-                    error.httpCode == HTTP_SERVICE_UNAVAILABLE ||
-                    error.httpCode == HTTP_GATEWAY_TIMEOUT
-
-                if (!retryable || attempt >= maxAttempts) {
+                if (!isTransientGeminiError(error) || attempt >= maxAttempts) {
                     throw error
                 }
 
+                val jitterMillis = Random.nextLong(0L, RETRY_JITTER_MAX_MS + 1L)
+                val waitMillis = backoffMillis + jitterMillis
+
                 logger.debug(
                     TAG,
-                    "Transient Gemini HTTP ${error.httpCode}; retrying attempt $attempt/$maxAttempts in ${backoffMillis}ms"
+                    "Transient Gemini HTTP ${error.httpCode}; retrying attempt " +
+                        "$attempt/$maxAttempts in ${waitMillis}ms (backoff=$backoffMillis, jitter=$jitterMillis)"
                 )
-                delay(backoffMillis)
+                delay(waitMillis)
                 backoffMillis = minOf(backoffMillis * 2, maxBackoffMillis)
             }
         }
     }
+
+    private fun isTransientGeminiError(error: GeminiApiException): Boolean =
+        error.httpCode == HTTP_REQUEST_TIMEOUT ||
+            error.httpCode == HTTP_INTERNAL_SERVER_ERROR ||
+            error.httpCode == HTTP_SERVICE_UNAVAILABLE ||
+            error.httpCode == HTTP_GATEWAY_TIMEOUT
+
+    private fun isModelFallbackEligible(error: GeminiApiException): Boolean =
+        error.httpCode == HTTP_INTERNAL_SERVER_ERROR ||
+            error.httpCode == HTTP_SERVICE_UNAVAILABLE ||
+            error.httpCode == HTTP_GATEWAY_TIMEOUT
+
 
     private fun buildPrompt(languagePair: LanguagePair): String {
         val source = languagePair.source.displayName
@@ -347,9 +456,14 @@ class GeminiTranslationRepository @Inject constructor(
     private companion object {
         const val TAG = "SigmaBridge"
         const val MODEL = "gemini-3.6-flash"
+        const val FALLBACK_AUDIO_MODEL = "gemini-3.5-flash"
         const val CHAT_MODEL = "gemini-3.1-flash-lite"
         const val STATE_ACTIVE = "ACTIVE"
-        const val INLINE_AUDIO_MAX_BYTES = 15L * 1024L * 1024L
+        const val STATE_FAILED = "FAILED"
+
+        // 12 MiB raw audio leaves margin for Base64 expansion, JSON, and the prompt
+        // under Gemini's 20 MB total inline-request ceiling.
+        const val INLINE_AUDIO_MAX_BYTES = 12L * 1024L * 1024L
 
         const val ACTIVE_POLL_INTERVAL_MS = 1_000L
         const val ACTIVE_POLL_TIMEOUT_MS = 60_000L
@@ -363,8 +477,14 @@ class GeminiTranslationRepository @Inject constructor(
         const val HTTP_FORBIDDEN = 403
 
         const val DEFAULT_MAX_RETRY_ATTEMPTS = 4
-        const val DEFAULT_INITIAL_BACKOFF_MS = 2_000L
+        const val DEFAULT_INITIAL_BACKOFF_MS = 1_000L
         const val DEFAULT_MAX_BACKOFF_MS = 30_000L
+        const val RETRY_JITTER_MAX_MS = 500L
+
+        const val FILE_STATUS_MAX_RETRY_ATTEMPTS = 3
+        const val FILE_STATUS_INITIAL_BACKOFF_MS = 500L
+        const val FILE_STATUS_MAX_BACKOFF_MS = 4_000L
+
         const val NETWORK_RETRY_ATTEMPTS = 1
         const val NETWORK_INITIAL_BACKOFF_MS = 1_000L
 

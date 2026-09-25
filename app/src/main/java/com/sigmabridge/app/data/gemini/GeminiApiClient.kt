@@ -21,6 +21,7 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.File
 import java.util.concurrent.TimeUnit
@@ -73,7 +74,7 @@ class GeminiApiClient @Inject constructor(
                 .url(uploadUrl)
                 .header("X-Goog-Upload-Offset", "0")
                 .header("X-Goog-Upload-Command", "upload, finalize")
-                .post(file.readBytes().toRequestBody(mimeType.toMediaType()))
+                .post(file.asRequestBody(mimeType.toMediaType()))
                 .build()
 
             httpClient.newCall(uploadRequest).await().use { response ->
