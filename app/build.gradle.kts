@@ -22,8 +22,8 @@ android {
         applicationId = "com.sigmabridge.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 11
-        versionName = "0.8.11"
+        versionCode = 14
+        versionName = "0.8.14"
 
         buildConfigField(
             "String",
