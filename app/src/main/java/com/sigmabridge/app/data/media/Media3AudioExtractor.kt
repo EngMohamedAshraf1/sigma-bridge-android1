@@ -1,6 +1,7 @@
 package com.sigmabridge.app.data.media
 
 import android.content.Context
+import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import androidx.media3.common.C
@@ -10,12 +11,15 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.muxer.AacMuxer
 import androidx.media3.muxer.Muxer
 import androidx.media3.muxer.MuxerException
+import androidx.media3.transformer.Composition
 import androidx.media3.transformer.EditedMediaItem
+import androidx.media3.transformer.EditedMediaItemSequence
 import androidx.media3.transformer.ExportException
 import androidx.media3.transformer.ExportResult
 import androidx.media3.transformer.Transformer
 import com.google.common.collect.ImmutableList
 import com.sigmabridge.app.domain.cache.CacheManager
+import com.sigmabridge.app.domain.logging.BridgeLogger
 import com.sigmabridge.app.domain.media.MediaAudioExtractor
 import com.sigmabridge.app.domain.model.TemporaryMediaFile
 import com.sigmabridge.app.domain.model.TemporaryVoiceFile
@@ -41,7 +45,8 @@ import javax.inject.Singleton
 @Singleton
 class Media3AudioExtractor @Inject constructor(
     @ApplicationContext context: Context,
-    private val cacheManager: CacheManager
+    private val cacheManager: CacheManager,
+    private val logger: BridgeLogger
 ) : MediaAudioExtractor {
 
     private val appContext = context.applicationContext
@@ -84,15 +89,24 @@ class Media3AudioExtractor @Inject constructor(
                     }
 
                     val input = File(media.path)
-                    require(input.exists()) { "Input media file does not exist." }
+                    require(input.exists() && input.isFile) {
+                        "Input media file does not exist: " + media.path
+                    }
 
-                    FileOutputStream(destination.path).use { }
-                    val mediaItem = MediaItem.fromUri(input.toURI().toString())
+                    val mediaItem = MediaItem.fromUri(Uri.fromFile(input))
                     val editedMediaItem = EditedMediaItem.Builder(mediaItem)
                         .setRemoveVideo(true)
                         .build()
 
-                    transformer.start(editedMediaItem, destination.path)
+                    // Explicitly request an audio-only output sequence.
+                    // Media3 1.9+ uses trackTypes on EditedMediaItemSequence
+                    // to define which tracks are exported.
+                    val audioOnlySequence = EditedMediaItemSequence.withAudioFrom(
+                        listOf(editedMediaItem)
+                    )
+                    val composition = Composition.Builder(audioOnlySequence).build()
+
+                    transformer.start(composition, destination.path)
                 }
             }
 
@@ -101,9 +115,18 @@ class Media3AudioExtractor @Inject constructor(
                 "Media audio extraction produced no output."
             }
             destination
-        }.onFailure {
+        }.onFailure { error ->
+            logger.error(
+                TAG,
+                "Media3 audio extraction failed for " + media.path,
+                error
+            )
             cacheManager.delete(destination)
         }
+    }
+
+    private companion object {
+        const val TAG = "SigmaBridge"
     }
 
     private class AacMuxerFactory : Muxer.Factory {
