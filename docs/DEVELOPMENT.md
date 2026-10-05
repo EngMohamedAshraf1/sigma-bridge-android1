@@ -69,6 +69,37 @@ Verify the current handler accepts MP3, AAC, OGG, FLAC, WAV, and AIFF and reject
 - verify file status reaches ACTIVE;
 - verify remote Gemini file cleanup is attempted.
 
+## Telegram video functional tests
+
+### Test I: normal video is ignored
+
+- send a Telegram Video/VideoNote without `/translate`;
+- verify no download, extraction, Gemini request, or reply is triggered.
+
+### Test J: explicit video translation
+
+- send a Video/VideoNote with `/translate` in its caption, or reply to a Video/VideoNote with `/translate`;
+- verify the target video is downloaded;
+- verify only the audio track is extracted;
+- verify the extracted AAC enters the existing Gemini audio translation path;
+- verify the final translated text is sent as a reply to the original video.
+
+### Test K: video without audio
+
+- use a video that has no audio track;
+- verify a specific extraction failure is returned;
+- verify no Gemini request is attempted.
+
+### Test L: oversized video
+
+- use a video whose declared Telegram size is over 20 MB;
+- verify the handler rejects it before download.
+
+### Test M: Voice/Audio regression
+
+- send existing Voice and Audio messages;
+- verify their handlers and translation behavior remain unchanged.
+
 ## Local configuration
 
 The project reads environment-like values from `local.properties` through Gradle. The checked-in repository should contain only the example file and never real credentials.
