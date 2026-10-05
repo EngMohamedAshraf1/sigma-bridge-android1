@@ -184,7 +184,7 @@ class Media3AudioExtractor @Inject constructor(
                 return false
             }
 
-            val format = audioFormat
+            val format = requireNotNull(audioFormat)
             val sampleRate = format.getInteger(MediaFormat.KEY_SAMPLE_RATE)
             val channelCount = format.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
             require(sampleRate > 0) { "AAC track has invalid sample rate: " + sampleRate }
