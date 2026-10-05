@@ -2,6 +2,57 @@
 
 All notable changes to Sigma Bridge Android are recorded here.
 
+## [0.8.14] — Telegram Audio Translation Reliability
+
+Release tag:
+
+```text
+v0.8.14-telegram-audio-reliability
+```
+
+Release status: published
+
+### Telegram Bridge
+
+- Hardened Telegram Voice/Audio translation against transient Gemini failures.
+- Added retries for HTTP 408, 500, 503, and 504.
+- Added exponential backoff with jitter.
+- Added automatic fallback from `gemini-3.6-flash` to `gemini-3.5-flash` after persistent server-side transient failures.
+- Added retry handling around Gemini Files API upload and file-status requests.
+- Changed Gemini file upload to stream directly from disk instead of loading the full file into memory.
+- Reduced the inline-audio threshold to 12 MiB to leave request-size headroom.
+- Preserved the existing Private Chat retry timing.
+
+### Audio pipeline
+
+```text
+Telegram Voice/Audio
+      -> Telegram download
+      -> inline audio or Gemini Files API
+      -> Gemini audio understanding + translation
+      -> translated text
+      -> Telegram reply
+```
+
+No separate Whisper/STT pipeline was introduced.
+
+### Release artifact
+
+- Official asset: `sigma-bridge.apk`
+- APK size: `20,900,818` bytes
+- APK SHA-256:
+
+```text
+8fbafe1b49a7fc135760f809835902e96a9173d8dae6d769cd57d13105824dc6
+```
+
+### Scope
+
+- Telegram audio reliability work plus the Private Chat code already present on the release branch.
+- No Telegram polling architecture rewrite.
+- No database deletion.
+- No new Telegram video handling.
+
 ## [0.8.8] — Private Chat message actions
 
 Release tag:

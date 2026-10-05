@@ -2,7 +2,16 @@
 
 ## Baseline
 
-The current Private Chat development baseline is the `private-chat-6bb07de-fix` branch.
+The current development baseline is the `private-chat-performance-fix` branch.
+
+Current source head:
+
+```text
+7173af8225da11c670b567716cb3ec116d99ae4f
+```
+
+Latest release: `v0.8.14-telegram-audio-reliability`.
+The release code commit is `0602db25e9c9134f0cc1258222cf38ef74c4f9bd`; the branch subsequently records the version-metadata alignment to `versionName 0.8.14` / `versionCode 14`.
 
 The branch history used for the 0.8.6 work is:
 
@@ -32,6 +41,33 @@ Kotlin JVM target 17
 ```
 
 The project uses Kotlin, Jetpack Compose, AndroidX, Hilt, Supabase Kotlin libraries, Ktor, OkHttp, and kotlinx.serialization.
+
+## Telegram audio functional tests
+
+### Test I: Voice translation
+
+- send a Telegram Voice message;
+- verify the voice is downloaded;
+- verify Gemini returns a translated text reply;
+- verify the temporary local file is deleted.
+
+### Test J: transient Gemini recovery
+
+- reproduce a controlled transient Gemini 503/5xx condition;
+- verify retry/backoff occurs;
+- verify the fallback audio model is attempted for eligible server-side failures;
+- verify the generic Sorry reply occurs only after the recovery path is exhausted.
+
+### Test K: Telegram Audio MIME handling
+
+Verify the current handler accepts MP3, AAC, OGG, FLAC, WAV, and AIFF and rejects unsupported formats.
+
+### Test L: larger audio / Files API
+
+- use a Telegram Audio file above the 12 MiB inline threshold but within Telegram's download ceiling;
+- verify the Files API upload path is used;
+- verify file status reaches ACTIVE;
+- verify remote Gemini file cleanup is attempted.
 
 ## Local configuration
 
@@ -169,7 +205,7 @@ Do not use Android Studio's AGP upgrade assistant as part of routine application
 - verify inbox/background worker retrieves the message
 - verify unread/read behavior
 
-### Test H: update system
+### Test M: update system
 
 - install an older APK
 - publish a newer release
@@ -224,7 +260,7 @@ The intended release sequence is:
 9. record release notes
 ```
 
-For v0.8.6, the source branch has been corrected to `versionCode=6` and `versionName=0.8.6` after the first APK/release was created with stale embedded version metadata.
+For v0.8.6, stale embedded metadata caused a same-version update loop and was corrected. For v0.8.14, the distributed APK is versionName 0.8.14/versionCode 14 and the release tag normalizes to 0.8.14.
 
 ## Documentation rule
 

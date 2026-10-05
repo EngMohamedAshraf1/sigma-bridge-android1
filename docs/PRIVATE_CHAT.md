@@ -34,9 +34,14 @@ Legacy anonymous-auth sessions are deliberately not treated as authenticated Pri
 
 Stored values include:
 
-- `my_id`: the user-facing Sigma Bridge ID.
-- `partner_id`: the currently selected partner for foreground UI compatibility.
+- `my_id`: the canonical user-facing Sigma Bridge ID.
+- `partner_id`: the selected partner account for foreground chat.
 - `device_public_id`: a stable identifier for the Android installation.
+- `conversation_id`: the selected authoritative Supabase conversation UUID.
+- `conversation_owner_user_id`: the authenticated account that owns the selection.
+- `device_role`: the server-provided PRIMARY/SECONDARY device role.
+
+In the current account-identity v2 path, the canonical `SB-...` identity belongs to the authenticated account and can be restored on a fresh device.
 
 The user-facing ID has the format `SB-...` and is generated from secure random bytes. It is intentionally persisted so it normally survives app restarts.
 
@@ -50,21 +55,34 @@ This is a recovery mechanism, not normal behavior. Code must never regenerate th
 
 ## Conversation identity
 
-The client derives conversation identity from the two participant public IDs.
+The current transport has two generations.
 
-### Topic
+### Legacy v1 identity
 
-`conversationTopicFor(partnerId)` sorts the two IDs, joins them with `|`, hashes the result with SHA-256, and uses the first 32 hexadecimal characters in:
+Compatibility code can derive a deterministic topic and conversation key from the sorted public IDs:
 
 ```text
-sigma-bridge-<hash-prefix>
+myId + partnerId
+      -> sort
+      -> join(|)
+      -> SHA-256
 ```
 
-Sorting makes the topic symmetric: A+B produces the same value as B+A.
+### Current v2 identity
 
-### Conversation key
+The current Private Chat path uses the authoritative Supabase conversation_id UUID as the transport identity.
 
-`conversationKeyFor(partnerId)` computes the SHA-256 digest of the same sorted identity pair. This is the 256-bit key input used by the current AES-GCM chat encryption implementation.
+The encryption key is a random 256-bit conversation key obtained from the authenticated Supabase conversation path. It is represented as 64 hexadecimal characters and cached by ChatConversationKeyStore keyed by conversation UUID.
+
+```text
+authenticated account
+      -> ensure conversation v2
+      -> get/create conversation key v2
+      -> cache by conversation_id
+      -> encrypt/decrypt sb3 payloads
+```
+
+A v2 encryption key must not be reconstructed from public IDs by assumption.
 
 ### Fingerprint
 
@@ -72,9 +90,15 @@ Sorting makes the topic symmetric: A+B produces the same value as B+A.
 
 ## Cryptography
 
-`ChatCrypto` implements the current message encryption protocol.
+`ChatCrypto` implements both the current v2 encryption protocol and legacy v1 compatibility.
 
-The payload format is versioned with the `sb2:` prefix. The encrypted payload contains a version byte, a random 12-byte initialization vector, ciphertext, and a 128-bit GCM authentication tag. Base64 URL-safe encoding without padding is used for transport.
+### Current v2 messages
+
+New messages use the `sb3:` prefix and AES-GCM with the recovered random 256-bit conversation key. The payload contains a version byte, random 12-byte IV, ciphertext, and a 128-bit GCM authentication tag, encoded as URL-safe Base64 without padding. Optional reply metadata is inside the encrypted plaintext.
+
+### Legacy v1 messages
+
+The `sb2:` prefix remains for older local data and compatibility helpers.
 
 Two styles of decryption exist:
 
@@ -216,6 +240,14 @@ The current baseline intentionally does not include the later experimental chang
 
 This distinction is important when debugging historical branches: do not assume that every newer experimental receipt implementation is part of the current release baseline.
 
+## Realtime observation and reconciliation
+
+The current foreground repository subscribes to Supabase Realtime for the active conversation, observing message INSERT events and partner receipt changes.
+
+Realtime is the primary low-latency path. A reconciliation pass runs approximately every 15 seconds to recover events that were missed during connection changes.
+
+Message rows are tracked by server message ID and sequence number, while the domain model continues to use the local client_message_id as the stable local message ID.
+
 ## Receipt polling
 
 The current foreground Supabase repository polls `message_receipts` every second. It resolves each receipt's `message_id` back to the message row in the active conversation, obtains `client_message_id`, and emits either `ChatEvent.Read` or `ChatEvent.Delivered`.
@@ -269,6 +301,18 @@ Presence is implemented using a last-seen timestamp. `ChatViewModel` periodicall
 `ChatInboxRepository` can fetch undelivered messages independently of the locally selected partner. This allows a user to receive a first message without first searching for or opening the sender's conversation.
 
 The background notification service derives the correct partner-specific history/encryption context from the sender identifier for these messages.
+
+## Replies and reactions
+
+### Reply
+
+Private Chat supports Telegram-style message replies. Reply metadata is optional and is carried inside the encrypted message payload. The UI shows a compact quoted preview and can scroll to a locally available target.
+
+### Reactions
+
+Private Chat supports emoji reactions with optimistic local state, Supabase RPC writes/removal, Realtime updates, and periodic snapshot reconciliation. Pending own reactions are preserved while server state catches up.
+
+These features are conversation-scoped and do not change Telegram behavior.
 
 ## Background notification service
 

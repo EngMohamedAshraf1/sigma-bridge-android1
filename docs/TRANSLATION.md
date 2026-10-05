@@ -4,6 +4,8 @@
 
 Private Chat translation is implemented as its own path. It must not be assumed to share Telegram's translation runtime simply because both products use Gemini.
 
+Telegram uses its own `GeminiTranslationRepository`. The two paths do not share message state, conversation state, or translation job storage.
+
 The Private Chat side contains a dedicated `ChatGeminiTranslationRepository` and a `ChatTranslationRelayRepository`.
 
 ## Language model
@@ -186,6 +188,34 @@ A future retry design must preserve these properties:
 The translation coroutine captures the conversation `historyKey`. After completion it writes to that conversation's history. It updates the visible list only if that same history key is still the active conversation and the message still exists in the visible state.
 
 This is essential because translation can finish seconds after the user navigates away.
+
+## Telegram Bridge audio translation
+
+Telegram Voice and Telegram Audio are translated as audio, not through a separate speech-to-text service.
+
+Current flow:
+
+```text
+Telegram Voice/Audio
+      -> Telegram getFile/download
+      -> MIME normalization
+      -> Gemini audio request
+           | small file: inlineData
+           | larger file: Files API
+      -> Gemini listens + translates in one generateContent call
+      -> translated text
+      -> Telegram reply
+```
+
+Current Telegram Audio MIME set: MP3, AAC, OGG, FLAC, WAV, and AIFF.
+
+Telegram Voice uses audio/ogg. M4A and video/audio extraction are not yet in the current release.
+
+### Telegram Gemini reliability
+
+v0.8.14 retries transient 408/500/503/504 responses with exponential backoff and jitter. Persistent server-side transient failures can trigger a model fallback from gemini-3.6-flash to gemini-3.5-flash. Upload/status operations in the Files API path are also retried.
+
+The inline audio limit is 12 MiB. Files API upload streams from disk. The Telegram path does not use Whisper, FFmpeg, or a second translation request.
 
 ## Changing the translation system
 

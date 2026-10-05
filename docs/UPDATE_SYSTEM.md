@@ -47,20 +47,21 @@ remoteVersion > installedVersion
 
 Therefore the release tag and the embedded application version must be kept synchronized.
 
-## Current stable release: v0.8.7
+## Current stable release: v0.8.14
 
-The current Private Chat stable release is:
+The current published release is:
 
 ```text
-Release:  Sigma Bridge v0.8.7 — Private Chat Stable
-Tag:      v0.8.7-private-chat-stable
-Commit:   37054fa02f8a91d2f4e582b87756479013e73bb8
-Version:  versionName 0.8.7 / versionCode 7
+Release:  Sigma Bridge v0.8.14 — Telegram Audio Translation Reliability
+Tag:      v0.8.14-telegram-audio-reliability
+Release commit: 0602db25e9c9134f0cc1258222cf38ef74c4f9bd
+Version:  versionName 0.8.14 / versionCode 14
 APK:      sigma-bridge.apk
-SHA-256:  5f671b7d99957cbfc411c72ee558cfdd0c0a22d3067d0719f8cf067864b004b0
+APK size: 20,900,818 bytes
+SHA-256:  8fbafe1b49a7fc135760f809835902e96a9173d8dae6d769cd57d13105824dc6
 ```
 
-The release is published on GitHub and is marked as the latest stable release. Its scope is Private Chat only; Telegram functionality was not changed.
+The release is published on GitHub and is marked as the latest release. Its Telegram scope is the audio reliability work documented in the v0.8.14 changelog.
 
 ## Important v0.8.6 incident
 
@@ -97,7 +98,13 @@ For a new release:
 6. Install the APK and verify that no same-version update banner appears.
 ```
 
-For v0.8.7, this process produced `versionCode 7` / `versionName 0.8.7`, and the release asset was attached to `v0.8.7-private-chat-stable`.
+For v0.8.14, the distributed APK was prepared as `versionCode 14` / `versionName 0.8.14` and attached as `sigma-bridge.apk`.
+
+## Same-version safety check
+
+The checker strips the leading v and the suffix after the first dash. Therefore the tag `v0.8.14-telegram-audio-reliability` normalizes to `0.8.14`. With the distributed APK reporting `BuildConfig.VERSION_NAME = 0.8.14`, `updateAvailable` is false after installation.
+
+The release engineer must validate the actual installed APK, not only the GitHub release name.
 
 ## UI
 

@@ -157,7 +157,46 @@ if (row.readAt != null) {
 
 Do not reintroduce the malformed structure. If a local checkout shows it, verify the branch/commit before making manual edits.
 
-## 10. The app repeatedly says “new update available” for the version already installed
+## 10. Telegram voice/audio translation ends with Sorry...
+
+Trace the exact stage:
+
+```text
+Telegram update
+ -> VoiceMessageHandler / AudioMessageHandler
+ -> Telegram getFile
+ -> local temporary file
+ -> GeminiTranslationRepository
+      -> inlineData OR Files API
+      -> retry 408/500/503/504
+      -> fallback audio model for eligible server failures
+ -> Telegram sendMessage reply
+```
+
+For a known 503, confirm from logs that retries occurred and that the fallback model was attempted when eligible. The current Telegram path does not persist a failed translation job for later replay; the final handler response is the generic error message.
+
+Telegram audio uses direct Gemini audio understanding + translation and does not use Whisper or a separate STT request.
+
+## 11. Telegram Audio format is rejected
+
+The current handler accepts MP3, AAC, OGG/OGA/OPUS, FLAC, WAV, and AIFF/AIF/AIFC. It does not yet include M4A. Support must be added in MIME normalization and test coverage together.
+
+## 12. Telegram Files API path fails
+
+For audio above the 12 MiB inline threshold, check:
+
+```text
+Telegram download succeeded
+ -> upload session start succeeded
+ -> upload/finalize succeeded
+ -> file state reached ACTIVE
+ -> generateContent used fileUri
+ -> cleanup attempted
+```
+
+Transient upload/status/generation failures should be retried. A file state of FAILED must not be polled forever.
+
+## 13. The app repeatedly says “new update available” for the version already installed
 
 Check three values:
 
@@ -171,9 +210,20 @@ The current checker compares the normalized `BuildConfig.VERSION_NAME` with GitH
 
 For the v0.8.6 incident, the GitHub release was `v0.8.6` while the APK still embedded `0.8.5`. The project was corrected to versionCode 6 / versionName 0.8.6.
 
+For v0.8.14, the expected values are:
+
+```text
+GitHub tag:   v0.8.14-telegram-audio-reliability
+normalized:   0.8.14
+installed:    0.8.14
+versionCode:  14
+```
+
 An APK must never be published under a release version that it does not itself report.
 
-## 11. APK downloads but installation fails
+An APK must never be published under a release version that it does not itself report.
+
+## 14. APK downloads but installation fails
 
 Check:
 
@@ -185,7 +235,7 @@ Check:
 
 The application does not silently grant itself install permissions. The user must enable the platform setting where required.
 
-## 12. Supabase errors look inconsistent after a schema change
+## 15. Supabase errors look inconsistent after a schema change
 
 Do not assume the repository SQL files are the live schema.
 
@@ -201,7 +251,7 @@ Inspect:
 
 A common debugging mistake is to read an old migration file and assume the live constraint still matches it.
 
-## 13. Identity collision
+## 16. Identity collision
 
 If registration returns:
 
@@ -213,7 +263,7 @@ the client has a bounded recovery path: regenerate the public ID once and retry 
 
 Do not delete the existing user as a workaround.
 
-## 14. App background behavior is broken
+## 17. App background behavior is broken
 
 Separate these cases:
 
@@ -231,7 +281,7 @@ For authenticated Private Chat users, `ChatBootReceiver` can start `ChatNotifica
 
 These are Private Chat behaviors. Do not confuse them with the legacy Telegram bridge service.
 
-## 15. Debugging order
+## 18. Debugging order
 
 Use this order whenever possible:
 

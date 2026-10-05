@@ -14,9 +14,13 @@ The repository contains Telegram-specific components such as:
 - Telegram file download handling
 - Telegram repository implementation
 - Telegram DTO/mapper code
-- the existing Gemini translation pipeline used by the Telegram bridge
+- `UpdateDispatcher`
+- `VoiceMessageHandler`
+- `AudioMessageHandler`
+- `GeminiTranslationRepository`
 - `BridgeOrchestrator`
-- the legacy `BridgeForegroundService`
+- the Telegram foreground/background service
+- Telegram-specific settings and language resolution
 
 These components have their own responsibilities, retry behavior, configuration, and long-running execution model.
 
@@ -41,6 +45,24 @@ Private Chat has its own components:
 - Private Chat Compose screens/view models
 
 A class having the word “Gemini” or “translation” in its name does not make it a shared Telegram/Private Chat implementation. Read the package and dependency direction before changing it.
+
+## Current Telegram media contract
+
+The Telegram bridge currently handles:
+
+```text
+Voice
+  -> automatic translation
+  -> translated text reply
+
+Telegram Audio
+  -> automatic translation
+  -> translated text reply
+```
+
+The v0.8.14 reliability layer adds retry/backoff for transient Gemini failures, model fallback for eligible server-side failures, and final generic error reporting only after the recovery path is exhausted.
+
+Current Audio formats are MP3, AAC, OGG, FLAC, WAV, and AIFF. M4A and video/audio extraction are not yet released.
 
 ## Do not cross the boundary casually
 
@@ -73,7 +95,9 @@ Some Android-level classes may be used by both product areas, especially applica
 
 ## Testing rule
 
-A Private Chat-only change should be tested with the Private Chat flows first. Telegram should remain untouched and should not be used as a reason to broaden a Private Chat patch.
+A Private Chat-only change should be tested with the Private Chat flows first. Telegram should remain untouched unless the task explicitly includes Telegram.
+
+A Telegram audio change should be tested independently against the Telegram handler/download/Gemini pipeline and should not be treated as a Private Chat regression test.
 
 If a compiler error appears in Telegram code during a Private Chat change, do not “clean it up” opportunistically. Determine whether it predates the task and record it separately.
 

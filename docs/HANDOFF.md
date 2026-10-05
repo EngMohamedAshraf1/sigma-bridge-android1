@@ -10,17 +10,18 @@ At this documentation point:
 
 ```text
 Repository: EngMohamedAshraf1/sigma-bridge-android1
-Private Chat development branch: private-chat-6bb07de-fix
-Latest stable release tag: v0.8.7-private-chat-stable
-Latest documented commit: 37054fa02f8a91d2f4e582b87756479013e73bb8
-Application version in source: 0.8.7
-versionCode: 7
+Current development branch: private-chat-performance-fix
+Current source baseline: 7173af8225da11c670b567716cb3ec116d99ae4f
+Latest release tag: v0.8.14-telegram-audio-reliability
+Release code commit: 0602db25e9c9134f0cc1258222cf38ef74c4f9bd
+Application version in source: 0.8.14
+versionCode: 14
 ```
 
-The v0.8.7 release was published on 2026-09-10. Its official GitHub release asset is `sigma-bridge.apk` with SHA-256:
+The v0.8.14 release was published on 2026-09-28. Its official GitHub release asset is `sigma-bridge.apk` with SHA-256:
 
 ```text
-5f671b7d99957cbfc411c72ee558cfdd0c0a22d3067d0719f8cf067864b004b0
+8fbafe1b49a7fc135760f809835902e96a9173d8dae6d769cd57d13105824dc6
 ```
 
 The user has previously had local Git divergence problems. Prefer pulling a clean branch and validating the exact commit over attempting to merge uncertain local changes.
@@ -143,15 +144,14 @@ The v0.8.7 release extends the background transport path so stored conversations
 ## Current stable release
 
 ```text
-Release: Sigma Bridge v0.8.7 — Private Chat Stable
-Tag:     v0.8.7-private-chat-stable
-Commit:  37054fa02f8a91d2f4e582b87756479013e73bb8
-Version: versionName 0.8.7 / versionCode 7
+Release: Sigma Bridge v0.8.14 — Telegram Audio Translation Reliability
+Tag:     v0.8.14-telegram-audio-reliability
+Version: versionName 0.8.14 / versionCode 14
 APK:     sigma-bridge.apk
-SHA-256: 5f671b7d99957cbfc411c72ee558cfdd0c0a22d3067d0719f8cf067864b004b0
+SHA-256: 8fbafe1b49a7fc135760f809835902e96a9173d8dae6d769cd57d13105824dc6
 ```
 
-This release is the current stable Private Chat reference point. It contains no intentional Telegram changes, no Supabase schema changes, and no deletion of real Supabase user, device, conversation, message, or receipt data.
+This release contains the Telegram audio-reliability changes documented in the changelog plus the Private Chat code present on the release branch. The current Chat architecture also includes account-identity v2, recoverable conversation keys, Realtime-first observation, Reply, and Reactions.
 
 ## Known historical work
 
@@ -169,9 +169,9 @@ The v0.8.7 transport-isolation work was implemented after the 0.8.6 baseline and
 
 ## Current known limitations
 
-The current repository is not a finished feature-complete messenger. It is an MVP. Features such as photos in chat, reactions, reply-to-message, and copy/share behavior are future UI/product work unless already implemented elsewhere.
+The current repository is not a finished feature-complete messenger. It is an MVP. The current MVP already includes message actions such as Reply, Reactions, Translate, Alternative Translation, and Copy. Do not describe these as future work unless discussing a new feature or redesign.
 
-The encryption design should not be described as Signal-style E2E with ratcheting or forward secrecy. It is an AES-GCM scheme based on the current identity-derived conversation key.
+The current v2 encryption design should not be described as Signal-style E2E with ratcheting or forward secrecy. New chat messages use AES-GCM with a random 256-bit conversation key recovered from Supabase and represented by the `sb3:` payload prefix. Legacy `sb2:` support remains for older local/compatibility data.
 
 The Supabase SQL under `docs/supabase/` is a reference snapshot. Before production database changes, inspect the live database.
 
@@ -217,7 +217,7 @@ Before committing:
 
 A new AI conversation can be started with the repository plus this instruction:
 
-> Work on Sigma Bridge using the repository's current Private Chat documentation as the source of truth. Read README.md, docs/ARCHITECTURE.md, docs/PROJECT_HISTORY.md, docs/PRIVATE_CHAT.md, docs/SUPABASE.md, docs/TRANSLATION.md, docs/UPDATE_SYSTEM.md, docs/DEVELOPMENT.md, and docs/TROUBLESHOOTING.md before proposing changes. Current scope is Private Chat only; do not modify Telegram. Do not delete or alter real Supabase user/message/conversation data unless explicitly instructed. Diagnose from actual code and database evidence rather than guessing. Preserve original message text, conversation isolation, and independent receipt/translation behavior.
+> Work on Sigma Bridge using the repository's current documentation as the source of truth. Read README.md, docs/ARCHITECTURE.md, docs/PROJECT_HISTORY.md, docs/PRIVATE_CHAT.md, docs/SUPABASE.md, docs/TRANSLATION.md, docs/UPDATE_SYSTEM.md, docs/DEVELOPMENT.md, docs/TROUBLESHOOTING.md, and docs/TELEGRAM_BOUNDARY.md before proposing changes. The task may explicitly target Private Chat or Telegram; do not cross the product boundary without explicit scope. Do not delete or alter real Supabase user/message/conversation data unless explicitly instructed. Diagnose from actual code and database evidence rather than guessing. Preserve original message text, conversation isolation, and independent receipt/translation behavior.
 
 That instruction is intentionally explicit because repository state and old chat history can disagree.
 

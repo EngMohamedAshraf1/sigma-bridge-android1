@@ -3,15 +3,19 @@
 Sigma Bridge is a native Android application with two intentionally separated product areas:
 
 - **Private Chat** — a 1-to-1 user messaging system backed by Supabase, with Google sign-in, profiles, encrypted messages, delivery/read receipts, local history/outbox, background notifications, and automatic translation.
-- **Telegram Bridge** — the legacy bot/translation subsystem. It is a separate area and is not part of the current Private Chat maintenance scope.
+- **Telegram Bridge** — a separate bot/translation subsystem. It remains isolated from Private Chat and is maintained explicitly when a Telegram task is requested.
 
 ## Current baseline
 
-**Private Chat development branch:** `private-chat-6bb07de-fix`
+**Current development branch:** `private-chat-performance-fix`
 
-**Current documented source baseline:** `b2eea8d0d4fdb94827ee72476b01d08d1e954a88`
+**Current documented source baseline:** `7173af8225da11c670b567716cb3ec116d99ae4f`
 
-**Application version in source:** `0.8.6` (`versionCode 6`)
+**Latest release:** `v0.8.14-telegram-audio-reliability`
+
+**Application version in source:** `0.8.14` (`versionCode 14`)
+
+This documentation describes the current repository state, including the Telegram audio-reliability work shipped in v0.8.14 and the current Private Chat architecture.
 
 This documentation describes the code as it exists in the repository, not an earlier project plan.
 
@@ -116,9 +120,11 @@ Each identifier has a different purpose and lifecycle.
 
 ## Encryption
 
-Private Chat currently encrypts message content with AES-GCM using the conversation key derived from the participant identities. The wire payload is versioned with the `sb2:` prefix and contains a version byte, random IV, ciphertext, and authentication tag.
+Private Chat retains the legacy `sb2:` payload for compatibility, but the current v2 transport uses `sb3:` encrypted messages.
 
-This is the current application encryption design. It must not be described as Signal-style ratcheting E2E, forward secrecy, or an asymmetric key-exchange protocol because those mechanisms are not present in the current implementation.
+In v2, the authoritative conversation is a Supabase conversation UUID and the encryption key is a random 256-bit conversation key recovered by authenticated members through Supabase and cached locally by conversation ID. The v2 key is not derived from public account identifiers.
+
+Both generations use AES-GCM with a random 12-byte IV. The current design must not be described as Signal-style ratcheting E2E, forward secrecy, or an asymmetric key-exchange protocol because those mechanisms are not present.
 
 ## Supabase contract
 
@@ -151,15 +157,25 @@ An authenticated user can also have the service restarted after device boot by `
 
 ## Translation
 
-Private Chat uses a dedicated Gemini translation repository and a separate translation relay abstraction. This separation is intentional so Telegram's translation pipeline remains independent.
+Private Chat uses a dedicated Gemini translation repository and a separate translation relay abstraction. Telegram has its own translation runtime and does not use the Private Chat translation service.
 
-The supported language catalog currently includes English, Russian, Arabic, French, German, Spanish, Italian, Portuguese, Turkish, Simplified Chinese, Japanese, Korean, Hindi, Ukrainian, Polish, and Auto-detect. The MVP default pair is Russian -> Arabic.
+### Telegram audio
+
+Telegram Voice and supported Telegram Audio messages use direct Gemini audio understanding and translation in one request. Small files use inline audio; larger files use the Gemini Files API. v0.8.14 adds transient-error recovery with exponential backoff/jitter and a fallback audio model.
+
+Telegram Voice/Audio returns translated text as a Telegram reply. There is no separate Whisper/STT stage.
+
+The currently implemented Telegram Audio MIME set is MP3, AAC, OGG, FLAC, WAV, and AIFF. M4A and video-to-audio extraction are not yet implemented.
+
+The Private Chat supported language catalog currently includes English, Russian, Arabic, French, German, Spanish, Italian, Portuguese, Turkish, Simplified Chinese, Japanese, Korean, Hindi, Ukrainian, Polish, and Auto-detect. The MVP default pair is Russian -> Arabic.
 
 ## Update system
 
 The Android app checks the GitHub `releases/latest` endpoint and compares its `tag_name` with `BuildConfig.VERSION_NAME`.
 
-The release process must keep these values synchronized. The v0.8.6 work exposed a real failure mode: a release can be named 0.8.6 while an APK still reports 0.8.5 internally, which causes the application to advertise the same update repeatedly. The source baseline now uses `versionCode 6` / `versionName 0.8.6`.
+The current published release is `v0.8.14-telegram-audio-reliability`, which normalizes to `0.8.14`. The distributed APK is versionName `0.8.14` / versionCode `14`, so an installed v0.8.14 app does not advertise the same release again.
+
+The v0.8.6 work exposed the original same-version update-loop failure mode, so release engineering must continue to verify the embedded APK version before publishing.
 
 See [`docs/UPDATE_SYSTEM.md`](docs/UPDATE_SYSTEM.md) for the full flow and release checklist.
 
@@ -190,7 +206,7 @@ For a release build:
 
 ## Repository safety rules
 
-- Current work discussed by the project is **Private Chat only**. Do not modify Telegram while addressing Private Chat defects.
+- Keep **Private Chat and Telegram changes task-scoped**. Do not modify Telegram while addressing a Private Chat defect unless the task explicitly targets Telegram. v0.8.14 is an example of an explicit Telegram reliability task.
 - Never delete real users, devices, conversations, messages, receipts, profiles, or other Supabase data as a debugging shortcut.
 - Do not commit secrets or private credentials.
 - Use actual code/database evidence before changing architecture.
@@ -202,7 +218,11 @@ For a release build:
 | Release | State | Notes |
 |---|---|---|
 | `v0.8.5` | previous baseline | Stable baseline before the Private Chat simplification work. |
-| `v0.8.6` | current workstream | Private Chat stability/syntax fixes plus aligned application version metadata. |
+| `v0.8.6` | historical | Private Chat stability/syntax fixes plus aligned application version metadata. |
+| `v0.8.7` | historical stable | Private Chat background transport-isolation improvements. |
+| `v0.8.12` | historical | Private Chat reactions work. |
+| `v0.8.13` | historical stable | Private Chat delivery/background-worker stability. |
+| `v0.8.14` | current release | Telegram audio translation reliability and Gemini transient-failure recovery. |
 
 ## Current limitations
 

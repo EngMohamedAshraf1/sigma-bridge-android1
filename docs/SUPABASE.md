@@ -16,6 +16,30 @@ The client does not send an arbitrary user UUID and ask the database to trust it
 
 Google sign-in is performed through AndroidX Credential Manager and Google ID. The resulting ID token is passed to Supabase Auth. The chat repositories then operate through the authenticated session.
 
+## Current account-identity v2 path
+
+The current Private Chat transport uses authenticated Supabase account ownership plus an authoritative conversation UUID.
+
+```text
+auth.uid()
+   |
+   +--> account/profile identity
+   +--> registered device
+   |
+   v
+conversation UUID
+   |
+   +--> random 256-bit conversation key
+   +--> encrypted sb3 messages
+   +--> receipts
+   +--> translations
+   +--> reactions
+```
+
+A fresh device can synchronize the canonical account-owned SB- identity and register a stable local device identifier. The v2 conversation key is a server-owned random 256-bit value represented as 64 hexadecimal characters. ChatConversationKeyStore caches it locally by conversation UUID.
+
+Legacy v1 deterministic conversation-key/topic helpers remain in the repository for compatibility but are not the encryption basis of new sb3 messages.
+
 ## Core logical entities
 
 The current SQL/client contract references these logical entities:
@@ -47,6 +71,45 @@ message_translations
 ```
 
 The exact live columns and constraints must be verified before database modifications.
+
+## Current v2 RPC contract
+
+The current Android v2 path depends on:
+
+### sigma_register_account_device_v2
+
+Input: p_device_public_id, p_identity_public_key
+
+Purpose: bind a stable application/device identifier to the authenticated account and return the authoritative device UUID, account user ID, and device role.
+
+### sigma_ensure_conversation_v2
+
+Input: p_partner_user_id
+
+Purpose: resolve/create the account-level 1-to-1 conversation and return the authoritative conversation_id.
+
+### sigma_get_or_create_conversation_key_v2
+
+Input: p_conversation_id
+
+Purpose: return the random 256-bit conversation key for an authorized member and let the client cache it by conversation ID.
+
+### sigma_send_message_v2
+
+Input: p_conversation_id, p_client_message_id, p_sender_device_id, p_ciphertext, p_nonce, p_message_version
+
+Purpose: send the encrypted sb3 payload into the authoritative conversation while preserving the local client_message_id and server-side ordering.
+
+### Current reaction RPCs
+
+```text
+sigma_set_reaction
+sigma_remove_reaction
+sigma_get_reactions_v2
+sigma_get_reaction_context_v2
+```
+
+The established sigma_set_receipt RPC remains the receipt write path. The client resolves the server message inside the selected conversation from client_message_id before calling it.
 
 ## RPC contract
 
@@ -288,8 +351,12 @@ partner device ID
 
 Do not replace one identifier with another merely because both look like UUID/string values. They have different ownership and lifecycle semantics.
 
-## Important current-baseline receipt behavior
+## Important current-baseline receipt and Realtime behavior
 
-The current `private-chat-6bb07de-fix` baseline resolves the server message for receipt submission through the active conversation and `client_message_id`. The later experimental message-centric receipt change is intentionally not part of this baseline.
+The current `private-chat-performance-fix` path uses conversation-scoped Supabase Realtime observation for messages and partner receipts. Realtime is the low-latency path, while a slower reconciliation pass runs approximately every 15 seconds to recover missed events.
+
+Receipt submission still resolves the authoritative server message through the active conversation and `client_message_id`, then calls `sigma_set_receipt`.
+
+Older `private-chat-6bb07de-fix` receipt wording is historical and should not be treated as the current release baseline.
 
 This matters when comparing Git branches: a newer receipt implementation may be a useful experiment, but it should not be silently described as the current release architecture.

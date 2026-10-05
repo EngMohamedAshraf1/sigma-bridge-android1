@@ -7,13 +7,13 @@ Sigma Bridge is a native Android application containing two distinct product are
 1. **Private Chat** — a direct user-to-user chat with Google sign-in, Supabase-backed messaging, local history/outbox, delivery/read receipts, profiles, presence, notifications, and automatic translation.
 2. **Telegram Bridge** — the older bot/translation pipeline. It is a separate subsystem and must remain isolated from Private Chat changes unless a task explicitly targets Telegram.
 
-The current documentation is written against the `private-chat-6bb07de-fix` development branch and the `v0.8.6` workstream. The repository's historical README was written for an earlier Phase 7 state and should not be treated as the authoritative description of the current Private Chat implementation.
+The current documentation is written against the `private-chat-performance-fix` branch, source baseline `7173af8225da11c670b567716cb3ec116d99ae4f`, and the published `v0.8.14-telegram-audio-reliability` release. Older checkpoints remain historical context and must not be treated as the current source of truth.
 
 For the historical evolution that led to the present architecture, see `docs/PROJECT_HISTORY.md`. That document is historical context, not a replacement for current source code or current database evidence.
 
 ## Non-negotiable engineering rules
 
-- Do not modify Telegram code while fixing or simplifying Private Chat.
+- Do not modify Telegram code while fixing or simplifying Private Chat unless the task explicitly targets Telegram. v0.8.14 is an example of an explicit Telegram reliability task.
 - Do not delete users, devices, conversations, messages, receipts, profiles, or other Supabase data unless the owner explicitly requests deletion.
 - Prefer diagnosis from current source code, Git history, and live database evidence over assumptions.
 - Keep message transport, translation, receipts, and notifications as separate responsibilities.
@@ -51,13 +51,13 @@ For the full historical timeline and the rejected alternatives, see `docs/PROJEC
                 |                                 |
          Private Chat                       Telegram Bridge
                 |                                 |
-       +--------+---------+             +---------+---------+
-       |                  |             |                   |
-   Foreground UI   Background worker   Telegram API      Gemini
-       |                  |
-       +--------+---------+
-                |
-            Supabase
+       +--------+---------+             +---------+----------------+
+       |                  |             |                          |
+   Foreground UI   Background worker   Telegram API          Telegram Gemini
+       |                  |             |                          |
+       +--------+---------+             +------------+-------------+
+                |                                    |
+            Supabase                           translated text
                 |
      +----------+-----------+
      | Auth / Profiles      |
@@ -70,17 +70,67 @@ For the full historical timeline and the rejected alternatives, see `docs/PROJEC
 
 The application is a client plus several background components. Supabase is the remote persistence/coordination layer for Private Chat; it is not merely an optional cache.
 
+## Telegram Bridge architecture
+
+The Telegram subsystem is separate from Private Chat, but it is an active product path.
+
+```text
+Telegram getUpdates
+      |
+      v
+TelegramRepositoryImpl
+      |
+      v
+UpdateDispatcher
+      |
+      +--> VoiceMessageHandler
+      |       |
+      |       +--> TelegramDownloadRepository
+      |
+      +--> AudioMessageHandler
+              |
+              +--> MIME validation/normalization
+              +--> TelegramDownloadRepository
+      |
+      v
+GeminiTranslationRepository
+      |
+      +--> small audio: inlineData
+      +--> larger audio: Files API
+      |
+      v
+Gemini audio understanding + translation
+      |
+      v
+SendTelegramMessageUseCase
+      |
+      v
+Telegram translated-text reply
+```
+
+Telegram Voice uses OGG audio. The current Telegram Audio handler accepts MP3, AAC, OGG, FLAC, WAV, and AIFF. M4A and video-to-audio extraction are not yet part of the released path.
+
+### Telegram audio reliability
+
+v0.8.14 retries transient Gemini HTTP 408/500/503/504 failures with exponential backoff and jitter. If server-side transient failures persist, the repository retries the same audio request with gemini-3.5-flash. If the recovery window is exhausted, the outer Telegram translation loop can move to another configured key before returning the generic error.
+
+Gemini Files API upload streams the local file from disk instead of first creating a full in-memory byte array.
+
+The Telegram path does not run Whisper, FFmpeg, or a separate STT stage. Gemini receives the audio and returns translated text directly.
+
 ## Private Chat responsibilities
 
 ### Authentication
 
 `ChatAccountRepository` uses Supabase Auth and Google ID-token sign-in. Google is currently the only supported sign-in provider. An account is considered authenticated when the current Supabase user has an email; older anonymous sessions are not treated as signed-in Private Chat accounts.
 
-### Identity
+### Identity and account ownership
 
-`ChatIdentity` owns the persistent user-facing `SB-...` identifier and a separate persistent device identifier. The public identifier is stored locally. The identity object also derives a deterministic conversation topic and a deterministic 256-bit conversation key from the two participant IDs.
+`ChatIdentity` owns the persistent user-facing `SB-...` identifier, a stable installation/device identifier, the selected partner account, the selected Supabase conversation UUID, and the local device role.
 
-The identity object can rotate the public ID only for a specific recovery case: Supabase reports `PUBLIC_ID_ALREADY_IN_USE` during registration. Normal operation must not rotate a user's ID.
+In the current account-identity v2 path, the canonical `SB-...` identity belongs to the authenticated Supabase account and can be restored on a fresh device. The server also registers a stable device record for each installation.
+
+Legacy v1 helpers still expose deterministic topic/key derivation for compatibility, but the current v2 transport does not derive its encryption key from public IDs.
 
 ### Profiles
 
@@ -92,7 +142,7 @@ A Private Chat conversation is logically a deterministic 1-to-1 relationship bet
 
 ### Message transport
 
-`ChatRepository` abstracts message delivery. The Supabase implementation sends encrypted ciphertext plus metadata through the `sigma_send_message` RPC. The client uses a locally generated UUID as `client_message_id`. Supabase assigns the authoritative message UUID and sequence number.
+`ChatRepository` abstracts message delivery. The current v2 Supabase path uses the authoritative conversation UUID and `sigma_send_message_v2`. The client still uses a locally generated UUID as `client_message_id`; Supabase assigns the authoritative server message UUID and sequence number.
 
 ### Local history and delivery queue
 
@@ -110,7 +160,7 @@ A Private Chat conversation is logically a deterministic 1-to-1 relationship bet
 
 ### Foreground/background coordination
 
-`ChatForegroundState.openPartnerId` is process-local state used only to tell background notification logic that a conversation is currently being viewed. It is not a durable source of truth and must never be treated as the remote conversation identity.
+`ChatForegroundState.openPartnerId` is process-local UI state only. The current background path is scoped by explicit account/conversation context and v2 conversation keys, so background processing does not depend on whichever partner happens to be open on screen.
 
 `ChatNotificationService` handles background Private Chat work: inbox discovery, message observation, retries for pending outgoing messages, remote translation jobs, delivery receipts, and notifications. It supports more than one conversation and therefore uses explicit partner/conversation keys when processing background events.
 
