@@ -7,7 +7,7 @@ All notable changes to Sigma Bridge Android are recorded here.
 ### Telegram Bridge
 
 - Added explicit Video and VideoNote handling without changing the existing Voice/Audio handlers.
-- Video processing is opt-in through `/translate` in the video caption or as a reply to a Video/VideoNote.
+- Video processing is opt-in through an explicit `@sigma_bridge_bot` mention in the video caption or as a reply to a Video/VideoNote.
 - Added Media3-based extraction of only the audio track.
 - Reuses the existing Telegram Gemini audio translation and reliability pipeline.
 - Normal videos remain ignored when no explicit `/translate` request is present.
