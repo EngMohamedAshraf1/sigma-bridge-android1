@@ -23,7 +23,7 @@ The branch history used for the 0.8.6 work is:
 b2eea8d  Set app version to 0.8.6
 ```
 
-The current branch head is `b2eea8d0d4fdb94827ee72476b01d08d1e954a88` at the time this documentation was written.
+The 0.8.6 historical baseline was anchored at `b2eea8d0d4fdb94827ee72476b01d08d1e954a88`; this is not the current branch head.
 
 The older experimental message-centric receipt commit is not part of this baseline.
 
