@@ -16,6 +16,12 @@ data class TelegramUpdate(
     val audioMimeType: String?,
     val audioFileName: String?,
     val audioFileSizeBytes: Long?,
+    val videoFileId: String?,
+    val videoMimeType: String?,
+    val videoFileName: String?,
+    val videoFileSizeBytes: Long?,
+    val videoMessageId: Long?,
+    val videoTranslateRequested: Boolean,
     val messageText: String?,
     val callbackQueryId: String?,
     val callbackData: String?
