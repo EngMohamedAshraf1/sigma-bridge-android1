@@ -7,10 +7,12 @@ import com.sigmabridge.app.data.settings.SecureLanguagePreferencesRepository
 import com.sigmabridge.app.data.settings.SecureOwnerRepository
 import com.sigmabridge.app.data.settings.SecureSettingsRepository
 import com.sigmabridge.app.data.telegram.TelegramDownloadRepository
+import com.sigmabridge.app.data.media.Media3AudioExtractor
 import com.sigmabridge.app.data.telegram.TelegramLanguagePermissionChecker
 import com.sigmabridge.app.data.telegram.TelegramRepositoryImpl
 import com.sigmabridge.app.domain.cache.CacheManager
 import com.sigmabridge.app.domain.language.LanguagePermissionChecker
+import com.sigmabridge.app.domain.media.MediaAudioExtractor
 import com.sigmabridge.app.domain.repository.ConnectivityRepository
 import com.sigmabridge.app.domain.repository.DownloadRepository
 import com.sigmabridge.app.domain.repository.LanguagePreferencesRepository
@@ -56,6 +58,11 @@ abstract class RepositoryModule {
     abstract fun bindDownloadRepository(
         impl: TelegramDownloadRepository
     ): DownloadRepository
+
+    @Binds
+    abstract fun bindMediaAudioExtractor(
+        impl: Media3AudioExtractor
+    ): MediaAudioExtractor
 
     @Binds
     abstract fun bindTranslationRepository(
