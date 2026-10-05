@@ -5,6 +5,7 @@ import com.sigmabridge.app.domain.dispatch.LanguageCallbackHandler
 import com.sigmabridge.app.domain.dispatch.LanguageCommandHandler
 import com.sigmabridge.app.domain.dispatch.UpdateHandler
 import com.sigmabridge.app.domain.dispatch.VoiceMessageHandler
+import com.sigmabridge.app.domain.dispatch.VideoMessageHandler
 import dagger.Binds
 import dagger.Module
 import dagger.hilt.InstallIn
@@ -25,6 +26,10 @@ abstract class DispatchModule {
     @Binds
     @IntoSet
     abstract fun bindAudioMessageHandler(impl: AudioMessageHandler): UpdateHandler
+
+    @Binds
+    @IntoSet
+    abstract fun bindVideoMessageHandler(impl: VideoMessageHandler): UpdateHandler
 
     @Binds
     @IntoSet
