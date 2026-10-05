@@ -62,7 +62,7 @@ Telegram Audio
 
 The v0.8.14 reliability layer adds retry/backoff for transient Gemini failures, model fallback for eligible server-side failures, and final generic error reporting only after the recovery path is exhausted.
 
-Current Audio formats are MP3, AAC, OGG, FLAC, WAV, and AIFF. M4A and video/audio extraction are not yet released.
+Current Audio formats are MP3, AAC, OGG, FLAC, WAV, and AIFF. M4A is not yet released. Video/VideoNote processing is now available only on explicit `/translate` requests and is isolated behind a dedicated VideoMessageHandler plus Media3 audio extraction.
 
 ## Do not cross the boundary casually
 
