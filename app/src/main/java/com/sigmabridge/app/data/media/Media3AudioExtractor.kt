@@ -40,9 +40,14 @@ import javax.inject.Singleton
 /**
  * Extracts only the audio track from Telegram video/video-note media.
  *
- * Media3 removes the video track and encodes the remaining audio as AAC. The
- * output is a native AAC file so the existing Gemini audio pipeline can consume
- * it as audio/aac without introducing a video-specific Gemini path.
+ * Media3 Transformer is the primary path. It creates an audio-only MP4 using the
+ * default MP4 muxer. The resulting AAC track is then written as a raw AAC file
+ * with Media3 AacMuxer so the existing Gemini audio pipeline can consume it.
+ *
+ * If the Transformer path fails and the source already contains an AAC track,
+ * the compressed AAC samples are copied directly without transcoding.
+ *
+ * No video frames are sent to Gemini and FFmpeg is not used.
  */
 @OptIn(UnstableApi::class)
 @Singleton
@@ -56,19 +61,21 @@ class Media3AudioExtractor @Inject constructor(
 
     override suspend fun extractAudio(media: TemporaryMediaFile): Result<TemporaryVoiceFile> {
         val destination = cacheManager.createTempVoice("audio/aac")
+        val intermediate = cacheManager.createTempMedia("video/mp4", "mp4")
 
         return runCatching {
             try {
-                extractWithTransformer(media, destination)
+                extractWithTransformer(media, intermediate)
+                copyAacTrack(intermediate.path, destination.path)
             } catch (transformerError: Throwable) {
                 logger.error(
                     TAG,
                     "Media3 Transformer extraction failed for " + media.path +
-                        "; attempting direct AAC track extraction if the source audio is AAC.",
+                        "; attempting direct AAC track extraction.",
                     transformerError
                 )
 
-                if (!extractAacTrackDirectly(media, destination)) {
+                if (!extractAacTrackDirectly(media.path, destination.path)) {
                     throw transformerError
                 }
             }
@@ -85,18 +92,19 @@ class Media3AudioExtractor @Inject constructor(
                 error
             )
             cacheManager.delete(destination)
+        }.also {
+            cacheManager.delete(intermediate)
         }
     }
 
     private suspend fun extractWithTransformer(
         media: TemporaryMediaFile,
-        destination: TemporaryVoiceFile
+        destination: TemporaryMediaFile
     ) {
         withContext(Dispatchers.Main.immediate) {
             suspendCancellableCoroutine<Unit> { continuation ->
                 val transformer = Transformer.Builder(appContext)
                     .setAudioMimeType(MimeTypes.AUDIO_AAC)
-                    .setMuxerFactory(AacMuxerFactory())
                     .addListener(object : Transformer.Listener {
                         override fun onCompleted(
                             composition: androidx.media3.transformer.Composition,
@@ -146,25 +154,33 @@ class Media3AudioExtractor @Inject constructor(
     }
 
     /**
-     * Fallback for the common MP4/AAC case.
+     * Converts an audio-only MP4 produced by Transformer into the raw AAC file
+     * consumed by the existing Gemini audio path.
+     */
+    private fun copyAacTrack(
+        sourcePath: String,
+        destinationPath: String
+    ) {
+        if (!extractAacTrackDirectly(sourcePath, destinationPath)) {
+            error("Media3 audio-only export did not contain a readable AAC track.")
+        }
+    }
+
+    /**
+     * Copies an existing compressed AAC track without decoding/re-encoding.
      *
-     * Media3 Transformer remains the primary path. If Transformer cannot export the
-     * audio-only composition on the device/input, read the existing compressed AAC
-     * samples directly and pass them through Media3's AacMuxer. This does not decode
-     * video, does not invoke FFmpeg, and still produces the same audio/aac output
-     * consumed by the existing Gemini pipeline.
-     *
-     * @return true when an AAC audio track was found and successfully written.
+     * This is used both for the common direct MP4/AAC case and for the output of
+     * the Transformer MP4 path above.
      */
     private fun extractAacTrackDirectly(
-        media: TemporaryMediaFile,
-        destination: TemporaryVoiceFile
+        sourcePath: String,
+        destinationPath: String
     ): Boolean {
         val extractor = MediaExtractor()
         var muxer: AacMuxer? = null
 
         return try {
-            extractor.setDataSource(media.path)
+            extractor.setDataSource(sourcePath)
 
             var audioTrackIndex = -1
             var audioFormat: MediaFormat? = null
@@ -180,14 +196,21 @@ class Media3AudioExtractor @Inject constructor(
             }
 
             if (audioTrackIndex < 0 || audioFormat == null) {
-                logger.debug(TAG, "No AAC audio track found in " + media.path)
+                logger.debug(
+                    TAG,
+                    "No AAC audio track found in " + sourcePath + ". Track count=" +
+                        extractor.trackCount
+                )
                 return false
             }
 
             val format = requireNotNull(audioFormat)
             val sampleRate = format.getInteger(MediaFormat.KEY_SAMPLE_RATE)
             val channelCount = format.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
-            require(sampleRate > 0) { "AAC track has invalid sample rate: " + sampleRate }
+
+            require(sampleRate in SUPPORTED_SAMPLE_RATES) {
+                "AAC track has unsupported sample rate: " + sampleRate
+            }
             require(channelCount in 1..7) {
                 "AAC track has unsupported channel count: " + channelCount
             }
@@ -207,16 +230,16 @@ class Media3AudioExtractor @Inject constructor(
 
             extractor.selectTrack(audioTrackIndex)
 
-            muxer = AacMuxer(FileOutputStream(destination.path))
+            muxer = AacMuxer(FileOutputStream(destinationPath))
             muxer.addTrack(media3Format)
 
             val maxInputSize = if (format.containsKey(MediaFormat.KEY_MAX_INPUT_SIZE)) {
-                format.getInteger(MediaFormat.KEY_MAX_INPUT_SIZE)
+                format.getInteger(MediaFormat.KEY_MAX_INPUT_SIZE).coerceAtLeast(MIN_BUFFER_SIZE)
             } else {
-                64 * 1024
+                MIN_BUFFER_SIZE
             }
 
-            val buffer = java.nio.ByteBuffer.allocateDirect(maxOf(maxInputSize, 64 * 1024))
+            val buffer = java.nio.ByteBuffer.allocateDirect(maxInputSize)
 
             while (true) {
                 buffer.clear()
@@ -249,7 +272,7 @@ class Media3AudioExtractor @Inject constructor(
         } catch (error: Exception) {
             logger.error(
                 TAG,
-                "Direct AAC track extraction failed for " + media.path,
+                "Direct AAC track extraction failed for " + sourcePath,
                 error
             )
             false
@@ -259,16 +282,12 @@ class Media3AudioExtractor @Inject constructor(
         }
     }
 
-    private companion object {
-        const val TAG = "SigmaBridge"
-    }
-
     private class AacMuxerFactory : Muxer.Factory {
         override fun create(path: String): Muxer =
             try {
                 AacMuxer(FileOutputStream(path))
             } catch (error: IOException) {
-                throw MuxerException("Unable to open AAC output: $path", error)
+                throw MuxerException("Unable to open AAC output: " + path, error)
             }
 
         override fun getSupportedSampleMimeTypes(trackType: Int): ImmutableList<String> =
@@ -277,5 +296,14 @@ class Media3AudioExtractor @Inject constructor(
             } else {
                 ImmutableList.of()
             }
+    }
+
+    private companion object {
+        const val TAG = "SigmaBridge"
+        const val MIN_BUFFER_SIZE = 64 * 1024
+        val SUPPORTED_SAMPLE_RATES = setOf(
+            96_000, 88_200, 64_000, 48_000, 44_100, 32_000, 24_000,
+            22_050, 16_000, 12_000, 11_025, 8_000, 7_350
+        )
     }
 }
