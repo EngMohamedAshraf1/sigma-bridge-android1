@@ -73,7 +73,7 @@ Verify the current handler accepts MP3, AAC, OGG, FLAC, WAV, and AIFF and reject
 
 ### Test M: normal video is ignored
 
-- send a Telegram Video/VideoNote without `/translate`;
+- send a Telegram Video/VideoNote without `@sigma_bridge_bot`;
 - verify no download, extraction, Gemini request, or reply is triggered.
 
 ### Test N: explicit video translation
