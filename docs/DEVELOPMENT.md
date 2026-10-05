@@ -7,7 +7,7 @@ The current development baseline is the `private-chat-performance-fix` branch.
 Current source head:
 
 ```text
-09dc37366bcbd82a7e038b49492806650d4620d6
+15f33eefcecd9371340bcaf5b1d35e0fec3d3cc6
 ```
 
 The build toolchain was aligned for API 36 compatibility: AGP 8.10.1 with Gradle 8.11.1 and `compileSdk 36`. `targetSdk 35`, `minSdk 26`, JDK 17, and the application version `0.8.14` / `versionCode 14` are intentionally unchanged.
