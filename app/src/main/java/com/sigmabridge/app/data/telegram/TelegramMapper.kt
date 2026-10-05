@@ -16,7 +16,7 @@ fun TelegramUpdateDto.toDomain(): TelegramUpdate? {
     return when {
         chatMessage != null -> {
             val commandText = chatMessage.text ?: chatMessage.caption
-            val requested = commandText.hasTranslateCommand()
+            val requested = commandText.hasSigmaBridgeMention()
 
             val directVideo = chatMessage.video?.let { video ->
                 VideoTarget(
@@ -122,10 +122,10 @@ private data class VideoTarget(
     val messageId: Long
 )
 
-private fun String?.hasTranslateCommand(): Boolean {
+private fun String?.hasSigmaBridgeMention(): Boolean {
     val value = this?.trim().orEmpty()
     if (value.isBlank()) return false
-    return Regex("(^|\\s)/translate(?:@[A-Za-z0-9_]+)?(?:\\s|$)", RegexOption.IGNORE_CASE)
+    return Regex("(^|\\s)@sigma_bridge_bot(?=\\s|$|[.,!?،؛:])", RegexOption.IGNORE_CASE)
         .containsMatchIn(value)
 }
 
