@@ -7,8 +7,10 @@ The current development baseline is the `private-chat-performance-fix` branch.
 Current source head:
 
 ```text
-7173af8225da11c670b567716cb3ec116d99ae4f
+09dc37366bcbd82a7e038b49492806650d4620d6
 ```
+
+The build toolchain was aligned for API 36 compatibility: AGP 8.10.1 with Gradle 8.11.1 and `compileSdk 36`. `targetSdk 35`, `minSdk 26`, JDK 17, and the application version `0.8.14` / `versionCode 14` are intentionally unchanged.
 
 Latest release: `v0.8.14-telegram-audio-reliability`.
 The release code commit is `0602db25e9c9134f0cc1258222cf38ef74c4f9bd`; the branch subsequently records the version-metadata alignment to `versionName 0.8.14` / `versionCode 14`.
@@ -32,7 +34,7 @@ The older experimental message-centric receipt commit is not part of this baseli
 The current Android project is configured for:
 
 ```text
-compileSdk 35
+compileSdk 36
 targetSdk 35
 minSdk 26
 JDK 17
