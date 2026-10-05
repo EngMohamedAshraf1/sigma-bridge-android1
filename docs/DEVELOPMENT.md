@@ -78,7 +78,7 @@ Verify the current handler accepts MP3, AAC, OGG, FLAC, WAV, and AIFF and reject
 
 ### Test N: explicit video translation
 
-- send a Video/VideoNote with `/translate` in its caption, or reply to a Video/VideoNote with `/translate`;
+- send a Video/VideoNote with `@sigma_bridge_bot` in its caption, or reply to a Video/VideoNote with a message containing `@sigma_bridge_bot`;
 - verify the target video is downloaded;
 - verify only the audio track is extracted;
 - verify the extracted AAC enters the existing Gemini audio translation path;
