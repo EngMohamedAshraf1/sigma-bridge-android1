@@ -2,6 +2,7 @@ package com.sigmabridge.app.data.cache
 
 import android.content.Context
 import com.sigmabridge.app.domain.cache.CacheManager
+import com.sigmabridge.app.domain.model.TemporaryMediaFile
 import com.sigmabridge.app.domain.model.TemporaryVoiceFile
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
@@ -23,18 +24,34 @@ class FileCacheManager @Inject constructor(
         File(context.cacheDir, VOICE_SUBDIR).apply { mkdirs() }
     }
 
+    private val mediaCacheDir: File by lazy {
+        File(context.cacheDir, MEDIA_SUBDIR).apply { mkdirs() }
+    }
+
     override fun createTempVoice(mimeType: String): TemporaryVoiceFile {
         val id = UUID.randomUUID().toString()
         val file = File(voiceCacheDir, "$id.${extensionForMimeType(mimeType)}")
         return TemporaryVoiceFile(id = id, path = file.absolutePath, mimeType = mimeType)
     }
 
+    override fun createTempMedia(mimeType: String, extension: String): TemporaryMediaFile {
+        val id = UUID.randomUUID().toString()
+        val safeExtension = extension.trim().lowercase().ifBlank { "bin" }
+        val file = File(mediaCacheDir, "$id.$safeExtension")
+        return TemporaryMediaFile(id = id, path = file.absolutePath, mimeType = mimeType)
+    }
+
     override fun delete(file: TemporaryVoiceFile) {
+        File(file.path).delete()
+    }
+
+    override fun delete(file: TemporaryMediaFile) {
         File(file.path).delete()
     }
 
     override fun cleanup() {
         voiceCacheDir.listFiles()?.forEach { it.delete() }
+        mediaCacheDir.listFiles()?.forEach { it.delete() }
     }
 
     private fun extensionForMimeType(mimeType: String): String = when (mimeType) {
@@ -49,5 +66,6 @@ class FileCacheManager @Inject constructor(
 
     private companion object {
         const val VOICE_SUBDIR = "voice_tmp"
+        const val MEDIA_SUBDIR = "media_tmp"
     }
 }
