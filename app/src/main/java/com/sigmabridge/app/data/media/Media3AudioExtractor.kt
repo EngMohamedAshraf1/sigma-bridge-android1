@@ -66,13 +66,24 @@ class Media3AudioExtractor @Inject constructor(
             } catch (transformerError: Throwable) {
                 logger.error(
                     TAG,
+                    "Transformer/AAC-copy path failed. Source media tracks: " +
+                        describeMediaTracks(media.path),
+                    transformerError
+                )
+                logger.error(
+                    TAG,
                     "Media3 Transformer extraction failed for " + media.path +
                         "; attempting direct AAC track extraction.",
                     transformerError
                 )
 
                 if (!extractAacTrackDirectly(media.path, destination.path)) {
-                    throw transformerError
+                    val trackSummary = describeMediaTracks(media.path)
+                    throw IllegalStateException(
+                        "No usable AAC audio track could be extracted. " +
+                            "sourceTracks=" + trackSummary,
+                        transformerError
+                    )
                 }
             }
 
@@ -146,6 +157,35 @@ class Media3AudioExtractor @Inject constructor(
 
                 transformer.start(composition, destination.path)
             }
+        }
+    }
+
+    private fun describeMediaTracks(sourcePath: String): String {
+        val extractor = MediaExtractor()
+        return try {
+            extractor.setDataSource(sourcePath)
+            buildString {
+                for (index in 0 until extractor.trackCount) {
+                    if (index > 0) append("; ")
+                    val format = extractor.getTrackFormat(index)
+                    append("#").append(index)
+                    append(" mime=").append(format.getString(MediaFormat.KEY_MIME))
+                    if (format.containsKey(MediaFormat.KEY_SAMPLE_RATE)) {
+                        append(" rate=").append(format.getInteger(MediaFormat.KEY_SAMPLE_RATE))
+                    }
+                    if (format.containsKey(MediaFormat.KEY_CHANNEL_COUNT)) {
+                        append(" channels=").append(format.getInteger(MediaFormat.KEY_CHANNEL_COUNT))
+                    }
+                    if (format.containsKey(MediaFormat.KEY_DURATION)) {
+                        append(" durationUs=").append(format.getLong(MediaFormat.KEY_DURATION))
+                    }
+                }
+            }
+        } catch (error: Exception) {
+            "unreadable (" + error.javaClass.simpleName + ": " +
+                (error.message ?: "no message") + ")"
+        } finally {
+            extractor.release()
         }
     }
 
