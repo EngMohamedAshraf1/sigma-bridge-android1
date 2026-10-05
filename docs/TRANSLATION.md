@@ -209,7 +209,7 @@ Telegram Voice/Audio
 
 Current Telegram Audio MIME set: MP3, AAC, OGG, FLAC, WAV, and AIFF.
 
-Telegram Voice uses audio/ogg. M4A and video/audio extraction are not yet in the current release.
+Telegram Voice uses audio/ogg. On-demand Telegram Video/VideoNote translation is now implemented separately: `/translate` is required, Media3 extracts only the audio track, and the resulting AAC enters the existing Telegram audio translation path. M4A is still not included in the current Telegram Audio handler.
 
 ### Telegram Gemini reliability
 
