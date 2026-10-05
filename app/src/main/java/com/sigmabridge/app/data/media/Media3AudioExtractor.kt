@@ -11,7 +11,9 @@ import androidx.media3.common.Format
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.muxer.AacMuxer
+import androidx.media3.muxer.FileOutputStreamSeekableMuxerOutput
+import androidx.media3.muxer.Mp4Muxer
+import androidx.media3.muxer.Mp4Muxer.Builder
 import androidx.media3.transformer.Composition
 import androidx.media3.transformer.EditedMediaItem
 import androidx.media3.transformer.EditedMediaItemSequence
@@ -36,13 +38,11 @@ import javax.inject.Singleton
 /**
  * Extracts only the audio track from Telegram video/video-note media.
  *
- * Media3 Transformer is the primary path. It creates an audio-only MP4 using the
- * default MP4 muxer. The resulting AAC track is then written as a raw AAC file
- * with Media3 AacMuxer so the existing Gemini audio pipeline can consume it.
+ * Primary path: Media3 Transformer creates an audio-only MP4 (M4A-compatible).
+ * Fallback: if the source already contains AAC, Media3 Mp4Muxer remuxes only
+ * the AAC track into an M4A-compatible MP4 without decoding the video.
  *
- * If the Transformer path fails and the source already contains an AAC track,
- * the compressed AAC samples are copied directly without transcoding.
- *
+ * The output is audio/m4a, which Gemini supports directly.
  * No video frames are sent to Gemini and FFmpeg is not used.
  */
 @OptIn(UnstableApi::class)
@@ -56,57 +56,46 @@ class Media3AudioExtractor @Inject constructor(
     private val appContext = context.applicationContext
 
     override suspend fun extractAudio(media: TemporaryMediaFile): Result<TemporaryVoiceFile> {
-        val destination = cacheManager.createTempVoice("audio/aac")
-        val intermediate = cacheManager.createTempMedia("video/mp4", "mp4")
+        val destination = cacheManager.createTempVoice("audio/m4a")
 
         return runCatching {
             try {
-                extractWithTransformer(media, intermediate)
-                copyAacTrack(intermediate.path, destination.path)
+                extractWithTransformer(media, destination)
             } catch (transformerError: Throwable) {
                 logger.error(
                     TAG,
-                    "Transformer/AAC-copy path failed. Source media tracks: " +
-                        describeMediaTracks(media.path),
-                    transformerError
-                )
-                logger.error(
-                    TAG,
-                    "Media3 Transformer extraction failed for " + media.path +
-                        "; attempting direct AAC track extraction.",
+                    "Media3 Transformer failed for " + media.path +
+                        "; attempting direct AAC-to-M4A remux.",
                     transformerError
                 )
 
-                if (!extractAacTrackDirectly(media.path, destination.path)) {
-                    val trackSummary = describeMediaTracks(media.path)
+                if (!remuxAacTrackToM4a(media.path, destination.path)) {
+                    val tracks = describeMediaTracks(media.path)
                     throw IllegalStateException(
-                        "No usable AAC audio track could be extracted. " +
-                            "sourceTracks=" + trackSummary,
+                        "Could not extract usable audio from video. sourceTracks=$tracks",
                         transformerError
                     )
                 }
             }
 
             val output = File(destination.path)
-            require(output.exists() && output.length() > 0L) {
+            require(output.exists() && output.isFile && output.length() > 0L) {
                 "Media audio extraction produced no output."
             }
             destination
         }.onFailure { error ->
             logger.error(
                 TAG,
-                "Media3 audio extraction failed for " + media.path,
+                "Video audio extraction failed for " + media.path,
                 error
             )
             cacheManager.delete(destination)
-        }.also {
-            cacheManager.delete(intermediate)
         }
     }
 
     private suspend fun extractWithTransformer(
         media: TemporaryMediaFile,
-        destination: TemporaryMediaFile
+        destination: TemporaryVoiceFile
     ) {
         withContext(Dispatchers.Main.immediate) {
             suspendCancellableCoroutine<Unit> { continuation ->
@@ -160,6 +149,118 @@ class Media3AudioExtractor @Inject constructor(
         }
     }
 
+    /**
+     * Remuxes an existing AAC track into an M4A-compatible MP4 container.
+     * No audio or video decoding is performed.
+     */
+    private fun remuxAacTrackToM4a(
+        sourcePath: String,
+        destinationPath: String
+    ): Boolean {
+        val extractor = MediaExtractor()
+        var muxer: Mp4Muxer? = null
+
+        return try {
+            extractor.setDataSource(sourcePath)
+
+            var audioTrackIndex = -1
+            var audioFormat: MediaFormat? = null
+
+            for (index in 0 until extractor.trackCount) {
+                val format = extractor.getTrackFormat(index)
+                if (format.getString(MediaFormat.KEY_MIME)?.lowercase() == MimeTypes.AUDIO_AAC) {
+                    audioTrackIndex = index
+                    audioFormat = format
+                    break
+                }
+            }
+
+            if (audioTrackIndex < 0 || audioFormat == null) {
+                logger.debug(
+                    TAG,
+                    "No AAC audio track found in " + sourcePath +
+                        ". trackCount=" + extractor.trackCount
+                )
+                return false
+            }
+
+            val sourceFormat = requireNotNull(audioFormat)
+            val sampleRate = sourceFormat.getInteger(MediaFormat.KEY_SAMPLE_RATE)
+            val channelCount = sourceFormat.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
+            require(sampleRate > 0) { "Invalid AAC sample rate: " + sampleRate }
+            require(channelCount > 0) { "Invalid AAC channel count: " + channelCount }
+
+            val csd = sourceFormat.getByteBuffer("csd-0")?.let { source ->
+                val copy = ByteArray(source.remaining())
+                source.slice().get(copy)
+                copy
+            }
+
+            val media3Format = Format.Builder()
+                .setSampleMimeType(MimeTypes.AUDIO_AAC)
+                .setSampleRate(sampleRate)
+                .setChannelCount(channelCount)
+                .apply {
+                    if (csd != null) {
+                        setInitializationData(listOf(csd))
+                    }
+                }
+                .build()
+
+            extractor.selectTrack(audioTrackIndex)
+
+            FileOutputStream(destinationPath).use { outputStream ->
+                val muxerOutput = FileOutputStreamSeekableMuxerOutput(outputStream)
+                muxer = Builder(muxerOutput).build()
+
+                val trackId = muxer.addTrack(media3Format)
+
+                val maxInputSize =
+                    if (sourceFormat.containsKey(MediaFormat.KEY_MAX_INPUT_SIZE)) {
+                        sourceFormat.getInteger(MediaFormat.KEY_MAX_INPUT_SIZE)
+                            .coerceAtLeast(MIN_BUFFER_SIZE)
+                    } else {
+                        MIN_BUFFER_SIZE
+                    }
+
+                val buffer = java.nio.ByteBuffer.allocateDirect(maxInputSize)
+
+                while (true) {
+                    buffer.clear()
+                    val sampleSize = extractor.readSampleData(buffer, 0)
+                    if (sampleSize < 0) break
+
+                    buffer.position(0)
+                    buffer.limit(sampleSize)
+
+                    muxer.writeSampleData(
+                        trackId,
+                        buffer,
+                        androidx.media3.muxer.BufferInfo(
+                            extractor.sampleTime,
+                            sampleSize,
+                            0
+                        )
+                    )
+
+                    if (!extractor.advance()) break
+                }
+            }
+
+            true
+        } catch (error: Exception) {
+            logger.error(
+                TAG,
+                "AAC-to-M4A remux failed for " + sourcePath,
+                error
+            )
+            false
+        } finally {
+            runCatching { muxer?.close() }
+            extractor.release()
+        }
+    }
+
     private fun describeMediaTracks(sourcePath: String): String {
         val extractor = MediaExtractor()
         return try {
@@ -189,142 +290,8 @@ class Media3AudioExtractor @Inject constructor(
         }
     }
 
-    /**
-     * Converts an audio-only MP4 produced by Transformer into the raw AAC file
-     * consumed by the existing Gemini audio path.
-     */
-    private fun copyAacTrack(
-        sourcePath: String,
-        destinationPath: String
-    ) {
-        if (!extractAacTrackDirectly(sourcePath, destinationPath)) {
-            error("Media3 audio-only export did not contain a readable AAC track.")
-        }
-    }
-
-    /**
-     * Copies an existing compressed AAC track without decoding/re-encoding.
-     *
-     * This is used both for the common direct MP4/AAC case and for the output of
-     * the Transformer MP4 path above.
-     */
-    private fun extractAacTrackDirectly(
-        sourcePath: String,
-        destinationPath: String
-    ): Boolean {
-        val extractor = MediaExtractor()
-        var muxer: AacMuxer? = null
-
-        return try {
-            extractor.setDataSource(sourcePath)
-
-            var audioTrackIndex = -1
-            var audioFormat: MediaFormat? = null
-
-            for (index in 0 until extractor.trackCount) {
-                val format = extractor.getTrackFormat(index)
-                val mime = format.getString(MediaFormat.KEY_MIME)?.lowercase()
-                if (mime == MimeTypes.AUDIO_AAC) {
-                    audioTrackIndex = index
-                    audioFormat = format
-                    break
-                }
-            }
-
-            if (audioTrackIndex < 0 || audioFormat == null) {
-                logger.debug(
-                    TAG,
-                    "No AAC audio track found in " + sourcePath + ". Track count=" +
-                        extractor.trackCount
-                )
-                return false
-            }
-
-            val format = requireNotNull(audioFormat)
-            val sampleRate = format.getInteger(MediaFormat.KEY_SAMPLE_RATE)
-            val channelCount = format.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
-
-            require(sampleRate in SUPPORTED_SAMPLE_RATES) {
-                "AAC track has unsupported sample rate: " + sampleRate
-            }
-            require(channelCount in 1..7) {
-                "AAC track has unsupported channel count: " + channelCount
-            }
-
-            val csd = format.getByteBuffer("csd-0")?.let { source ->
-                val copy = ByteArray(source.remaining())
-                source.slice().get(copy)
-                copy
-            } ?: error("AAC track has no codec configuration data.")
-
-            val media3Format = Format.Builder()
-                .setSampleMimeType(MimeTypes.AUDIO_AAC)
-                .setSampleRate(sampleRate)
-                .setChannelCount(channelCount)
-                .setInitializationData(listOf(csd))
-                .build()
-
-            extractor.selectTrack(audioTrackIndex)
-
-            muxer = AacMuxer(FileOutputStream(destinationPath))
-            muxer.addTrack(media3Format)
-
-            val maxInputSize = if (format.containsKey(MediaFormat.KEY_MAX_INPUT_SIZE)) {
-                format.getInteger(MediaFormat.KEY_MAX_INPUT_SIZE).coerceAtLeast(MIN_BUFFER_SIZE)
-            } else {
-                MIN_BUFFER_SIZE
-            }
-
-            val buffer = java.nio.ByteBuffer.allocateDirect(maxInputSize)
-
-            while (true) {
-                buffer.clear()
-                val sampleSize = extractor.readSampleData(buffer, 0)
-                if (sampleSize < 0) break
-
-                buffer.position(0)
-                buffer.limit(sampleSize)
-
-                val flags = if ((extractor.sampleFlags and MediaExtractor.SAMPLE_FLAG_SYNC) != 0) {
-                    C.BUFFER_FLAG_KEY_FRAME
-                } else {
-                    0
-                }
-
-                muxer.writeSampleData(
-                    0,
-                    buffer,
-                    androidx.media3.muxer.BufferInfo(
-                        extractor.sampleTime,
-                        sampleSize,
-                        flags
-                    )
-                )
-
-                if (!extractor.advance()) break
-            }
-
-            true
-        } catch (error: Exception) {
-            logger.error(
-                TAG,
-                "Direct AAC track extraction failed for " + sourcePath,
-                error
-            )
-            false
-        } finally {
-            runCatching { muxer?.close() }
-            extractor.release()
-        }
-    }
-
-
     private companion object {
         const val TAG = "SigmaBridge"
         const val MIN_BUFFER_SIZE = 64 * 1024
-        val SUPPORTED_SAMPLE_RATES = setOf(
-            96_000, 88_200, 64_000, 48_000, 44_100, 32_000, 24_000,
-            22_050, 16_000, 12_000, 11_025, 8_000, 7_350
-        )
     }
 }
