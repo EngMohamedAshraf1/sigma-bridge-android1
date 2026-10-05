@@ -192,7 +192,7 @@ class Media3AudioExtractor @Inject constructor(
                 "AAC track has unsupported channel count: " + channelCount
             }
 
-            val csd = format.getByteBuffer(MediaFormat.KEY_CSD_0)?.let { source ->
+            val csd = format.getByteBuffer("csd-0")?.let { source ->
                 val copy = ByteArray(source.remaining())
                 source.slice().get(copy)
                 copy
