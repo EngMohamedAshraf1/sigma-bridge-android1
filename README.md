@@ -165,7 +165,7 @@ Telegram Voice and supported Telegram Audio messages use direct Gemini audio und
 
 Telegram Voice/Audio returns translated text as a Telegram reply. There is no separate Whisper/STT stage.
 
-The currently implemented Telegram Audio MIME set is MP3, AAC, OGG, FLAC, WAV, and AIFF. M4A and video-to-audio extraction are not yet implemented.
+The currently implemented Telegram Audio MIME set is MP3, AAC, OGG, FLAC, WAV, and AIFF. M4A is not yet implemented in the Telegram Audio handler. On-demand Telegram Video/VideoNote translation is now implemented by extracting only the audio track locally with Media3 and reusing the existing Gemini audio pipeline.
 
 The Private Chat supported language catalog currently includes English, Russian, Arabic, French, German, Spanish, Italian, Portuguese, Turkish, Simplified Chinese, Japanese, Korean, Hindi, Ukrainian, Polish, and Auto-detect. The MVP default pair is Russian -> Arabic.
 
