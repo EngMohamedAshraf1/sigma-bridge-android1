@@ -61,6 +61,7 @@ class FileCacheManager @Inject constructor(
         "audio/flac" -> "flac"
         "audio/wav" -> "wav"
         "audio/aiff" -> "aiff"
+        "audio/m4a" -> "m4a"
         else -> "bin"
     }
 
