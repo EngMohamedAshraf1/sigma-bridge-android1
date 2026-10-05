@@ -351,7 +351,7 @@ The full historical record, including the old ntfy phase, key-rotation bug, reje
 
 Telegram Video and VideoNote are separate from the automatic Voice/Audio handlers. They are never translated merely because a video arrives.
 
-A video is processed only when `/translate` is present in the video caption, or when a `/translate` command replies to a Video/VideoNote. The video is downloaded, only its audio track is extracted locally with Media3, and the extracted AAC is passed to the existing Telegram Gemini audio translation path.
+A video is processed only when `@sigma_bridge_bot` is explicitly mentioned in the video caption, or when a message containing `@sigma_bridge_bot` replies to a Video/VideoNote. The video is downloaded, only its audio track is extracted locally with Media3, and the extracted AAC is passed to the existing Telegram Gemini audio translation path.
 
 ```text
 Video / VideoNote
