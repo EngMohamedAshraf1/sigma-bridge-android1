@@ -16,7 +16,7 @@ val localProperties = Properties().apply {
 
 android {
     namespace = "com.sigmabridge.app"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.sigmabridge.app"
