@@ -10,7 +10,7 @@ Current source head:
 15f33eefcecd9371340bcaf5b1d35e0fec3d3cc6
 ```
 
-The build toolchain is aligned for API 36 compatibility: AGP 8.9.3 with Gradle 8.11.1 and `compileSdk 36`. Media3 1.11.1 is built with Kotlin 2.2.0, so the project uses Kotlin 2.2.0 with KSP 2.2.0-2.0.2 and Hilt 2.57.2. `targetSdk 35`, `minSdk 26`, JDK 17, and the application version `0.8.14` / `versionCode 14` are intentionally unchanged.
+The build toolchain is aligned for API 36 compatibility: AGP 8.9.3 with Gradle 8.11.1 and `compileSdk 36`. Media3 Transformer remains the primary video-audio extraction path. For inputs whose audio track is already AAC, the extractor now falls back to direct `MediaExtractor` + Media3 `AacMuxer` extraction if Transformer fails; FFmpeg is not used. Media3 1.11.1 is built with Kotlin 2.2.0, so the project uses Kotlin 2.2.0 with KSP 2.2.0-2.0.2 and Hilt 2.57.2. `targetSdk 35`, `minSdk 26`, JDK 17, and the application version `0.8.14` / `versionCode 14` are intentionally unchanged.
 
 Latest release: `v0.8.14-telegram-audio-reliability`.
 The release code commit is `0602db25e9c9134f0cc1258222cf38ef74c4f9bd`; the branch subsequently records the version-metadata alignment to `versionName 0.8.14` / `versionCode 14`.
