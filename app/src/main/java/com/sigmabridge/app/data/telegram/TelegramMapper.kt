@@ -79,7 +79,7 @@ fun TelegramUpdateDto.toDomain(): TelegramUpdate? {
                 videoFileSizeBytes = targetVideo?.fileSizeBytes,
                 videoMessageId = targetVideo?.messageId,
                 videoTranslateRequested = targetVideo != null,
-                messageText = chatMessage.text ?: chatMessage.caption,
+                messageText = chatMessage.text,
                 callbackQueryId = null,
                 callbackData = null
             )
