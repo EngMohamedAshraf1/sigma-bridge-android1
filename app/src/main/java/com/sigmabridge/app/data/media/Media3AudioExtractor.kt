@@ -12,15 +12,12 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.muxer.AacMuxer
-import androidx.media3.muxer.Muxer
-import androidx.media3.muxer.MuxerException
 import androidx.media3.transformer.Composition
 import androidx.media3.transformer.EditedMediaItem
 import androidx.media3.transformer.EditedMediaItemSequence
 import androidx.media3.transformer.ExportException
 import androidx.media3.transformer.ExportResult
 import androidx.media3.transformer.Transformer
-import com.google.common.collect.ImmutableList
 import com.sigmabridge.app.domain.cache.CacheManager
 import com.sigmabridge.app.domain.logging.BridgeLogger
 import com.sigmabridge.app.domain.media.MediaAudioExtractor
@@ -32,7 +29,6 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
-import java.io.IOException
 import kotlin.coroutines.resume
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -282,21 +278,6 @@ class Media3AudioExtractor @Inject constructor(
         }
     }
 
-    private class AacMuxerFactory : Muxer.Factory {
-        override fun create(path: String): Muxer =
-            try {
-                AacMuxer(FileOutputStream(path))
-            } catch (error: IOException) {
-                throw MuxerException("Unable to open AAC output: " + path, error)
-            }
-
-        override fun getSupportedSampleMimeTypes(trackType: Int): ImmutableList<String> =
-            if (trackType == C.TRACK_TYPE_AUDIO) {
-                ImmutableList.of(MimeTypes.AUDIO_AAC)
-            } else {
-                ImmutableList.of()
-            }
-    }
 
     private companion object {
         const val TAG = "SigmaBridge"
