@@ -347,6 +347,40 @@ Another recurring lesson came from the Telegram Gemini path: HTTP status and net
 
 The full historical record, including the old ntfy phase, key-rotation bug, rejected relay designs, and testing failures, is preserved in `docs/PROJECT_HISTORY.md`.
 
+## On-demand Telegram video translation
+
+Telegram Video and VideoNote are separate from the automatic Voice/Audio handlers. They are never translated merely because a video arrives.
+
+A video is processed only when `/translate` is present in the video caption, or when a `/translate` command replies to a Video/VideoNote. The video is downloaded, only its audio track is extracted locally with Media3, and the extracted AAC is passed to the existing Telegram Gemini audio translation path.
+
+```text
+Video / VideoNote
+      |
+      | explicit /translate
+      v
+VideoMessageHandler
+      |
+      v
+TelegramVideoDownloadRepository
+      |
+      v
+temporary video
+      |
+      v
+MediaAudioExtractor -> Media3AudioExtractor
+      |
+      v
+temporary AAC audio
+      |
+      v
+existing GeminiTranslationRepository
+      |
+      v
+translated text reply
+```
+
+The video frames are never sent to Gemini. Normal Voice and Audio updates continue to use their existing handlers and download paths.
+
 ## Current baseline for v0.8.6 work
 
 The code branch documented here has an app version of `0.8.6` / `versionCode 6`. The version metadata correction was committed after the original `v0.8.6` tag was created. Therefore a newly rebuilt APK from the current branch is the authoritative build for the corrected 0.8.6 metadata. Do not assume that every older APK attached to a historical release has identical embedded version metadata.
