@@ -2,7 +2,7 @@ package com.sigmabridge.app.domain.model
 
 /**
  * A single incoming Telegram update, reduced to what the bridge cares
- * about. Message updates can carry voice or Telegram audio metadata;
+ * about. Message updates can carry voice, audio, or on-demand video metadata;
  * callback_query updates use the callback fields instead.
  */
 data class TelegramUpdate(
