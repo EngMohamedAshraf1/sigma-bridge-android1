@@ -2,6 +2,7 @@ package com.sigmabridge.app.data.cache
 
 import android.content.Context
 import com.sigmabridge.app.domain.cache.CacheManager
+import com.sigmabridge.app.domain.model.TemporaryImageFile
 import com.sigmabridge.app.domain.model.TemporaryMediaFile
 import com.sigmabridge.app.domain.model.TemporaryVoiceFile
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -28,10 +29,20 @@ class FileCacheManager @Inject constructor(
         File(context.cacheDir, MEDIA_SUBDIR).apply { mkdirs() }
     }
 
+    private val imageCacheDir: File by lazy {
+        File(context.cacheDir, IMAGE_SUBDIR).apply { mkdirs() }
+    }
+
     override fun createTempVoice(mimeType: String): TemporaryVoiceFile {
         val id = UUID.randomUUID().toString()
         val file = File(voiceCacheDir, "$id.${extensionForMimeType(mimeType)}")
         return TemporaryVoiceFile(id = id, path = file.absolutePath, mimeType = mimeType)
+    }
+
+    override fun createTempImage(mimeType: String): TemporaryImageFile {
+        val id = UUID.randomUUID().toString()
+        val file = File(imageCacheDir, id + ".jpg")
+        return TemporaryImageFile(id = id, path = file.absolutePath, mimeType = mimeType)
     }
 
     override fun createTempMedia(mimeType: String, extension: String): TemporaryMediaFile {
@@ -45,6 +56,10 @@ class FileCacheManager @Inject constructor(
         File(file.path).delete()
     }
 
+    override fun delete(file: TemporaryImageFile) {
+        File(file.path).delete()
+    }
+
     override fun delete(file: TemporaryMediaFile) {
         File(file.path).delete()
     }
@@ -52,6 +67,7 @@ class FileCacheManager @Inject constructor(
     override fun cleanup() {
         voiceCacheDir.listFiles()?.forEach { it.delete() }
         mediaCacheDir.listFiles()?.forEach { it.delete() }
+        imageCacheDir.listFiles()?.forEach { it.delete() }
     }
 
     private fun extensionForMimeType(mimeType: String): String = when (mimeType) {
@@ -68,5 +84,6 @@ class FileCacheManager @Inject constructor(
     private companion object {
         const val VOICE_SUBDIR = "voice_tmp"
         const val MEDIA_SUBDIR = "media_tmp"
+        const val IMAGE_SUBDIR = "image_tmp"
     }
 }
