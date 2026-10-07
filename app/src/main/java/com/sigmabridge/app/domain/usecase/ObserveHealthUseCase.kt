@@ -3,6 +3,7 @@ package com.sigmabridge.app.domain.usecase
 import com.sigmabridge.app.domain.model.HomeHealthState
 import com.sigmabridge.app.domain.pipeline.BridgeOrchestrator
 import com.sigmabridge.app.domain.repository.ConnectivityRepository
+import com.sigmabridge.app.domain.repository.ImageTranslationRepository
 import com.sigmabridge.app.domain.repository.TelegramRepository
 import com.sigmabridge.app.domain.repository.TranslationRepository
 import kotlinx.coroutines.flow.Flow
@@ -21,14 +22,26 @@ class ObserveHealthUseCase @Inject constructor(
     private val bridgeOrchestrator: BridgeOrchestrator,
     private val telegramRepository: TelegramRepository,
     private val translationRepository: TranslationRepository,
+    private val imageTranslationRepository: ImageTranslationRepository,
     private val connectivityRepository: ConnectivityRepository
 ) {
     operator fun invoke(): Flow<HomeHealthState> = combine(
         bridgeOrchestrator.state,
         telegramRepository.health,
         translationRepository.health,
+        imageTranslationRepository.health,
         connectivityRepository.health
-    ) { bridge, telegram, gemini, internet ->
-        HomeHealthState(bridge = bridge, telegram = telegram, gemini = gemini, internet = internet)
+    ) { bridge, telegram, gemini, imageGemini, internet ->
+        val displayedGemini = if (imageGemini == com.sigmabridge.app.domain.model.GeminiHealth.BUSY) {
+            com.sigmabridge.app.domain.model.GeminiHealth.BUSY
+        } else {
+            gemini
+        }
+        HomeHealthState(
+            bridge = bridge,
+            telegram = telegram,
+            gemini = displayedGemini,
+            internet = internet
+        )
     }
 }
