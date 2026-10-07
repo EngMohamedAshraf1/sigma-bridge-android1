@@ -2,6 +2,7 @@ package com.sigmabridge.app.di
 
 import com.sigmabridge.app.data.cache.FileCacheManager
 import com.sigmabridge.app.data.connectivity.AndroidConnectivityRepository
+import com.sigmabridge.app.data.gemini.GeminiImageTranslationRepository
 import com.sigmabridge.app.data.gemini.GeminiTranslationRepository
 import com.sigmabridge.app.data.settings.SecureLanguagePreferencesRepository
 import com.sigmabridge.app.data.settings.SecureOwnerRepository
@@ -15,6 +16,7 @@ import com.sigmabridge.app.domain.language.LanguagePermissionChecker
 import com.sigmabridge.app.domain.media.MediaAudioExtractor
 import com.sigmabridge.app.domain.repository.ConnectivityRepository
 import com.sigmabridge.app.domain.repository.DownloadRepository
+import com.sigmabridge.app.domain.repository.ImageTranslationRepository
 import com.sigmabridge.app.domain.repository.LanguagePreferencesRepository
 import com.sigmabridge.app.domain.repository.OwnerRepository
 import com.sigmabridge.app.domain.repository.SettingsRepository
@@ -63,6 +65,11 @@ abstract class RepositoryModule {
     abstract fun bindMediaAudioExtractor(
         impl: Media3AudioExtractor
     ): MediaAudioExtractor
+
+    @Binds
+    abstract fun bindImageTranslationRepository(
+        impl: GeminiImageTranslationRepository
+    ): ImageTranslationRepository
 
     @Binds
     abstract fun bindTranslationRepository(
