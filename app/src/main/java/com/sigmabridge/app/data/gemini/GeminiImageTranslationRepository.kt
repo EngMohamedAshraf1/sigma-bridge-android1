@@ -82,8 +82,7 @@ class GeminiImageTranslationRepository @Inject constructor(
         }
 
         throw lastError
-    }.onFailure { result ->
-        val error = result.exceptionOrNull()
+    }.onFailure { error ->
         _health.value = when {
             error is GeminiApiException && error.httpCode == HTTP_TOO_MANY_REQUESTS -> GeminiHealth.QUOTA_EXCEEDED
             error is GeminiApiException && (error.httpCode == HTTP_UNAUTHORIZED || error.httpCode == HTTP_FORBIDDEN) -> GeminiHealth.AUTHENTICATION_FAILED
