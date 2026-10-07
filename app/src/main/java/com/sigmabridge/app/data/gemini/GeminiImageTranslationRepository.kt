@@ -95,7 +95,7 @@ class GeminiImageTranslationRepository @Inject constructor(
         var text = raw.trim()
         if (text.startsWith("```")) {
             text = text.removePrefix("```")
-            val firstLineEnd = text.indexOf('\\n')
+            val firstLineEnd = text.indexOf('\n')
             if (firstLineEnd >= 0) {
                 text = text.substring(firstLineEnd + 1)
             }
