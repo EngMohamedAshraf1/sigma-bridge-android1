@@ -18,6 +18,15 @@ fun TelegramUpdateDto.toDomain(): TelegramUpdate? {
             val commandText = chatMessage.text ?: chatMessage.caption
             val requested = commandText.hasSigmaBridgeMention()
 
+            val directPhoto = chatMessage.photo
+                ?.maxByOrNull { photo -> photo.width.toLong() * photo.height.toLong() }
+                ?.let { photo ->
+                    PhotoTarget(
+                        fileId = photo.fileId,
+                        fileSizeBytes = photo.fileSize
+                    )
+                }
+
             val directVideo = chatMessage.video?.let { video ->
                 VideoTarget(
                     fileId = video.fileId,
@@ -35,6 +44,15 @@ fun TelegramUpdateDto.toDomain(): TelegramUpdate? {
                     messageId = chatMessage.messageId
                 )
             }
+
+            val repliedPhoto = chatMessage.replyToMessage?.photo
+                ?.maxByOrNull { photo -> photo.width.toLong() * photo.height.toLong() }
+                ?.let { photo ->
+                    PhotoTarget(
+                        fileId = photo.fileId,
+                        fileSizeBytes = photo.fileSize
+                    )
+                }
 
             val repliedVideo = chatMessage.replyToMessage?.let { reply ->
                 reply.video?.let { video ->
@@ -56,6 +74,12 @@ fun TelegramUpdateDto.toDomain(): TelegramUpdate? {
                 }
             }
 
+            val targetPhoto = when {
+                requested && directPhoto != null -> directPhoto
+                requested && repliedPhoto != null -> repliedPhoto
+                else -> null
+            }
+
             val targetVideo = when {
                 requested && directVideo != null -> directVideo
                 requested && repliedVideo != null -> repliedVideo
@@ -73,6 +97,13 @@ fun TelegramUpdateDto.toDomain(): TelegramUpdate? {
                 audioMimeType = chatMessage.audio?.mimeType,
                 audioFileName = chatMessage.audio?.fileName,
                 audioFileSizeBytes = chatMessage.audio?.fileSize,
+                photoFileId = targetPhoto?.fileId,
+                photoFileSizeBytes = targetPhoto?.fileSizeBytes,
+                photoMessageId = targetPhoto?.let {
+                    if (directPhoto != null) chatMessage.messageId
+                    else chatMessage.replyToMessage?.messageId
+                },
+                photoTranslateRequested = targetPhoto != null,
                 videoFileId = targetVideo?.fileId,
                 videoMimeType = targetVideo?.mimeType,
                 videoFileName = targetVideo?.fileName,
@@ -98,6 +129,10 @@ fun TelegramUpdateDto.toDomain(): TelegramUpdate? {
                 audioMimeType = null,
                 audioFileName = null,
                 audioFileSizeBytes = null,
+                photoFileId = null,
+                photoFileSizeBytes = null,
+                photoMessageId = null,
+                photoTranslateRequested = false,
                 videoFileId = null,
                 videoMimeType = null,
                 videoFileName = null,
@@ -113,6 +148,11 @@ fun TelegramUpdateDto.toDomain(): TelegramUpdate? {
         else -> null
     }
 }
+
+private data class PhotoTarget(
+    val fileId: String,
+    val fileSizeBytes: Long?
+)
 
 private data class VideoTarget(
     val fileId: String,
