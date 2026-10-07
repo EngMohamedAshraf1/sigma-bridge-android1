@@ -146,8 +146,9 @@ class GeminiImageTranslationRepository @Inject constructor(
 
             delay(ACTIVE_POLL_INTERVAL_MS)
             waitedMillis += ACTIVE_POLL_INTERVAL_MS
+            val currentFileName = current.name
             current = withRetryOnTransientFailure {
-                apiClient.getFile(apiKey, current.name)
+                apiClient.getFile(apiKey, currentFileName)
             }
         }
         return current
