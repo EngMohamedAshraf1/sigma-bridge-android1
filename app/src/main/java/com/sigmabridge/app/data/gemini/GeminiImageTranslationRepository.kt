@@ -67,7 +67,12 @@ class GeminiImageTranslationRepository @Inject constructor(
                 return@runCatching cleanTranslation(raw)
             } catch (error: IOException) {
                 lastError = error
-                logger.error(TAG, "Image translation network failure; trying next key", error)
+                logger.error(
+                    TAG,
+                    "Image translation network failure; stopping without rotating to another key",
+                    error
+                )
+                throw error
             } catch (error: GeminiApiException) {
                 lastError = error
                 when (error.httpCode) {
@@ -75,7 +80,12 @@ class GeminiImageTranslationRepository @Inject constructor(
                     HTTP_UNAUTHORIZED, HTTP_FORBIDDEN -> keyManager.markInvalid(apiKey)
                     else -> {
                         if (!isTransient(error)) throw error
-                        logger.error(TAG, "Transient Gemini image error; trying next key", error)
+                        logger.error(
+                            TAG,
+                            "Transient Gemini image error; stopping without rotating to another key",
+                            error
+                        )
+                        throw error
                     }
                 }
             }
@@ -213,7 +223,7 @@ class GeminiImageTranslationRepository @Inject constructor(
         const val HTTP_INTERNAL_SERVER_ERROR = 500
         const val HTTP_SERVICE_UNAVAILABLE = 503
         const val HTTP_GATEWAY_TIMEOUT = 504
-        const val MAX_RETRY_ATTEMPTS = 4
+        const val MAX_RETRY_ATTEMPTS = 3
         const val INITIAL_BACKOFF_MS = 1_000L
         const val MAX_BACKOFF_MS = 8_000L
         const val RETRY_JITTER_MAX_MS = 500L
