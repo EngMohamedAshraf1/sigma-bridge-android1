@@ -1,6 +1,7 @@
 package com.sigmabridge.app.di
 
 import com.sigmabridge.app.domain.dispatch.AudioMessageHandler
+import com.sigmabridge.app.domain.dispatch.ImageMessageHandler
 import com.sigmabridge.app.domain.dispatch.LanguageCallbackHandler
 import com.sigmabridge.app.domain.dispatch.LanguageCommandHandler
 import com.sigmabridge.app.domain.dispatch.UpdateHandler
@@ -18,6 +19,10 @@ import dagger.multibindings.IntoSet
 @Module
 @InstallIn(SingletonComponent::class)
 abstract class DispatchModule {
+
+    @Binds
+    @IntoSet
+    abstract fun bindImageMessageHandler(impl: ImageMessageHandler): UpdateHandler
 
     @Binds
     @IntoSet
