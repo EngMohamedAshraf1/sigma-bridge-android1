@@ -1,5 +1,6 @@
 package com.sigmabridge.app.domain.cache
 
+import com.sigmabridge.app.domain.model.TemporaryImageFile
 import com.sigmabridge.app.domain.model.TemporaryMediaFile
 import com.sigmabridge.app.domain.model.TemporaryVoiceFile
 
@@ -12,6 +13,9 @@ interface CacheManager {
     /** Allocates a fresh UUID-named temp location for one voice/audio file. */
     fun createTempVoice(mimeType: String = "audio/ogg"): TemporaryVoiceFile
 
+    /** Allocates a fresh temp location for a Telegram image. */
+    fun createTempImage(mimeType: String = "image/jpeg"): TemporaryImageFile
+
     /** Allocates a fresh temp location for non-audio media such as Telegram video. */
     fun createTempMedia(
         mimeType: String = "video/mp4",
@@ -20,6 +24,9 @@ interface CacheManager {
 
     /** Deletes one previously-created voice/audio temp file. Safe if already gone. */
     fun delete(file: TemporaryVoiceFile)
+
+    /** Deletes one previously-created image temp file. Safe if already gone. */
+    fun delete(file: TemporaryImageFile)
 
     /** Deletes one previously-created non-audio media temp file. Safe if already gone. */
     fun delete(file: TemporaryMediaFile)
