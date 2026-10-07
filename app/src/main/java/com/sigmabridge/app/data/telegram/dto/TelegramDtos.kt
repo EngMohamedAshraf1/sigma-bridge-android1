@@ -31,6 +31,7 @@ data class TelegramMessageDto(
     val from: TelegramUserDto? = null,
     val voice: TelegramVoiceDto? = null,
     val audio: TelegramAudioDto? = null,
+    val photo: List<TelegramPhotoSizeDto>? = null,
     val video: TelegramVideoDto? = null,
     @SerialName("video_note") val videoNote: TelegramVideoNoteDto? = null,
     val text: String? = null,
@@ -63,6 +64,14 @@ data class TelegramAudioDto(
 )
 
 @Serializable
+data class TelegramPhotoSizeDto(
+    @SerialName("file_id") val fileId: String,
+    @SerialName("file_size") val fileSize: Long? = null,
+    val width: Int,
+    val height: Int
+)
+
+@Serializable
 data class TelegramVideoDto(
     @SerialName("file_id") val fileId: String,
     @SerialName("file_name") val fileName: String? = null,
@@ -81,6 +90,7 @@ data class TelegramVideoNoteDto(
 @Serializable
 data class TelegramRepliedMediaDto(
     @SerialName("message_id") val messageId: Long,
+    val photo: List<TelegramPhotoSizeDto>? = null,
     val video: TelegramVideoDto? = null,
     @SerialName("video_note") val videoNote: TelegramVideoNoteDto? = null
 )
