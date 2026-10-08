@@ -199,9 +199,9 @@ Current flow:
 Telegram Voice/Audio
       -> Telegram getFile/download
       -> MIME normalization
-      -> Gemini audio request
-           | small file: inlineData
-           | larger file: Files API
+      -> Gemini Files API upload
+      -> wait for file readiness
+      -> generateContent using the uploaded file URI
       -> Gemini listens + translates in one generateContent call
       -> translated text
       -> Telegram reply
@@ -215,7 +215,9 @@ Telegram Voice uses audio/ogg. On-demand Telegram Video/VideoNote translation is
 
 v0.8.14 retries transient 408/500/503/504 responses with exponential backoff and jitter. Persistent server-side transient failures can trigger a model fallback from gemini-3.6-flash to gemini-3.5-flash. Upload/status operations in the Files API path are also retried.
 
-The inline audio limit is 12 MiB. Files API upload streams from disk. The Telegram path does not use Whisper, FFmpeg, or a second translation request.
+All Telegram audio uses the Gemini Files API upload path, including small files.
+Files API upload streams from disk. The Telegram path does not use Whisper,
+FFmpeg, or a second translation request.
 
 ## Changing the translation system
 

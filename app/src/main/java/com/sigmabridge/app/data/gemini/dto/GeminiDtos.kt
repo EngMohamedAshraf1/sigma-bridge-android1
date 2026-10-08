@@ -55,19 +55,12 @@ data class GeminiContentDto(
 data class GeminiPartDto(
     val text: String? = null,
     val fileData: GeminiFileDataDto? = null,
-    val inlineData: GeminiInlineDataDto? = null
 )
 
 @Serializable
 data class GeminiFileDataDto(
     val mimeType: String,
     val fileUri: String
-)
-
-@Serializable
-data class GeminiInlineDataDto(
-    val mimeType: String,
-    val data: String
 )
 
 @Serializable

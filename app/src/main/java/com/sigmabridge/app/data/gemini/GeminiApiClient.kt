@@ -1,6 +1,5 @@
 package com.sigmabridge.app.data.gemini
 
-import android.util.Base64
 import com.sigmabridge.app.data.gemini.dto.GeminiContentDto
 import com.sigmabridge.app.data.gemini.dto.GeminiFileDataDto
 import com.sigmabridge.app.data.gemini.dto.GeminiFileDto
@@ -10,7 +9,6 @@ import com.sigmabridge.app.data.gemini.dto.GeminiFileUploadMetadataDto
 import com.sigmabridge.app.data.gemini.dto.GeminiGenerateContentRequestDto
 import com.sigmabridge.app.data.gemini.dto.GeminiGenerateContentResponseDto
 import com.sigmabridge.app.data.gemini.dto.GeminiGenerationConfigDto
-import com.sigmabridge.app.data.gemini.dto.GeminiInlineDataDto
 import com.sigmabridge.app.data.gemini.dto.GeminiPartDto
 import com.sigmabridge.app.data.gemini.dto.GeminiThinkingConfigDto
 import com.sigmabridge.app.data.network.await
@@ -134,99 +132,6 @@ class GeminiApiClient @Inject constructor(
             val parsed = json.decodeFromString(GeminiGenerateContentResponseDto.serializer(), body)
             parsed.candidates.firstOrNull()?.content?.parts?.firstOrNull { it.text != null }?.text
                 ?: throw GeminiApiException("Gemini generateContent returned no text")
-        }
-    }
-
-    /** Direct inline-audio path for small Telegram voice/audio files. */
-    suspend fun generateContentInline(
-        apiKey: String,
-        model: String,
-        prompt: String,
-        mimeType: String,
-        data: ByteArray
-    ): String = withContext(Dispatchers.IO) {
-        val url = "$BASE_URL/v1beta/models/$model:generateContent".toHttpUrl().newBuilder()
-            .addQueryParameter("key", apiKey)
-            .build()
-
-        val encodedData = Base64.encodeToString(data, Base64.NO_WRAP)
-        val requestDto = GeminiGenerateContentRequestDto(
-            contents = listOf(
-                GeminiContentDto(
-                    parts = listOf(
-                        GeminiPartDto(text = prompt),
-                        GeminiPartDto(inlineData = GeminiInlineDataDto(mimeType = mimeType, data = encodedData))
-                    )
-                )
-            )
-        )
-        val requestBody = json.encodeToString(GeminiGenerateContentRequestDto.serializer(), requestDto)
-            .toRequestBody("application/json".toMediaType())
-
-        val request = Request.Builder().url(url).post(requestBody).build()
-
-        httpClient.newCall(request).await().use { response ->
-            val body = response.body?.string().orEmpty()
-            if (!response.isSuccessful) {
-                throw GeminiApiException("Gemini inline generateContent failed: HTTP ${response.code} — $body", response.code)
-            }
-            val parsed = json.decodeFromString(GeminiGenerateContentResponseDto.serializer(), body)
-            parsed.candidates.firstOrNull()?.content?.parts?.firstOrNull { it.text != null }?.text
-                ?: throw GeminiApiException("Gemini inline generateContent returned no text")
-        }
-    }
-
-    /** Direct inline-image path used only by Telegram ImageMessageHandler. */
-    suspend fun generateContentInlineImage(
-        apiKey: String,
-        model: String,
-        prompt: String,
-        mimeType: String,
-        data: ByteArray
-    ): String = withContext(Dispatchers.IO) {
-        val url = "$BASE_URL/v1beta/models/$model:generateContent".toHttpUrl().newBuilder()
-            .addQueryParameter("key", apiKey)
-            .build()
-
-        val encodedData = Base64.encodeToString(data, Base64.NO_WRAP)
-        val requestDto = GeminiGenerateContentRequestDto(
-            contents = listOf(
-                GeminiContentDto(
-                    parts = listOf(
-                        GeminiPartDto(text = prompt),
-                        GeminiPartDto(
-                            inlineData = GeminiInlineDataDto(
-                                mimeType = mimeType,
-                                data = encodedData
-                            )
-                        )
-                    )
-                )
-            )
-        )
-
-        val requestBody = json.encodeToString(
-            GeminiGenerateContentRequestDto.serializer(),
-            requestDto
-        ).toRequestBody("application/json".toMediaType())
-
-        val request = Request.Builder().url(url).post(requestBody).build()
-
-        httpClient.newCall(request).await().use { response ->
-            val body = response.body?.string().orEmpty()
-            if (!response.isSuccessful) {
-                throw GeminiApiException(
-                    "Gemini inline image generation failed: HTTP ${response.code} — $body",
-                    response.code
-                )
-            }
-            val parsed = json.decodeFromString(
-                GeminiGenerateContentResponseDto.serializer(),
-                body
-            )
-            parsed.candidates.firstOrNull()?.content?.parts
-                ?.firstOrNull { it.text != null }?.text
-                ?: throw GeminiApiException("Gemini inline image generation returned no text")
         }
     }
 

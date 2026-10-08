@@ -26,13 +26,13 @@ import javax.inject.Singleton
  * or any Gemini-specific type directly; everyone else depends on
  * TranslationRepository.
  *
- * Small Telegram audio files use Gemini inline audio to avoid the extra
- * Files API upload/poll lifecycle. Larger files use the Files API. The audio
- * path also has a transient-failure recovery layer: exponential backoff with
- * jitter, a model fallback for server-side failures, and key rotation after
- * the recovery window is exhausted. Phase Chat adds [translateText] as an
- * additive text-only entry point so Private Chat can reuse the same Gemini key
- * manager, rotation, status tracking, and transient retry policy.
+ * All Telegram media audio is uploaded through the Gemini Files API before
+ * generateContent. The audio path also has a transient-failure recovery layer:
+ * exponential backoff with jitter, a model fallback for server-side failures,
+ * and key rotation after the recovery window is exhausted. Phase Chat adds
+ * [translateText] as an additive text-only entry point so Private Chat can
+ * reuse the same Gemini key manager, rotation, status tracking, and transient
+ * retry policy.
  */
 @Singleton
 class GeminiTranslationRepository @Inject constructor(
@@ -173,20 +173,7 @@ class GeminiTranslationRepository @Inject constructor(
         val mimeType = request.sourceFile.mimeType
         val prompt = buildPrompt(request.languagePair)
 
-        // Keep the fast inline path for ordinary Telegram voice notes, but leave
-        // enough headroom for Base64 + JSON + prompt bytes under Gemini's request limit.
-        if (file.length() <= INLINE_AUDIO_MAX_BYTES) {
-            val audioData = file.readBytes()
-            val rawText = generateInlineTranslationWithFallback(
-                apiKey = apiKey,
-                prompt = prompt,
-                mimeType = mimeType,
-                data = audioData
-            )
-            return TranslationResult(translatedText = cleanTranslation(rawText))
-        }
-
-        var uploadedFile: GeminiFileDto? = null
+                var uploadedFile: GeminiFileDto? = null
         try {
             uploadedFile = withRetryOnTransientFailure {
                 apiClient.uploadFile(
@@ -210,45 +197,6 @@ class GeminiTranslationRepository @Inject constructor(
             return TranslationResult(translatedText = cleanTranslation(rawText))
         } finally {
             uploadedFile?.let { runCatching { apiClient.deleteFile(apiKey, it.name) } }
-        }
-    }
-
-    private suspend fun generateInlineTranslationWithFallback(
-        apiKey: String,
-        prompt: String,
-        mimeType: String,
-        data: ByteArray
-    ): String {
-        return try {
-            withRetryOnTransientFailure {
-                apiClient.generateContentInline(
-                    apiKey = apiKey,
-                    model = MODEL,
-                    prompt = prompt,
-                    mimeType = mimeType,
-                    data = data
-                )
-            }
-        } catch (primaryError: GeminiApiException) {
-            if (!isModelFallbackEligible(primaryError)) {
-                throw primaryError
-            }
-
-            logger.debug(
-                TAG,
-                "Primary Gemini audio model failed transiently (${primaryError.httpCode}); " +
-                    "retrying audio translation with fallback model $FALLBACK_AUDIO_MODEL"
-            )
-
-            withRetryOnTransientFailure {
-                apiClient.generateContentInline(
-                    apiKey = apiKey,
-                    model = FALLBACK_AUDIO_MODEL,
-                    prompt = prompt,
-                    mimeType = mimeType,
-                    data = data
-                )
-            }
         }
     }
 
@@ -467,10 +415,6 @@ class GeminiTranslationRepository @Inject constructor(
         const val CHAT_MODEL = "gemini-3.1-flash-lite"
         const val STATE_ACTIVE = "ACTIVE"
         const val STATE_FAILED = "FAILED"
-
-        // 12 MiB raw audio leaves margin for Base64 expansion, JSON, and the prompt
-        // under Gemini's 20 MB total inline-request ceiling.
-        const val INLINE_AUDIO_MAX_BYTES = 12L * 1024L * 1024L
 
         const val ACTIVE_POLL_INTERVAL_MS = 1_000L
         const val ACTIVE_POLL_TIMEOUT_MS = 60_000L
