@@ -463,7 +463,7 @@ class GeminiTranslationRepository @Inject constructor(
     private companion object {
         const val TAG = "SigmaBridge"
         const val MODEL = "gemini-3.6-flash"
-        const val FALLBACK_AUDIO_MODEL = "gemini-3.5-flash"
+        const val FALLBACK_AUDIO_MODEL = "gemini-3.5-flash-lite"
         const val CHAT_MODEL = "gemini-3.1-flash-lite"
         const val STATE_ACTIVE = "ACTIVE"
         const val STATE_FAILED = "FAILED"
