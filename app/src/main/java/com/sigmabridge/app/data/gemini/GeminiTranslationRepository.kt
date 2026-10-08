@@ -173,7 +173,7 @@ class GeminiTranslationRepository @Inject constructor(
         val mimeType = request.sourceFile.mimeType
         val prompt = buildPrompt(request.languagePair)
 
-                var uploadedFile: GeminiFileDto? = null
+        var uploadedFile: GeminiFileDto? = null
         try {
             uploadedFile = withRetryOnTransientFailure {
                 apiClient.uploadFile(
