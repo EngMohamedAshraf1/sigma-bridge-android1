@@ -122,14 +122,35 @@ class GeminiImageTranslationRepository @Inject constructor(
             val fileUri = activeFile.uri
                 ?: error("Gemini image file has no uri after becoming ACTIVE.")
 
-            withRetryOnTransientFailure {
-                apiClient.generateContent(
-                    apiKey = apiKey,
-                    model = MODEL,
-                    prompt = prompt,
-                    fileUri = fileUri,
-                    mimeType = image.mimeType
+            try {
+                withRetryOnTransientFailure {
+                    apiClient.generateContent(
+                        apiKey = apiKey,
+                        model = MODEL,
+                        prompt = prompt,
+                        fileUri = fileUri,
+                        mimeType = image.mimeType
+                    )
+                }
+            } catch (primaryError: GeminiApiException) {
+                if (!isTransient(primaryError)) throw primaryError
+
+                logger.error(
+                    TAG,
+                    "Primary Gemini image model unavailable (" + primaryError.httpCode + "); " +
+                        "trying fallback model " + FALLBACK_MODEL + " on the same key",
+                    primaryError
                 )
+
+                withRetryOnTransientFailure {
+                    apiClient.generateContent(
+                        apiKey = apiKey,
+                        model = FALLBACK_MODEL,
+                        prompt = prompt,
+                        fileUri = fileUri,
+                        mimeType = image.mimeType
+                    )
+                }
             }
         } finally {
             uploadedFile?.let { uploaded ->
@@ -212,6 +233,7 @@ class GeminiImageTranslationRepository @Inject constructor(
     private companion object {
         const val TAG = "SigmaBridge"
         const val MODEL = "gemini-3.6-flash"
+        const val FALLBACK_MODEL = "gemini-3.5-flash-lite"
         const val STATE_ACTIVE = "ACTIVE"
         const val STATE_FAILED = "FAILED"
         const val ACTIVE_POLL_INTERVAL_MS = 1_000L
