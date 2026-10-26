@@ -7,10 +7,11 @@ All notable changes to Sigma Bridge Android are recorded here.
 ### Telegram Bridge
 
 - Add a separate text-only assistant, triggered only by an explicit @sigma_bridge_bot mention plus a text request.
-- Use Gemini Interactions API with Google Search grounding, while setting store=false and keeping a bounded conversation history locally for up to 24 hours.
+- Use the existing Gemini GenerateContent API with Google Search grounding only for explicit research requests, while keeping a bounded conversation history locally for up to 24 hours.
 - Keep media messages out of the assistant path; existing voice/audio/photo/video translation handlers remain responsible for media.
 - Support text replies that quote another text message (including a previous translation) as context for the assistant.
 - Add a /new reset for the per-group assistant conversation.
+- Fall back to a normal non-search response if Search grounding returns HTTP 429, clearly noting that the answer was not verified live.
 - Leave Private Chat and translation repositories/clients unchanged; add only routing metadata to distinguish text requests from media-translation requests.
 
 ## [0.8.16] — Gemini Files API for all Telegram media

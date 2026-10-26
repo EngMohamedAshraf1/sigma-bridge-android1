@@ -69,7 +69,7 @@ Current Audio formats are MP3, AAC, OGG, FLAC, WAV, and AIFF. M4A is not yet rel
 
 The assistant only claims group/supergroup text messages that explicitly mention `@sigma_bridge_bot` and contain a non-empty request after the mention. It ignores messages carrying media. A text-only message that mentions the bot and includes a request is handled as conversation; replying to a previous text translation passes the quoted text as context.
 
-A mention-only media request stays with the existing media translation handler. When a user replies to a photo/video with a text request, the assistant receives text context only and never the original media. Voice/audio automatic translation and existing image/video translation handlers remain separate. The assistant keeps bounded group conversation history locally; each turn expires after 24 hours. Gemini Interactions requests specify `store=false` and do not use server-side `previous_interaction_id`.
+A mention-only media request stays with the existing media translation handler. When a user replies to a photo/video with a text request, the assistant receives text context only and never the original media. Voice/audio automatic translation and existing image/video translation handlers remain separate. The assistant keeps bounded group conversation history locally; each turn expires after 24 hours. It uses the stateless GenerateContent endpoint, submits the recent text context each turn, and only enables Google Search for explicit search/verification requests. If Search grounding gets HTTP 429, it can return a normal answer with a clear note that web verification was unavailable.
 
 ## Do not cross the boundary casually
 

@@ -122,7 +122,7 @@ The Telegram path does not run Whisper, FFmpeg, or a separate STT stage. Gemini 
 
 The optional group assistant is a separate `AssistantMessageHandler` registered in the existing dispatcher. It is eligible only for text-only group/supergroup messages that explicitly mention `@sigma_bridge_bot` and contain a request after the mention. If a message contains media, the assistant does not claim it. Replies may include the quoted text of the message they target, allowing the assistant to discuss a previous text translation without receiving the original image, audio, or video.
 
-The assistant uses its own `GeminiAssistantClient` and `AssistantSessionStore`. Conversation context is held locally, bounded to a small number of turns, and each turn expires after 24 hours. Interactions requests specify `store=false` and provide Google Search as an available tool. Neither the Telegram media translation repository/client nor Private Chat translation is reused by this path.
+The assistant uses its own `GeminiAssistantClient` and `AssistantSessionStore`. Conversation context is held locally, bounded to a small number of turns, and each turn expires after 24 hours. It uses the stateless GenerateContent API and only attaches Google Search for explicit search/verification requests. Neither the Telegram media translation repository/client nor Private Chat translation is reused by this path.
 
 ## Private Chat responsibilities
 
