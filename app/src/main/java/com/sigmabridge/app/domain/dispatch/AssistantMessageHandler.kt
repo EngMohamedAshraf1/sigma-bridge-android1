@@ -83,14 +83,14 @@ class AssistantMessageHandler @Inject constructor(
                         .trim()
                         .take(240)
                     "Gemini API رفض الطلب (HTTP ${error.httpCode ?: "?"})." +
-                        if (detail.isNotBlank()) "\\n$detail" else ""
+                        if (detail.isNotBlank()) "\n$detail" else ""
                 }
                 is java.io.IOException -> "فشل الاتصال بالشبكة: ${error::class.simpleName ?: "IOException"}."
                 else -> "خطأ ${error::class.simpleName ?: "غير معروف"}: ${error.message.orEmpty().take(180)}"
             }
             sendTelegramMessage(
                 update.chatId,
-                "تعذر إكمال رد المساعد.\\n$diagnostic",
+                "تعذر إكمال رد المساعد.\n$diagnostic",
                 update.messageId
             )
         }
