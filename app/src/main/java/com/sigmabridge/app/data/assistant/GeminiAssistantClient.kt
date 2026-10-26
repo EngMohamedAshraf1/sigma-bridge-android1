@@ -52,27 +52,47 @@ class GeminiAssistantClient @Inject constructor(
         val input = buildInput(history, currentMessage)
 
         try {
-            generateWithKeys(keys, input, useSearch)
+            generateWithModelFallback(keys, input, useSearch)
         } catch (searchError: GeminiAssistantApiException) {
             if (!useSearch || searchError.httpCode != HTTP_TOO_MANY_REQUESTS) throw searchError
 
-            // A separate Search grounding quota can be exhausted while regular model generation
-            // remains available. Retry without Search so an ordinary assistant answer can still be returned.
-            val answer = generateWithKeys(keys, input, useSearch = false)
+            // Search grounding can have a separate quota. Retry without Search if ordinary generation remains available.
+            val answer = generateWithModelFallback(keys, input, useSearch = false)
             "تعذر تنفيذ بحث الويب الآن بسبب حد استخدام Google (HTTP 429). الإجابة التالية ليست تحققًا مباشرًا من الويب.\n\n$answer"
         }
+    }
+
+    private suspend fun generateWithModelFallback(
+        keys: List<String>,
+        input: String,
+        useSearch: Boolean
+    ): String {
+        var lastError: GeminiAssistantApiException? = null
+
+        for (model in ASSISTANT_MODELS) {
+            try {
+                return generateWithKeys(keys, input, useSearch, model)
+            } catch (error: GeminiAssistantApiException) {
+                if (error.httpCode !in RETRYABLE_MODEL_ERRORS) throw error
+                lastError = error
+                // Temporary capacity/quota errors can affect one model but not another.
+            }
+        }
+
+        throw lastError ?: IllegalStateException("Gemini assistant request failed")
     }
 
     private suspend fun generateWithKeys(
         keys: List<String>,
         input: String,
-        useSearch: Boolean
+        useSearch: Boolean,
+        model: String
     ): String {
         var lastError: Throwable? = null
 
         for (key in keys) {
             try {
-                return request(key, input, useSearch)
+                return request(key, input, useSearch, model)
             } catch (error: GeminiAssistantApiException) {
                 lastError = error
                 if (error.httpCode == HTTP_UNAUTHORIZED ||
@@ -105,7 +125,7 @@ class GeminiAssistantClient @Inject constructor(
         }
     }
 
-    private suspend fun request(apiKey: String, input: String, useSearch: Boolean): String {
+    private suspend fun request(apiKey: String, input: String, useSearch: Boolean, model: String): String {
         val payload = buildJsonObject {
             put("systemInstruction", buildJsonObject {
                 put("parts", buildJsonArray {
@@ -132,7 +152,7 @@ class GeminiAssistantClient @Inject constructor(
         }
 
         val request = Request.Builder()
-            .url("$GENERATE_CONTENT_BASE_URL/models/$MODEL:generateContent")
+            .url("$GENERATE_CONTENT_BASE_URL/models/$model:generateContent")
             .header("x-goog-api-key", apiKey)
             .header("Content-Type", "application/json")
             .post(payload.toString().toRequestBody(JSON_MEDIA_TYPE))
@@ -200,7 +220,12 @@ class GeminiAssistantClient @Inject constructor(
 
     private companion object {
         const val GENERATE_CONTENT_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
-        const val MODEL = "gemini-3.6-flash"
+        val ASSISTANT_MODELS = listOf(
+            "gemini-3.6-flash",
+            "gemini-3.5-flash-lite",
+            "gemini-3.1-flash-lite"
+        )
+        val RETRYABLE_MODEL_ERRORS = setOf(408, 429, 500, 503, 504)
         const val MAX_OUTPUT_TOKENS = 1400
         const val MAX_SOURCES = 5
         val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
