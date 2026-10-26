@@ -2,16 +2,25 @@
 
 All notable changes to Sigma Bridge Android are recorded here.
 
-## Unreleased — On-demand Telegram video translation
+## [0.8.16] — Gemini Files API for all Telegram media
 
 ### Telegram Bridge
 
-- Added explicit Video and VideoNote handling without changing the existing Voice/Audio handlers.
-- Video processing is opt-in through an explicit `@sigma_bridge_bot` mention in the video caption or as a reply to a Video/VideoNote.
-- Added Media3-based extraction of only the audio track.
-- Reuses the existing Telegram Gemini audio translation and reliability pipeline.
-- Normal videos remain ignored when no explicit `/translate` request is present.
-- Telegram Bot API's current 20 MB download ceiling is enforced before video download when a declared file size is available.
+- Route every Telegram Voice and Audio file through Gemini Files API, regardless of file size.
+- Keep Telegram image translation on Gemini Files API.
+- Keep Video and VideoNote processing local through Media3 audio extraction, then send only the extracted audio through the existing Files API translation path.
+- Remove Inline Data methods and DTOs from the Telegram media Gemini client so media translation has one consistent upload path.
+- Preserve transient-error retries, exponential backoff with jitter, model fallback, and best-effort temporary-file cleanup.
+- Do not change the Private Chat text-translation path.
+
+### Media pipeline
+
+```text
+Voice / Audio  -> download -> Files API -> Gemini -> translated reply
+Image          -> download -> Files API -> Gemini Vision -> translated reply
+Video / Note   -> download -> Media3 audio extraction -> Files API -> Gemini -> translated reply
+```
+
 
 ## [0.8.14] — Telegram Audio Translation Reliability
 
