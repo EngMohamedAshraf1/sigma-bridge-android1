@@ -23,6 +23,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.IOException
+import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -67,7 +68,7 @@ class GeminiAssistantClient @Inject constructor(
         input: String,
         useSearch: Boolean
     ): String {
-        var lastError: GeminiAssistantApiException? = null
+        var lastError: Throwable? = null
 
         for (model in ASSISTANT_MODELS) {
             try {
@@ -76,6 +77,9 @@ class GeminiAssistantClient @Inject constructor(
                 if (error.httpCode !in RETRYABLE_MODEL_ERRORS) throw error
                 lastError = error
                 // Temporary capacity/quota errors can affect one model but not another.
+            } catch (error: IOException) {
+                lastError = error
+                // A timed-out request for one model must not prevent trying the next model.
             }
         }
 
@@ -158,7 +162,11 @@ class GeminiAssistantClient @Inject constructor(
             .post(payload.toString().toRequestBody(JSON_MEDIA_TYPE))
             .build()
 
-        httpClient.newCall(request).await().use { response ->
+        val call = httpClient.newCall(request).apply {
+            timeout().timeout(ASSISTANT_REQUEST_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+        }
+
+        call.await().use { response ->
             val body = response.body?.string().orEmpty()
             if (!response.isSuccessful) {
                 throw GeminiAssistantApiException(
@@ -226,6 +234,7 @@ class GeminiAssistantClient @Inject constructor(
             "gemini-3.1-flash-lite"
         )
         val RETRYABLE_MODEL_ERRORS = setOf(408, 429, 500, 503, 504)
+        const val ASSISTANT_REQUEST_TIMEOUT_SECONDS = 25L
         const val MAX_OUTPUT_TOKENS = 1400
         const val MAX_SOURCES = 5
         val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
