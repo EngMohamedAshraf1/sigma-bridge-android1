@@ -11,7 +11,7 @@ All notable changes to Sigma Bridge Android are recorded here.
 - Keep media messages out of the assistant path; existing voice/audio/photo/video translation handlers remain responsible for media.
 - Support text replies that quote another text message (including a previous translation) as context for the assistant.
 - Add a /new reset for the per-group assistant conversation.
-- Fall back to a normal non-search response if Search grounding returns HTTP 429, clearly noting that the answer was not verified live.
+- For explicit research requests, try Google Search grounding on Gemini 3.6 Flash and then Gemini 2.5 Flash-Lite where the project is eligible; if search remains unavailable, do not return an unverified factual answer.
 - Leave Private Chat and translation repositories/clients unchanged; add only routing metadata to distinguish text requests from media-translation requests.
 
 ## [0.8.16] — Gemini Files API for all Telegram media
