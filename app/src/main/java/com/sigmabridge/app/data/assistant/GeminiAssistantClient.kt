@@ -158,9 +158,12 @@ class GeminiAssistantClient @Inject constructor(
                 put("maxOutputTokens", MAX_OUTPUT_TOKENS)
             })
             if (useSearch) {
-                put("tools", buildJsonArray {
-                    add(buildJsonObject { put("google_search", buildJsonObject {}) })
-                })
+                val searchTool = if (model == LEGACY_SEARCH_MODEL) {
+                    buildJsonObject { put("googleSearchRetrieval", buildJsonObject {}) }
+                } else {
+                    buildJsonObject { put("google_search", buildJsonObject {}) }
+                }
+                put("tools", buildJsonArray { add(searchTool) })
             }
         }
 
@@ -244,6 +247,7 @@ class GeminiAssistantClient @Inject constructor(
         )
         // Gemini 3.6 Flash grounding requires paid-tier access; 2.5 Flash-Lite can use its legacy free grounding allowance when the project is eligible.
         val SEARCH_MODELS = listOf("gemini-3.6-flash", "gemini-2.5-flash-lite")
+        const val LEGACY_SEARCH_MODEL = "gemini-2.5-flash-lite"
         val RETRYABLE_MODEL_ERRORS = setOf(408, 429, 500, 503, 504)
         const val ASSISTANT_REQUEST_TIMEOUT_SECONDS = 25L
         const val MAX_OUTPUT_TOKENS = 1400
