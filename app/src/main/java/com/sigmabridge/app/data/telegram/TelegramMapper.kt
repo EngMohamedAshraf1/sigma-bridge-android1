@@ -17,6 +17,15 @@ fun TelegramUpdateDto.toDomain(): TelegramUpdate? {
         chatMessage != null -> {
             val commandText = chatMessage.text ?: chatMessage.caption
             val requested = commandText.hasSigmaBridgeMention()
+            val requestHasText = commandText.withoutSigmaBridgeMention().isNotBlank()
+            val currentMessageHasMedia = chatMessage.voice != null ||
+                chatMessage.audio != null || chatMessage.photo != null ||
+                chatMessage.video != null || chatMessage.videoNote != null ||
+                chatMessage.document != null || chatMessage.animation != null ||
+                chatMessage.sticker != null
+            // Media attached to the current message stays in translation; a text reply with a
+            // real request is conversation, even when it is replying to an older media message.
+            val translateMentionedMedia = requested && (currentMessageHasMedia || !requestHasText)
 
             val directPhoto = chatMessage.photo
                 ?.maxByOrNull { photo -> photo.width.toLong() * photo.height.toLong() }
@@ -75,14 +84,14 @@ fun TelegramUpdateDto.toDomain(): TelegramUpdate? {
             }
 
             val targetPhoto = when {
-                requested && directPhoto != null -> directPhoto
-                requested && repliedPhoto != null -> repliedPhoto
+                translateMentionedMedia && directPhoto != null -> directPhoto
+                translateMentionedMedia && repliedPhoto != null -> repliedPhoto
                 else -> null
             }
 
             val targetVideo = when {
-                requested && directVideo != null -> directVideo
-                requested && repliedVideo != null -> repliedVideo
+                translateMentionedMedia && directVideo != null -> directVideo
+                translateMentionedMedia && repliedVideo != null -> repliedVideo
                 else -> null
             }
 
@@ -112,7 +121,15 @@ fun TelegramUpdateDto.toDomain(): TelegramUpdate? {
                 videoTranslateRequested = targetVideo != null,
                 messageText = chatMessage.text,
                 callbackQueryId = null,
-                callbackData = null
+                callbackData = null,
+                assistantText = chatMessage.text ?: chatMessage.caption,
+                repliedMessageText = chatMessage.replyToMessage?.let { it.text ?: it.caption },
+                containsMedia = currentMessageHasMedia,
+                repliedMessageContainsMedia = chatMessage.replyToMessage?.let { reply ->
+                    reply.photo != null || reply.video != null || reply.videoNote != null ||
+                        reply.voice != null || reply.audio != null || reply.document != null ||
+                        reply.animation != null || reply.sticker != null
+                } == true
             )
         }
 
@@ -162,12 +179,16 @@ private data class VideoTarget(
     val messageId: Long
 )
 
+private val SIGMA_BRIDGE_MENTION = Regex("(^|\\s)@sigma_bridge_bot(?=\\s|$|[.,!?،؛:])", RegexOption.IGNORE_CASE)
+
 private fun String?.hasSigmaBridgeMention(): Boolean {
     val value = this?.trim().orEmpty()
     if (value.isBlank()) return false
-    return Regex("(^|\\s)@sigma_bridge_bot(?=\\s|$|[.,!?،؛:])", RegexOption.IGNORE_CASE)
-        .containsMatchIn(value)
+    return SIGMA_BRIDGE_MENTION.containsMatchIn(value)
 }
+
+private fun String?.withoutSigmaBridgeMention(): String =
+    SIGMA_BRIDGE_MENTION.replace(this.orEmpty(), " ").trim()
 
 private fun String?.toChatType(): TelegramChatType = when (this) {
     "private" -> TelegramChatType.PRIVATE

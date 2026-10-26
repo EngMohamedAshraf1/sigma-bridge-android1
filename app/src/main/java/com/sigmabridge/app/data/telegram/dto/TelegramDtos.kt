@@ -2,6 +2,7 @@ package com.sigmabridge.app.data.telegram.dto
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonElement
 
 @Serializable
 data class TelegramGetUpdatesResponseDto(
@@ -34,6 +35,9 @@ data class TelegramMessageDto(
     val photo: List<TelegramPhotoSizeDto>? = null,
     val video: TelegramVideoDto? = null,
     @SerialName("video_note") val videoNote: TelegramVideoNoteDto? = null,
+    val document: JsonElement? = null,
+    val animation: JsonElement? = null,
+    val sticker: JsonElement? = null,
     val text: String? = null,
     val caption: String? = null,
     @SerialName("reply_to_message") val replyToMessage: TelegramRepliedMediaDto? = null
@@ -92,7 +96,14 @@ data class TelegramRepliedMediaDto(
     @SerialName("message_id") val messageId: Long,
     val photo: List<TelegramPhotoSizeDto>? = null,
     val video: TelegramVideoDto? = null,
-    @SerialName("video_note") val videoNote: TelegramVideoNoteDto? = null
+    @SerialName("video_note") val videoNote: TelegramVideoNoteDto? = null,
+    val voice: TelegramVoiceDto? = null,
+    val audio: TelegramAudioDto? = null,
+    val document: JsonElement? = null,
+    val animation: JsonElement? = null,
+    val sticker: JsonElement? = null,
+    val text: String? = null,
+    val caption: String? = null
 )
 
 @Serializable

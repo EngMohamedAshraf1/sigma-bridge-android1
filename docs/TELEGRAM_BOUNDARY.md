@@ -21,6 +21,7 @@ The repository contains Telegram-specific components such as:
 - `BridgeOrchestrator`
 - the Telegram foreground/background service
 - Telegram-specific settings and language resolution
+- The separate text-only `AssistantMessageHandler`, `GeminiAssistantClient`, and `AssistantSessionStore`
 
 These components have their own responsibilities, retry behavior, configuration, and long-running execution model.
 
@@ -63,6 +64,12 @@ Telegram Audio
 The v0.8.14 reliability layer adds retry/backoff for transient Gemini failures, model fallback for eligible server-side failures, and final generic error reporting only after the recovery path is exhausted.
 
 Current Audio formats are MP3, AAC, OGG, FLAC, WAV, and AIFF. M4A is not yet released. Video/VideoNote processing is now available only when `@sigma_bridge_bot` is explicitly mentioned and is isolated behind a dedicated VideoMessageHandler plus Media3 audio extraction.
+
+## Isolated text assistant
+
+The assistant only claims group/supergroup text messages that explicitly mention `@sigma_bridge_bot` and contain a non-empty request after the mention. It ignores messages carrying media. A text-only message that mentions the bot and includes a request is handled as conversation; replying to a previous text translation passes the quoted text as context.
+
+A mention-only media request stays with the existing media translation handler. When a user replies to a photo/video with a text request, the assistant receives text context only and never the original media. Voice/audio automatic translation and existing image/video translation handlers remain separate. The assistant keeps bounded group conversation history locally; each turn expires after 24 hours. Gemini Interactions requests specify `store=false` and do not use server-side `previous_interaction_id`.
 
 ## Do not cross the boundary casually
 

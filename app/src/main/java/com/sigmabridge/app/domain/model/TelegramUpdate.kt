@@ -28,5 +28,9 @@ data class TelegramUpdate(
     val videoTranslateRequested: Boolean,
     val messageText: String?,
     val callbackQueryId: String?,
-    val callbackData: String?
+    val callbackData: String?,
+    val assistantText: String? = null,
+    val repliedMessageText: String? = null,
+    val containsMedia: Boolean = false,
+    val repliedMessageContainsMedia: Boolean = false
 )
