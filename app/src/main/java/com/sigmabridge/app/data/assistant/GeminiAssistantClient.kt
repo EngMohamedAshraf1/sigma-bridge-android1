@@ -55,17 +55,19 @@ class GeminiAssistantClient @Inject constructor(
         try {
             generateWithModelFallback(keys, input, useSearch)
         } catch (searchError: GeminiAssistantApiException) {
-            if (!useSearch || searchError.httpCode != HTTP_TOO_MANY_REQUESTS) throw searchError
-
-            // Search grounding can have a separate quota. Retry without Search if ordinary generation remains available.
-            val answer = generateWithModelFallback(keys, input, useSearch = false)
-            "تعذر تنفيذ بحث الويب الآن بسبب حد استخدام Google (HTTP 429). الإجابة التالية ليست تحققًا مباشرًا من الويب.\n\n$answer"
+            if (!useSearch) throw searchError
+            throw GeminiAssistantApiException(
+                "Google Search grounding failed (HTTP ${searchError.httpCode ?: "?"}). " +
+                    "Check AI Studio > Rate limits > Grounding with Google Search and the project's billing tier. " +
+                    "No unverified answer was returned. — ${searchError.message.orEmpty().take(180)}",
+                searchError.httpCode
+            )
         } catch (searchError: IOException) {
             if (!useSearch) throw searchError
-
-            // If Search itself times out, still try to answer without Search, clearly disclosing the limitation.
-            val answer = generateWithModelFallback(keys, input, useSearch = false)
-            "تعذر إكمال بحث الويب بسبب انتهاء مهلة الاتصال. الإجابة التالية ليست تحققًا مباشرًا من الويب.\n\n$answer"
+            throw GeminiAssistantApiException(
+                "Google Search grounding timed out. No unverified answer was returned.",
+                null
+            )
         }
     }
 
@@ -76,7 +78,8 @@ class GeminiAssistantClient @Inject constructor(
     ): String {
         var lastError: Throwable? = null
 
-        for (model in ASSISTANT_MODELS) {
+        val models = if (useSearch) SEARCH_MODELS else ASSISTANT_MODELS
+        for (model in models) {
             try {
                 return generateWithKeys(keys, input, useSearch, model)
             } catch (error: GeminiAssistantApiException) {
@@ -239,6 +242,8 @@ class GeminiAssistantClient @Inject constructor(
             "gemini-3.5-flash-lite",
             "gemini-3.1-flash-lite"
         )
+        // Gemini 3.6 Flash grounding requires paid-tier access; 2.5 Flash-Lite can use its legacy free grounding allowance when the project is eligible.
+        val SEARCH_MODELS = listOf("gemini-3.6-flash", "gemini-2.5-flash-lite")
         val RETRYABLE_MODEL_ERRORS = setOf(408, 429, 500, 503, 504)
         const val ASSISTANT_REQUEST_TIMEOUT_SECONDS = 25L
         const val MAX_OUTPUT_TOKENS = 1400
