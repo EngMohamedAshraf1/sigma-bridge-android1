@@ -33,11 +33,14 @@ class AssistantSessionStore @Inject constructor(
     }
 
     @Synchronized
-    fun history(chatId: Long): List<AssistantConversationTurn> =
-        readFreshTurns(chatId.toString(), System.currentTimeMillis())
+    fun history(chatId: Long): List<AssistantConversationTurn> {
+        pruneExpiredSessions()
+        return readFreshTurns(chatId.toString(), System.currentTimeMillis())
+    }
 
     @Synchronized
     fun remember(chatId: Long, userMessage: String, assistantMessage: String) {
+        pruneExpiredSessions()
         val now = System.currentTimeMillis()
         val turns = readFreshTurns(chatId.toString(), now).toMutableList()
         turns += AssistantConversationTurn("user", userMessage, now)
