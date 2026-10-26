@@ -60,6 +60,12 @@ class GeminiAssistantClient @Inject constructor(
             // Search grounding can have a separate quota. Retry without Search if ordinary generation remains available.
             val answer = generateWithModelFallback(keys, input, useSearch = false)
             "تعذر تنفيذ بحث الويب الآن بسبب حد استخدام Google (HTTP 429). الإجابة التالية ليست تحققًا مباشرًا من الويب.\n\n$answer"
+        } catch (searchError: IOException) {
+            if (!useSearch) throw searchError
+
+            // If Search itself times out, still try to answer without Search, clearly disclosing the limitation.
+            val answer = generateWithModelFallback(keys, input, useSearch = false)
+            "تعذر إكمال بحث الويب بسبب انتهاء مهلة الاتصال. الإجابة التالية ليست تحققًا مباشرًا من الويب.\n\n$answer"
         }
     }
 
