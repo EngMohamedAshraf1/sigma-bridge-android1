@@ -136,7 +136,7 @@ class AssistantMessageHandler @Inject constructor(
         const val MAX_SAFE_SPLIT = 1800
         val MENTION_REGEX = Regex("@sigma_bridge_bot(?=\\s|$|[.,!?،؛:])", RegexOption.IGNORE_CASE)
         val SEARCH_INTENT_REGEX = Regex(
-            "ابحث|بحث|تحقق|تأكد|تاكد|مصادر|مصدر موثوق|أدلة|ادلة|دليل|هل هذا صحيح|صحيح فعلًا|صحيح فعلا|آخر الأخبار|اخر الاخبار|أحدث|الاحدث|اليوم|الآن|حاليًا|حاليا|خبر|fact[- ]?check|search|sources?|verify|evidence|latest|today|current|news",
+            "ابحث|بحث|تحقق|تأكد|تاكد|مصادر|مصدر موثوق|أدلة|ادلة|دليل|ما معنى|معنى|ما المقصود|اشرح|شرح|فسر|تفسير|من هو|من هي|متى|أين|اين|كم|هل هذا صحيح|صحيح فعلًا|صحيح فعلا|آخر الأخبار|اخر الاخبار|أحدث|الاحدث|اليوم|الآن|حاليًا|حاليا|خبر|fact[- ]?check|search|sources?|verify|evidence|latest|today|current|news",
             RegexOption.IGNORE_CASE
         )
     }
