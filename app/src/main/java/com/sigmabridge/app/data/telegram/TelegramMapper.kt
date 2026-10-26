@@ -17,7 +17,7 @@ fun TelegramUpdateDto.toDomain(): TelegramUpdate? {
         chatMessage != null -> {
             val commandText = chatMessage.text ?: chatMessage.caption
             val requested = commandText.hasSigmaBridgeMention()
-            val requestHasText = commandText.withoutSigmaBridgeMention().isNotBlank()
+            val requestHasText = commandText.withoutSigmaBridgeMention().any { !it.isWhitespace() && it !in ".!?,،؛:" }
             val currentMessageHasMedia = chatMessage.voice != null ||
                 chatMessage.audio != null || chatMessage.photo != null ||
                 chatMessage.video != null || chatMessage.videoNote != null ||
