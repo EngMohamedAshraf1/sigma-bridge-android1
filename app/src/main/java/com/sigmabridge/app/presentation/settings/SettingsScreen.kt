@@ -109,6 +109,25 @@ fun SettingsScreen(viewModel: SettingsViewModel = androidx.hilt.navigation.compo
             Text(stringResource(R.string.settings_invalid, summary.invalid))
         }
 
+        Text(
+            text = stringResource(R.string.settings_tavily_api_key),
+            modifier = Modifier.padding(top = 20.dp)
+        )
+        OutlinedTextField(
+            value = uiState.tavilyApiKey,
+            onValueChange = viewModel::onTavilyApiKeyChanged,
+            visualTransformation = PasswordVisualTransformation(),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true
+        )
+        Text(
+            text = stringResource(R.string.settings_tavily_api_key_hint),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 4.dp)
+        )
+
         Button(
             onClick = viewModel::save,
             modifier = Modifier.padding(top = 16.dp)

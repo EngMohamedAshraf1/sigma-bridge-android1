@@ -15,7 +15,11 @@ class ObserveStoredCredentialsUseCase @Inject constructor(
     private val settingsRepository: SettingsRepository
 ) {
     operator fun invoke(): Flow<StoredCredentials> =
-        combine(settingsRepository.botToken, settingsRepository.geminiApiKeys) { token, keys ->
-            StoredCredentials(botToken = token, geminiApiKeys = keys)
+        combine(
+            settingsRepository.botToken,
+            settingsRepository.geminiApiKeys,
+            settingsRepository.tavilyApiKey
+        ) { token, keys, tavilyKey ->
+            StoredCredentials(botToken = token, geminiApiKeys = keys, tavilyApiKey = tavilyKey)
         }
 }

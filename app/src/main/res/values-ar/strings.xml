@@ -26,6 +26,8 @@
     <!-- Settings -->
     <string name="settings_telegram_bot_token">رمز بوت تيليجرام</string>
     <string name="settings_gemini_api_keys">مفاتيح Gemini API</string>
+    <string name="settings_tavily_api_key">مفتاح البحث Tavily API (اختياري)</string>
+    <string name="settings_tavily_api_key_hint">يُستخدم لبحث المساعد في الإنترنت فقط. يُحفظ مشفرًا على هذا الجهاز. احصل على مفتاح مجاني من app.tavily.com.</string>
     <string name="settings_key_number">المفتاح %1$d</string>
     <string name="settings_delete_key_number">حذف المفتاح %1$d</string>
     <string name="settings_add_key">➕ إضافة مفتاح</string>

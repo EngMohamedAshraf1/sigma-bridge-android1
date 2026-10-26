@@ -26,6 +26,8 @@
     <!-- Settings -->
     <string name="settings_telegram_bot_token">Telegram Bot Token</string>
     <string name="settings_gemini_api_keys">Gemini API Keys</string>
+    <string name="settings_tavily_api_key">Tavily Search API Key (optional)</string>
+    <string name="settings_tavily_api_key_hint">Used only for assistant web searches. Stored encrypted on this device. Get a free key at app.tavily.com.</string>
     <string name="settings_key_number">Key %1$d</string>
     <string name="settings_delete_key_number">Delete Key %1$d</string>
     <string name="settings_add_key">➕ Add Key</string>

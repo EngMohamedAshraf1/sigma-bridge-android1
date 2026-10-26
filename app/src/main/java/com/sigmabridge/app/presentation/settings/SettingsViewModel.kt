@@ -42,6 +42,7 @@ data class SettingsUiState(
     val botToken: String = "",
     val geminiKeySlots: List<GeminiKeySlotUi> = listOf(GeminiKeySlotUi(id = "initial", value = "", status = null)),
     val geminiKeySummary: GeminiKeySummary = GeminiKeySummary(),
+    val tavilyApiKey: String = "",
     val isSaved: Boolean = false,
     val errors: List<SettingsValidationError> = emptyList()
 )
@@ -84,7 +85,8 @@ class SettingsViewModel @Inject constructor(
                 }
                 _uiState.value = _uiState.value.copy(
                     botToken = credentials.botToken.orEmpty(),
-                    geminiKeySlots = initialSlots
+                    geminiKeySlots = initialSlots,
+                    tavilyApiKey = credentials.tavilyApiKey.orEmpty()
                 )
             }
         }
@@ -110,6 +112,14 @@ class SettingsViewModel @Inject constructor(
 
     private fun newSlot(value: String = ""): GeminiKeySlotUi =
         GeminiKeySlotUi(id = UUID.randomUUID().toString(), value = value, status = null)
+
+    fun onTavilyApiKeyChanged(value: String) {
+        _uiState.value = _uiState.value.copy(
+            tavilyApiKey = value,
+            isSaved = false,
+            errors = emptyList()
+        )
+    }
 
     fun onBotTokenChanged(value: String) {
         _uiState.value = _uiState.value.copy(botToken = value, isSaved = false, errors = emptyList())
@@ -145,7 +155,7 @@ class SettingsViewModel @Inject constructor(
         val state = _uiState.value
         viewModelScope.launch {
             val keys = state.geminiKeySlots.map { it.value }
-            when (val result = saveSettings(state.botToken, keys)) {
+            when (val result = saveSettings(state.botToken, keys, state.tavilyApiKey)) {
                 is SaveSettingsResult.Success ->
                     _uiState.value = _uiState.value.copy(isSaved = true, errors = emptyList())
                 is SaveSettingsResult.ValidationFailed ->

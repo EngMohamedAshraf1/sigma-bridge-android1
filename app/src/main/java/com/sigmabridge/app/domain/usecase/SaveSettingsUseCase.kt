@@ -31,7 +31,11 @@ sealed class SaveSettingsResult {
 class SaveSettingsUseCase @Inject constructor(
     private val settingsRepository: SettingsRepository
 ) {
-    suspend operator fun invoke(botToken: String, geminiApiKeys: List<String>): SaveSettingsResult {
+    suspend operator fun invoke(
+        botToken: String,
+        geminiApiKeys: List<String>,
+        tavilyApiKey: String = ""
+    ): SaveSettingsResult {
         val trimmedToken = botToken.trim()
         val trimmedKeys = geminiApiKeys.map { it.trim() }.filter { it.isNotEmpty() }
         val errors = mutableListOf<SettingsValidationError>()
@@ -50,6 +54,8 @@ class SaveSettingsUseCase @Inject constructor(
 
         settingsRepository.saveBotToken(trimmedToken)
         settingsRepository.saveGeminiApiKeys(trimmedKeys)
+        // Tavily is optional; blank removes any previously configured key.
+        settingsRepository.saveTavilyApiKey(tavilyApiKey.trim())
         return SaveSettingsResult.Success
     }
 

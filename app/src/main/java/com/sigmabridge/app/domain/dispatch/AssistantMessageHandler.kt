@@ -3,6 +3,7 @@ package com.sigmabridge.app.domain.dispatch
 import com.sigmabridge.app.data.assistant.AssistantSessionStore
 import com.sigmabridge.app.data.assistant.GeminiAssistantClient
 import com.sigmabridge.app.data.assistant.GeminiAssistantApiException
+import com.sigmabridge.app.data.assistant.TavilySearchException
 import com.sigmabridge.app.domain.logging.BridgeLogger
 import com.sigmabridge.app.domain.model.TelegramChatType
 import com.sigmabridge.app.domain.model.TelegramUpdate
@@ -89,6 +90,7 @@ class AssistantMessageHandler @Inject constructor(
                     "Gemini API رفض الطلب (HTTP ${error.httpCode ?: "?"})." +
                         if (detail.isNotBlank()) "\n$detail" else ""
                 }
+                is TavilySearchException -> error.message.orEmpty().take(300)
                 is java.io.IOException -> "فشل الاتصال بالشبكة: ${error::class.simpleName ?: "IOException"}."
                 else -> "خطأ ${error::class.simpleName ?: "غير معروف"}: ${error.message.orEmpty().take(180)}"
             }

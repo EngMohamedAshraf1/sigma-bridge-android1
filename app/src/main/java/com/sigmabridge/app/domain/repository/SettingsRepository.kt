@@ -16,6 +16,11 @@ interface SettingsRepository {
     /** The full ordered pool of configured Gemini keys, used by GeminiApiKeyManager for deterministic round-robin and by Settings to render one row per key. */
     val geminiApiKeys: Flow<List<String>>
 
+    /** Optional Tavily web-search API key, encrypted at rest by the data implementation. */
+    val tavilyApiKey: Flow<String?>
+
+    suspend fun saveTavilyApiKey(key: String)
+
     suspend fun saveBotToken(token: String)
 
     /**

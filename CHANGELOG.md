@@ -7,11 +7,13 @@ All notable changes to Sigma Bridge Android are recorded here.
 ### Telegram Bridge
 
 - Add a separate text-only assistant, triggered only by an explicit @sigma_bridge_bot mention plus a text request.
-- Use the existing Gemini GenerateContent API with Google Search grounding only for explicit research requests, while keeping a bounded conversation history locally for up to 24 hours.
+- Use Tavily Search API as an independent web-search provider for explicit research requests; pass its result snippets to the isolated Gemini text assistant and always include the original result links.
+- Store the optional Tavily API key in Android EncryptedSharedPreferences alongside other app secrets; never hardcode it.
+- Keep a bounded conversation history locally for up to 24 hours.
 - Keep media messages out of the assistant path; existing voice/audio/photo/video translation handlers remain responsible for media.
 - Support text replies that quote another text message (including a previous translation) as context for the assistant.
 - Add a /new reset for the per-group assistant conversation.
-- For explicit research requests, try Google Search grounding on Gemini 3.6 Flash and then Gemini 2.5 Flash-Lite where the project is eligible; if search remains unavailable, do not return an unverified factual answer.
+- If Tavily Search fails or the key is missing/over quota, report the search failure rather than silently returning an unverified factual answer.
 - Leave Private Chat and translation repositories/clients unchanged; add only routing metadata to distinguish text requests from media-translation requests.
 
 ## [0.8.16] — Gemini Files API for all Telegram media

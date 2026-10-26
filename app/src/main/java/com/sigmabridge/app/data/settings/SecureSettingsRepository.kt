@@ -19,6 +19,7 @@ private const val PREFS_FILE_NAME = "sigma_bridge_secure_prefs"
 private const val KEY_BOT_TOKEN = "bot_token"
 private const val KEY_GEMINI_API_KEY = "gemini_api_key" // legacy pre-8.4 single-key slot, read-only migration source now
 private const val KEY_GEMINI_API_KEYS = "gemini_api_keys" // ordered pool, newline-delimited
+private const val KEY_TAVILY_API_KEY = "tavily_api_key"
 private const val KEY_DELIMITER = "\n"
 
 /**
@@ -54,6 +55,8 @@ class SecureSettingsRepository @Inject constructor(
 
     override val botToken: Flow<String?> = observeKey(KEY_BOT_TOKEN)
 
+    override val tavilyApiKey: Flow<String?> = observeKey(KEY_TAVILY_API_KEY)
+
     override val geminiApiKeys: Flow<List<String>> = observeKey(KEY_GEMINI_API_KEYS).map { raw ->
         val storedList = raw?.split(KEY_DELIMITER)?.filter { it.isNotBlank() }.orEmpty()
         if (storedList.isNotEmpty()) {
@@ -72,6 +75,11 @@ class SecureSettingsRepository @Inject constructor(
         combine(botToken, geminiApiKeys) { token, keys ->
             !token.isNullOrBlank() && keys.isNotEmpty()
         }
+
+    override suspend fun saveTavilyApiKey(key: String) {
+        val value = key.trim()
+        prefs.edit().putString(KEY_TAVILY_API_KEY, value.takeIf { it.isNotEmpty() }).apply()
+    }
 
     override suspend fun saveBotToken(token: String) {
         prefs.edit().putString(KEY_BOT_TOKEN, token).apply()
