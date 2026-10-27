@@ -2,7 +2,7 @@
 
 All notable changes to Sigma Bridge Android are recorded here.
 
-## Unreleased — Isolated Telegram text assistant
+## [0.8.17] — Telegram text assistant with Tavily Search
 
 ### Telegram Bridge
 
