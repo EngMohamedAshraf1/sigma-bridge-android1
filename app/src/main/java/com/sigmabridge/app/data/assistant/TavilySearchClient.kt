@@ -113,7 +113,7 @@ class TavilySearchClient @Inject constructor(
     private companion object {
         const val SEARCH_URL = "https://api.tavily.com/search"
         const val SEARCH_TIMEOUT_SECONDS = 20L
-        const val MAX_RESULTS = 5
+        const val MAX_RESULTS = 3
         const val MAX_QUERY_LENGTH = 700
         const val MAX_SNIPPET_LENGTH = 1400
         val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()

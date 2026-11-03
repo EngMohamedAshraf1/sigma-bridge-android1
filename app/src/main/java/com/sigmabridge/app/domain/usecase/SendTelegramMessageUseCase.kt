@@ -18,7 +18,16 @@ class SendTelegramMessageUseCase @Inject constructor(
         chatId: Long,
         text: String,
         replyToMessageId: Long? = null,
-        keyboard: TelegramKeyboard? = null
+        keyboard: TelegramKeyboard? = null,
+        parseMode: String? = null,
+        disableWebPagePreview: Boolean = false
     ): Result<Unit> =
-        telegramRepository.sendMessage(chatId, text, replyToMessageId, keyboard)
+        telegramRepository.sendMessage(
+            chatId,
+            text,
+            replyToMessageId,
+            keyboard,
+            parseMode,
+            disableWebPagePreview
+        )
 }

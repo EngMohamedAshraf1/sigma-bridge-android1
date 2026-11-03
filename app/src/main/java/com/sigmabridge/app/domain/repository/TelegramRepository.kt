@@ -46,7 +46,9 @@ interface TelegramRepository {
         chatId: Long,
         text: String,
         replyToMessageId: Long? = null,
-        keyboard: TelegramKeyboard? = null
+        keyboard: TelegramKeyboard? = null,
+        parseMode: String? = null,
+        disableWebPagePreview: Boolean = false
     ): Result<Unit>
 
     /**

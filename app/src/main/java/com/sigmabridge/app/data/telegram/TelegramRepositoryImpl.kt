@@ -72,11 +72,21 @@ class TelegramRepositoryImpl @Inject constructor(
         chatId: Long,
         text: String,
         replyToMessageId: Long?,
-        keyboard: TelegramKeyboard?
+        keyboard: TelegramKeyboard?,
+        parseMode: String?,
+        disableWebPagePreview: Boolean
     ): Result<Unit> = runCatching {
         val token = settingsRepository.botToken.first()
             ?: error("Cannot send message: bot token not set")
-        apiClient.sendMessage(token, chatId, text, replyToMessageId, keyboard)
+        apiClient.sendMessage(
+            botToken = token,
+            chatId = chatId,
+            text = text,
+            replyToMessageId = replyToMessageId,
+            keyboard = keyboard,
+            parseMode = parseMode,
+            disableWebPagePreview = disableWebPagePreview
+        )
     }
 
     override suspend fun editMessage(

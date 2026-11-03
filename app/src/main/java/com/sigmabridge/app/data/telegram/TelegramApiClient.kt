@@ -65,7 +65,9 @@ class TelegramApiClient @Inject constructor(
         chatId: Long,
         text: String,
         replyToMessageId: Long? = null,
-        keyboard: TelegramKeyboard? = null
+        keyboard: TelegramKeyboard? = null,
+        parseMode: String? = null,
+        disableWebPagePreview: Boolean = false
     ) = withContext(Dispatchers.IO) {
         val url = "https://api.telegram.org/bot$botToken/sendMessage".toHttpUrl()
         val requestBody = json.encodeToString(
@@ -74,7 +76,9 @@ class TelegramApiClient @Inject constructor(
                 chatId = chatId,
                 text = text,
                 replyToMessageId = replyToMessageId,
-                replyMarkup = keyboard.toDto()
+                replyMarkup = keyboard.toDto(),
+                parseMode = parseMode,
+                disableWebPagePreview = disableWebPagePreview
             )
         ).toRequestBody("application/json".toMediaType())
 

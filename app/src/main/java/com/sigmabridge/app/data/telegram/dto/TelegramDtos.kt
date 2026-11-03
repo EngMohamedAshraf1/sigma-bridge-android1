@@ -134,7 +134,9 @@ data class TelegramSendMessageRequestDto(
     @SerialName("chat_id") val chatId: Long,
     val text: String,
     @SerialName("reply_to_message_id") val replyToMessageId: Long? = null,
-    @SerialName("reply_markup") val replyMarkup: TelegramInlineKeyboardMarkupDto? = null
+    @SerialName("reply_markup") val replyMarkup: TelegramInlineKeyboardMarkupDto? = null,
+    @SerialName("parse_mode") val parseMode: String? = null,
+    @SerialName("disable_web_page_preview") val disableWebPagePreview: Boolean = false
 )
 
 @Serializable
