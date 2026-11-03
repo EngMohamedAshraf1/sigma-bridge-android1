@@ -46,10 +46,18 @@ interface TelegramRepository {
         chatId: Long,
         text: String,
         replyToMessageId: Long? = null,
-        keyboard: TelegramKeyboard? = null,
-        parseMode: String? = null,
-        disableWebPagePreview: Boolean = false
+        keyboard: TelegramKeyboard? = null
     ): Result<Unit>
+
+    /**
+     * Sends a formatted reply for the isolated text assistant.
+     * The default keeps compatibility with alternative repository implementations.
+     */
+    suspend fun sendAssistantMessage(
+        chatId: Long,
+        text: String,
+        replyToMessageId: Long? = null
+    ): Result<Unit> = sendMessage(chatId, text, replyToMessageId)
 
     /**
      * Edits an existing message's text/keyboard in place — used by the

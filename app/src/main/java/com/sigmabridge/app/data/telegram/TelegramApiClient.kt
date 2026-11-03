@@ -65,9 +65,29 @@ class TelegramApiClient @Inject constructor(
         chatId: Long,
         text: String,
         replyToMessageId: Long? = null,
-        keyboard: TelegramKeyboard? = null,
-        parseMode: String? = null,
-        disableWebPagePreview: Boolean = false
+        keyboard: TelegramKeyboard? = null
+    ) = sendMessageInternal(
+        botToken, chatId, text, replyToMessageId, keyboard, parseMode = null, disableWebPagePreview = false
+    )
+
+    /** Dedicated HTML sender used only by the text assistant. */
+    suspend fun sendAssistantMessage(
+        botToken: String,
+        chatId: Long,
+        text: String,
+        replyToMessageId: Long? = null
+    ) = sendMessageInternal(
+        botToken, chatId, text, replyToMessageId, keyboard = null, parseMode = "HTML", disableWebPagePreview = true
+    )
+
+    private suspend fun sendMessageInternal(
+        botToken: String,
+        chatId: Long,
+        text: String,
+        replyToMessageId: Long?,
+        keyboard: TelegramKeyboard?,
+        parseMode: String?,
+        disableWebPagePreview: Boolean
     ) = withContext(Dispatchers.IO) {
         val url = "https://api.telegram.org/bot$botToken/sendMessage".toHttpUrl()
         val requestBody = json.encodeToString(
@@ -84,10 +104,10 @@ class TelegramApiClient @Inject constructor(
 
         val request = Request.Builder().url(url).post(requestBody).build()
 
-        httpClient.newCall(request).await().use { response ->
-            val body = response.body?.string().orEmpty()
-            if (!response.isSuccessful) {
-                throw TelegramApiException("Telegram sendMessage failed: HTTP ${response.code} — $body", response.code)
+        httpClient.newCall(request).await().use { httpResponse ->
+            val body = httpResponse.body?.string().orEmpty()
+            if (!httpResponse.isSuccessful) {
+                throw TelegramApiException("Telegram sendMessage failed: HTTP ${httpResponse.code} — $body", httpResponse.code)
             }
             val parsed = json.decodeFromString(TelegramSendMessageResponseDto.serializer(), body)
             if (!parsed.ok) {

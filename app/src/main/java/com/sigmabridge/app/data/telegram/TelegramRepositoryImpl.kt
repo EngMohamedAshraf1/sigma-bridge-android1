@@ -72,21 +72,21 @@ class TelegramRepositoryImpl @Inject constructor(
         chatId: Long,
         text: String,
         replyToMessageId: Long?,
-        keyboard: TelegramKeyboard?,
-        parseMode: String?,
-        disableWebPagePreview: Boolean
+        keyboard: TelegramKeyboard?
     ): Result<Unit> = runCatching {
         val token = settingsRepository.botToken.first()
             ?: error("Cannot send message: bot token not set")
-        apiClient.sendMessage(
-            botToken = token,
-            chatId = chatId,
-            text = text,
-            replyToMessageId = replyToMessageId,
-            keyboard = keyboard,
-            parseMode = parseMode,
-            disableWebPagePreview = disableWebPagePreview
-        )
+        apiClient.sendMessage(token, chatId, text, replyToMessageId, keyboard)
+    }
+
+    override suspend fun sendAssistantMessage(
+        chatId: Long,
+        text: String,
+        replyToMessageId: Long?
+    ): Result<Unit> = runCatching {
+        val token = settingsRepository.botToken.first()
+            ?: error("Cannot send assistant message: bot token not set")
+        apiClient.sendAssistantMessage(token, chatId, text, replyToMessageId)
     }
 
     override suspend fun editMessage(
