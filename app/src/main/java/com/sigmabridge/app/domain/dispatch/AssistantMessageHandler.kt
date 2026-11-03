@@ -2,6 +2,7 @@ package com.sigmabridge.app.domain.dispatch
 
 import com.sigmabridge.app.data.assistant.AssistantSessionStore
 import com.sigmabridge.app.data.assistant.GeminiAssistantClient
+import com.sigmabridge.app.data.assistant.AssistantSingleMessageLimitException
 import com.sigmabridge.app.data.assistant.GeminiAssistantApiException
 import com.sigmabridge.app.data.assistant.TavilySearchException
 import com.sigmabridge.app.domain.logging.BridgeLogger
@@ -82,6 +83,8 @@ class AssistantMessageHandler @Inject constructor(
         } catch (error: Exception) {
             logger.error(TAG, "Text assistant failed for Telegram update ${update.updateId}", error)
             val diagnostic = when (error) {
+                is AssistantSingleMessageLimitException ->
+                    "تعذر اختصار الإجابة لتناسب رسالة تيليجرام واحدة. جرّب سؤالًا أكثر تحديدًا."
                 is GeminiAssistantApiException -> {
                     val detail = error.message.orEmpty()
                         .substringAfter("—", "")
