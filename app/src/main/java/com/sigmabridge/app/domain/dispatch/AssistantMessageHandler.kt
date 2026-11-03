@@ -103,29 +103,13 @@ class AssistantMessageHandler @Inject constructor(
     }
 
     private suspend fun sendLongReply(update: TelegramUpdate, text: String) {
-        var remaining = text.trim()
-        var first = true
-        while (remaining.isNotEmpty()) {
-            if (remaining.length <= MAX_TELEGRAM_TEXT_LENGTH) {
-                sendTelegramMessage(update.chatId, remaining, if (first) update.messageId else null)
-                return
-            }
-
-            val newline = remaining.lastIndexOf('\n', MAX_TELEGRAM_TEXT_LENGTH)
-            val space = remaining.lastIndexOf(' ', MAX_TELEGRAM_TEXT_LENGTH)
-            val cut = when {
-                newline >= MAX_SAFE_SPLIT -> newline
-                space >= MAX_SAFE_SPLIT -> space
-                else -> MAX_TELEGRAM_TEXT_LENGTH
-            }
-            sendTelegramMessage(
-                update.chatId,
-                remaining.substring(0, cut).trimEnd(),
-                if (first) update.messageId else null
-            )
-            remaining = remaining.substring(cut).trimStart()
-            first = false
+        // GeminiAssistantClient compacts oversized answers before they reach
+        // this point. Keep the one-message contract instead of silently
+        // spreading one answer over several independent Telegram messages.
+        if (text.length > MAX_SINGLE_MESSAGE_LENGTH) {
+            throw IllegalStateException("Assistant response exceeded Telegram's single-message budget")
         }
+        sendTelegramMessage(update.chatId, text.trim(), update.messageId)
     }
 
     private fun stripMention(text: String): String =
@@ -134,8 +118,7 @@ class AssistantMessageHandler @Inject constructor(
     private companion object {
         const val TAG = "SigmaBridgeAssistant"
         const val NEW_SESSION_COMMAND = "/new"
-        const val MAX_TELEGRAM_TEXT_LENGTH = 3900
-        const val MAX_SAFE_SPLIT = 1800
+        const val MAX_SINGLE_MESSAGE_LENGTH = 3800
         val MENTION_REGEX = Regex("@sigma_bridge_bot(?=\\s|$|[.,!?،؛:])", RegexOption.IGNORE_CASE)
         val SEARCH_INTENT_REGEX = Regex(
             "ابحث|بحث|تحقق|تأكد|تاكد|مصادر|مصدر موثوق|أدلة|ادلة|دليل|ما معنى|معنى|ما المقصود|اشرح|شرح|فسر|تفسير|من هو|من هي|متى|أين|اين|كم|هل هذا صحيح|صحيح فعلًا|صحيح فعلا|آخر الأخبار|اخر الاخبار|أحدث|الاحدث|اليوم|الآن|حاليًا|حاليا|خبر|fact[- ]?check|search|sources?|verify|evidence|latest|today|current|news",
