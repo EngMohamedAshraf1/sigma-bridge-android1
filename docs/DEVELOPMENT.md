@@ -298,3 +298,12 @@ For v0.8.6, stale embedded metadata caused a same-version update loop and was co
 ## Documentation rule
 
 Every architectural change should update the corresponding document under `docs/` in the same development cycle. The purpose is to make the repository independently understandable without relying on private chat history.
+
+
+## Telegram assistant response tests
+
+- Ask a search-backed question whose draft reaches Gemini's output-token cap; verify the client detects `MAX_TOKENS` and automatically rewrites the draft instead of returning a cut-off answer.
+- Ask a long but answerable question; verify the final result is complete and sent as exactly one Telegram message below the 4096-character Bot API limit.
+- Verify the source footer contains only cited search results, no more than three distinct publisher domains, and places the links in one compact paragraph.
+- Return multiple Tavily URLs from the same domain; verify duplicate-domain citations are consolidated and in-text citation numbers are remapped to the retained source.
+- Verify ordinary non-search assistant replies still work and that Telegram Voice, Audio, Image, Video, and Private Chat translation paths remain unchanged.
