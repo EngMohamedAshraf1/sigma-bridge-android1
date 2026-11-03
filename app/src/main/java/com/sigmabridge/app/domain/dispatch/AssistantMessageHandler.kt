@@ -110,7 +110,7 @@ class AssistantMessageHandler @Inject constructor(
         // this point. Keep the one-message contract instead of silently
         // spreading one answer over several independent Telegram messages.
         if (text.length > MAX_SINGLE_MESSAGE_LENGTH) {
-            throw IllegalStateException("Assistant response exceeded Telegram's single-message budget")
+            throw AssistantSingleMessageLimitException()
         }
         sendTelegramMessage(update.chatId, text.trim(), update.messageId)
     }
