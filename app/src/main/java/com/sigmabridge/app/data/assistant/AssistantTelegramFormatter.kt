@@ -2,7 +2,7 @@ package com.sigmabridge.app.data.assistant
 
 /** Telegram-safe output formatting for the isolated text assistant. */
 object AssistantTelegramFormatter {
-    private val citationRegex = Regex("(?<!\\S)\\[(\\d{1,2})](?!\\s)")
+    private val citationRegex = Regex("(?<!\\S)\\[(\\d{1,2})](?=$|[\\s.,،؛:!?])")
     private val sourceHeadingRegex = Regex(
         "(?i)^\\s*(?:المصادر|مصادر(?: البحث)?|sources|references)\\s*(?:\\([^\\n]*\\))?\\s*[:：].*$"
     )

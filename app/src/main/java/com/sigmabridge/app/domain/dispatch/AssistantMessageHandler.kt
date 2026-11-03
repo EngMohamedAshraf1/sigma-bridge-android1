@@ -71,9 +71,6 @@ class AssistantMessageHandler @Inject constructor(
             sessionStore.remember(update.chatId, currentMessage, response.answer)
 
             val telegramHtml = AssistantTelegramFormatter.format(response)
-            if (telegramHtml.length > MAX_FORMATTED_MESSAGE_LENGTH) {
-                throw IllegalStateException("Formatted assistant reply exceeds the single-message safety limit")
-            }
             sendTelegramMessage.sendAssistantMessage(
                 chatId = update.chatId,
                 text = telegramHtml,
@@ -102,7 +99,6 @@ class AssistantMessageHandler @Inject constructor(
     private companion object {
         const val TAG = "SigmaBridgeAssistant"
         const val NEW_SESSION_COMMAND = "/new"
-        const val MAX_FORMATTED_MESSAGE_LENGTH = 3900
         val MENTION_REGEX = Regex("@sigma_bridge_bot(?=\\s|$|[.,!?،؛:])", RegexOption.IGNORE_CASE)
         val SEARCH_INTENT_REGEX = Regex(
             "ابحث|بحث|تحقق|تأكد|تاكد|مصادر|مصدر موثوق|أدلة|ادلة|دليل|ما معنى|معنى|ما المقصود|اشرح|شرح|فسر|تفسير|من هو|من هي|متى|أين|اين|كم|هل هذا صحيح|صحيح فعلًا|صحيح فعلا|آخر الأخبار|اخر الاخبار|أحدث|الاحدث|اليوم|الآن|حاليًا|حاليا|خبر|fact[- ]?check|search|sources?|verify|evidence|latest|today|current|news",
