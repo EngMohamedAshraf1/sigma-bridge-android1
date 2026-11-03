@@ -73,7 +73,7 @@ class GeminiAssistantClient @Inject constructor(
         ) {
             val compact = generateWithModelFallback(
                 keys,
-                buildCompactInput(currentMessage, answer, searchResults, MAX_COMPACT_ANSWER_CHARS),
+                buildCompactInput(history, currentMessage, answer, searchResults, MAX_COMPACT_ANSWER_CHARS),
                 COMPACT_MAX_OUTPUT_TOKENS
             )
             answer = removeModelSourceSection(compact.text)
@@ -85,6 +85,7 @@ class GeminiAssistantClient @Inject constructor(
                 val finalCompact = generateWithModelFallback(
                     keys,
                     buildCompactInput(
+                        history,
                         currentMessage,
                         answer,
                         searchResults,
@@ -270,6 +271,7 @@ class GeminiAssistantClient @Inject constructor(
     }
 
     private fun buildCompactInput(
+        history: List<AssistantConversationTurn>,
         currentMessage: String,
         previousDraft: String,
         searchResults: List<TavilySearchResult>,
@@ -277,6 +279,14 @@ class GeminiAssistantClient @Inject constructor(
     ): String = buildString {
         appendLine("Produce the final answer to the user's request below.")
         appendLine("The previous draft may have been cut off or may be too long. Rewrite it as a complete, standalone answer.")
+        if (history.isNotEmpty()) {
+            appendLine()
+            appendLine("Recent conversation context:")
+            history.takeLast(MAX_CONTEXT_TURNS_FOR_COMPACT).forEach { turn ->
+                val speaker = if (turn.role == "assistant") "Sigma Bridge" else "Group member"
+                appendLine(speaker + ": " + turn.content)
+            }
+        }
         appendLine()
         appendLine("User's original request:")
         appendLine(currentMessage.take(MAX_COMPACT_REQUEST_CHARS))
@@ -412,6 +422,7 @@ class GeminiAssistantClient @Inject constructor(
         const val MAX_COMPACT_REQUEST_CHARS = 2500
         const val MAX_COMPACT_DRAFT_CHARS = 6000
         const val MAX_COMPACT_SNIPPET_CHARS = 600
+        const val MAX_CONTEXT_TURNS_FOR_COMPACT = 8
         const val MAX_SOURCE_TITLE_CHARS = 48
         const val MAX_FINAL_SOURCES = 3
         const val DEFAULT_SOURCE_COUNT = 2
