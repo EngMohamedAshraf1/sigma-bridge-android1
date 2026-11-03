@@ -29,6 +29,9 @@ import javax.inject.Singleton
 
 class GeminiAssistantApiException(message: String, val httpCode: Int? = null) : Exception(message)
 
+class AssistantSingleMessageLimitException :
+    Exception("Assistant response could not be compacted to one Telegram message")
+
 private data class AssistantGeneration(
     val text: String,
     val finishReason: String?
@@ -99,9 +102,7 @@ class GeminiAssistantClient @Inject constructor(
                 if (finalCompact.finishReason == FINISH_REASON_MAX_TOKENS ||
                     formatted.length > MAX_SINGLE_MESSAGE_CHARS
                 ) {
-                    throw GeminiAssistantApiException(
-                        "The assistant could not produce a complete answer within Telegram's single-message limit."
-                    )
+                    throw AssistantSingleMessageLimitException()
                 }
             }
         }
